@@ -1,5 +1,24 @@
 import { useState, useEffect } from "react";
 
+// ─── PUTER AI HELPER ─────────────────────────────────────────────────────────
+// All Claude API calls go through Puter — no exposed API key, works in browser
+async function callClaude({ system, messages, maxTokens = 1000 }) {
+  await puter.auth.signIn();
+  const chatMessages = messages.map(m => ({ role: m.role, content: m.content }));
+  const response = await puter.ai.chat(chatMessages, {
+    model: "claude-sonnet-4-6",
+    ...(system ? { system } : {}),
+  });
+  // Puter returns the text directly or as response.message.content
+  if (typeof response === "string") return response;
+  if (response?.message?.content) {
+    const parts = response.message.content;
+    if (Array.isArray(parts)) return parts.map(p => p.text || "").join("");
+    return String(parts);
+  }
+  return String(response);
+}
+
 // ─── THEME ────────────────────────────────────────────────────────────────────
 const T = {
   bg:       "#0a0f1e",
@@ -750,22 +769,14 @@ function AICalLogger({ onAdd }) {
     setError(null);
     setEstimate(null);
     try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 300,
-          system: `You are a nutrition estimator. The user will describe food they have eaten. 
+      const text = await callClaude({
+        system: `You are a nutrition estimator. The user will describe food they have eaten. 
 Respond ONLY with a JSON object — no markdown, no backticks, no extra text — in this exact format:
 {"name":"concise meal name","kcal":number,"protein":number,"notes":"brief one-line note about the estimate"}
 Be accurate but practical. Use typical serving sizes if not specified. 
 Protein and kcal must be integers.`,
-          messages: [{ role:"user", content: description }]
-        })
+        messages: [{ role:"user", content: description }],
       });
-      const data = await response.json();
-      const text = data.content?.[0]?.text || "";
       const clean = text.replace(/```json|```/g,"").trim();
       const parsed = JSON.parse(clean);
       setEstimate(parsed);
@@ -1068,26 +1079,18 @@ function SamsungHealthModal({ onClose, onUpdate }) {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST",
-        headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({
-          model:"claude-sonnet-4-6",
-          max_tokens:400,
-          system:`You are reading a Samsung Health app screenshot. Extract health metrics and return ONLY a JSON object with no markdown or backticks:
+      const text = await callClaude({
+        system:`You are reading a Samsung Health app screenshot. Extract health metrics and return ONLY a JSON object with no markdown or backticks:
 {"weight":number_or_null,"bodyFat":number_or_null,"fatMass":number_or_null,"muscle":number_or_null,"bp":"string_or_null","steps":number_or_null,"heartRate":number_or_null,"sleep":"string_or_null","notes":"brief summary of what you found"}
 Use null for any metric not visible. Weight in kg, bodyFat as percentage number only, fatMass in kg, muscle in kg.`,
-          messages:[{
-            role:"user",
-            content:[
-              { type:"image", source:{ type:"base64", media_type:imageData.type, data:imageData.base64 }},
-              { type:"text", text:"Please extract all health metrics visible in this Samsung Health screenshot." }
-            ]
-          }]
-        })
+        messages:[{
+          role:"user",
+          content:[
+            { type:"image", source:{ type:"base64", media_type:imageData.type, data:imageData.base64 }},
+            { type:"text", text:"Please extract all health metrics visible in this Samsung Health screenshot." }
+          ]
+        }],
       });
-      const data = await response.json();
-      const text = data.content?.[0]?.text || "";
       const clean = text.replace(/```json|```/g,"").trim();
       const parsed = JSON.parse(clean);
       setResult(parsed);
@@ -1986,13 +1989,8 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addCalEvent, remove
            { type:"text", text:"Extract all travel information from this document. Find flights, hotels, and events." }]
         : [{ type:"text", text:`Extract travel info from this document content. File: ${file.name}` }];
 
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({
-          model:"claude-sonnet-4-6",
-          max_tokens:1000,
-          system:`You extract travel information from uploaded documents (PDFs, itineraries, hotel bookings, Word docs).
+      const text = await callClaude({
+        system:`You extract travel information from uploaded documents (PDFs, itineraries, hotel bookings, Word docs).
 Return ONLY a JSON object with no markdown:
 {
   "events": [
@@ -2002,11 +2000,8 @@ Return ONLY a JSON object with no markdown:
 }
 For flights: title = "SYD → LHR" style. For hotels: title = hotel name, endDate = checkout date.
 Dates MUST be in YYYY-MM-DD format.`,
-          messages:[{ role:"user", content: msgContent }]
-        })
+        messages:[{ role:"user", content: msgContent }],
       });
-      const data = await response.json();
-      const text = data.content?.[0]?.text||"";
       const clean = text.replace(/```json|```/g,"").trim();
       const parsed = JSON.parse(clean);
       setUploadResult(parsed);
@@ -2406,18 +2401,10 @@ function TarsScreen({ onBack }) {
         .filter((_, i) => i > 0) // skip initial greeting
         .map(m => ({ role: m.role, content: m.content }));
 
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 1000,
-          system: TARS_SYSTEM_PROMPT,
-          messages: apiMessages,
-        }),
+      const reply = await callClaude({
+        system: TARS_SYSTEM_PROMPT,
+        messages: apiMessages,
       });
-      const data = await response.json();
-      const reply = data.content?.map(b => b.text || "").join("") || "Signal lost.";
 
       setMessages(prev => [...prev, {
         role: "assistant",
@@ -2498,13 +2485,10 @@ function TarsScreen({ onBack }) {
         };
       }
 
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(apiBody),
+      const raw = await callClaude({
+        system: apiBody.system,
+        messages: apiBody.messages,
       });
-      const data = await response.json();
-      const raw = data.content?.map(b => b.text || "").join("") || "{}";
       const clean = raw.replace(/```json|```/g, "").trim();
       let parsed = {};
       try { parsed = JSON.parse(clean); } catch { parsed = { summary: raw, keyPoints: [], docType: "Document" }; }
