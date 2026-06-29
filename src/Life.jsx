@@ -2498,9 +2498,7 @@ After confirmation: say it is done, briefly.`;
       setMessages(prev => [...prev, userMsg]);
 
       const reply = await callClaude({
-        system: buildSystemPrompt() + "
-
-The user has uploaded a photo. If it looks like food, estimate the calories and protein and ask to log it. If it is a document, summarise it. If it is a Samsung Health screenshot, extract the health metrics and ask to log them.",
+        system: buildSystemPrompt() + "\n\nThe user has uploaded a photo. If it looks like food, estimate the calories and protein and ask to log it. If it is a document, summarise it. If it is a Samsung Health screenshot, extract the health metrics and ask to log them.",
         messages: [{ role:"user", content:[
           { type:"image", source:{ type:"base64", media_type:file.type, data:base64 }},
           { type:"text", text:"What is this? Help me log or use it in the app." }
