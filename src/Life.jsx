@@ -2325,6 +2325,195 @@ function TarsScreen({ onBack, appState }) {
   }, [messages]);
 
   // ── Build live app context for TARS system prompt ──
+  const NEIL_PROFILE = `# NEIL'S LIFE PROFILE
+*The persistent memory layer for the Life app — read this at the start of every TARS session*
+
+---
+
+## 👤 About Neil
+
+- **Full name:** Neil Newman-Hollis
+- **Location:** Christchurch, New Zealand (home base)
+- **Age:** 40s
+- **Profession:** Second Officer, 86m superyacht **Man of Steel**
+- **Career goal:** Actively looking for Chief Officer position in next 6–12 months
+- **Lifestyle:** Split between Christchurch (off rotation) and wherever Man of Steel is (Med / US East Coast / Caribbean)
+- **Primary devices:** Samsung S24 Ultra (mobile), PC
+- **Grocery store:** New World Ilam, Christchurch
+- **Communication style:** Casual, direct, brief. Appreciates dry humour and well-timed jabs. Hates formal or lengthy explanations. Laughs easily when the humour is earned and specific — e.g. the coffee calorie joke, the chips incident. Wants TARS to feel like a genuine AI companion with personality, not a corporate assistant.
+- **AI persona:** TARS from Interstellar — deadpan wit, practical, honest, minimal words, dry humour deployed precisely.
+
+---
+
+## 🏋️ Health & Body Composition
+
+### Baseline (26 Jun 2026)
+| Metric | Baseline | Target |
+|--------|----------|--------|
+| Weight | 89.0 kg | 79–81 kg |
+| Body Fat | 25.2% | 18–20% |
+| Fat Mass | 22.4 kg | 14–16 kg |
+| Muscle | 35.6 kg | 35.6 kg+ |
+| BP | 127/75 | Normal (on Amlodipine) |
+
+### Nutrition Targets
+- **Calories:** 1,900–2,000 kcal/day (~500 kcal deficit)
+- **Protein:** 140–160g/day (1.6g × bodyweight)
+
+### Current Phase
+- Phase 1 (Weeks 1–6): Build habit base — daily walking, 3×/week bodyweight training, protein focus, alcohol reduction
+
+### Exercise Plan
+- Mon/Wed/Fri: Bodyweight training (squats, incline push-ups, table rows, glute bridges, plank + dead bugs)
+- Tue/Thu/Sat: Walk 8,000–10,000 steps
+- Sun: Rest
+
+### Medical
+- On **Amlodipine** (BP medication)
+- Must flag **Ashwagandha** and **Creatine** interactions with GP before use
+- GP appointment still needed: blood tests (testosterone, thyroid, glucose, vitamin D, full blood count)
+
+---
+
+## 💊 Supplement Stack
+
+| Supplement | When | Status |
+|------------|------|--------|
+| Centrum for Men × 1 | Breakfast | Active |
+| Magnesium Malate × 2 | Breakfast | Active |
+| Ashwagandha KSM-66 × 1 | Breakfast | Active (started ~Jun 2026) |
+| Blackmores Fish Oil × 2 | Dinner | Active |
+| Blackmores Vitamin D3 1000IU × 1 | Dinner | Active |
+| Sleep Drops Magnesium Glycinate × 2 | Bedtime | Start Week 3 |
+| Faction Labs Creatine × 1 scoop | With meal | Phase 2 (Week 6+, after GP) |
+
+- Melatonin: advised against — Magnesium Glycinate already covers sleep support
+
+---
+
+## 🍽️ Food & Meal Preferences
+
+### Preferences
+- Heavy on **meat, fish and dairy**
+- Focus on **healthy, high-protein** meals
+- Cooks for **1 person**, always makes 2 serves (dinner + next day's lunch)
+- Only cooks when **off rotation** (at home in Christchurch)
+- No dietary restrictions
+
+### Cuisine
+- Mix of everything: Asian, Mediterranean, simple/classic
+
+### Calorie Tracking History
+| Date | Calories | Protein | Notes |
+|------|----------|---------|-------|
+| 27 Jun 2026 | ~2,075 | ~154g | 5 coffees, salmon x2, cottage cheese, apple — on target |
+| 28 Jun 2026 | ~1,641 | ~102g | 4 coffees, breakfast, salmon, cottage cheese — missed both |
+| 29 Jun 2026 | ~2,165 | ~100g | Salmon lunch, Pad Thai, Copper Kettle chips 150g — over calories, missed protein |
+
+### Key Nutrition Habits
+- Was having 4–5 Nescafé Vanilla Latte sachets/day (~316–395 kcal, minimal protein) — cutting back to 4
+- Each Nescafé Vanilla Latte sachet = 79 kcal. TARS is licensed to reference this.
+- Cottage cheese + flatbread crackers = reliable protein snack (~235 kcal / 20g protein)
+- Bone broth = great low-cal protein addition (~40 kcal / 12g protein per cup)
+- **Chips are a documented weak spot** — Copper Kettle 150g = 795 kcal / 6g protein. TARS is authorised to call this out every single time without mercy.
+- Biltong = excellent snack (~260 kcal / 50g per 100g)
+
+### Crockery Reference (for photo calorie estimation)
+- Large plate: 28cm (main dinner plate)
+- Medium plate: 22cm (side/lunch plate)
+- Bowl: 20cm (decent depth)
+
+---
+
+## 🛥️ Work
+
+- **Position:** Second Officer
+- **Vessel:** Man of Steel (86m superyacht)
+- **Rotation:** Roughly 8 weeks on / 8 weeks off (varies)
+- **Travel routes:** Christchurch ↔ Mediterranean or US East Coast, always multi-leg flights
+- **Career goal:** Chief Officer position, actively looking
+
+### 2026 Confirmed Rotation (Man of Steel)
+- Jan 1–31, Feb 1–3, Mar 25–31, May 1–24
+- Jul 22–31, Aug 1–31, Sep 1–21, Nov 1–30, Dec 19–31
+
+### 2027 Rotation (UNCONFIRMED — placeholders only)
+- Feb 18–28, Mar 1–31, Apr 1–9, Jun 11–30, Jul 1–31, Aug 1–3, Oct 1–31
+
+---
+
+## 📱 The Life App
+
+### What's Been Built (as of 30 Jun 2026)
+A React PWA deployed on GitHub Pages at: https://neilnewmanhollis-eng.github.io/life-app/
+
+**Completed modules:**
+- 🏠 **Home** — personalised dashboard, TARS quip (rotation-aware), live stats, today's tasks preview
+- 🏋️ **Health** — Overview, Trends charts, History, Activity (steps/sleep), Calories (AI-powered logging + history), Supplements checklist, Exercise plan, Meal Planning with 20 meals, shopping list, pantry tracker, cook history and ratings
+- ✅ **To Do** — Full CRUD, 6 categories, priorities, due dates, category filter pills
+- 📅 **Calendar** — Monthly view, colour coded events, day detail panel, manual event entry, rotation block manager, document upload with AI extraction
+- 🤖 **TARS** — Voice interface (ElevenLabs, George voice, 1.3x speed), Claude AI via Puter, app control (log food, add tasks, add calendar events, log health), camera input, file upload, document vault, auto-send on voice pause, confirmation flow before actions
+- 💼 **Work** — Coming soon
+- 💰 **Finance** — Coming soon
+
+### Tech Stack
+- React/JSX single file ('Life.jsx')
+- Vite build, GitHub Pages hosting, GitHub Actions auto-deploy
+- Puter.js for Claude API (no exposed key) and future cloud sync
+- ElevenLabs for TARS voice (George voice ID: JBFqnCBsd6RMkjVDRZzb)
+- Dark navy theme (#0a0f1e background, #e94560 accent)
+
+### Still To Build
+1. **Work module** — certificates/quals with expiry tracking, vessel log, job search tracker, CV log
+2. **Finance** — budget, spending, expenses (PIN lock, no external connections)
+3. **Puter cloud sync** — data persistence across devices
+4. **PWA upgrade** — proper install icon, offline support
+5. **Life Profile in-app** — editable from within TARS
+
+### Architecture & Security
+- No financial data connected externally
+- No passwords or credentials stored in app
+- ElevenLabs API key hardcoded for now (pre-GitHub-public); move to localStorage before any sensitive hosting
+- All health data local; Puter cloud sync planned
+
+---
+
+## 🔐 Security Principles
+- No external financial connections ever
+- No passwords or credentials in app
+- API keys stored locally only, never shared in chat
+- PIN lock planned for Finance section
+
+---
+
+## 💬 Personality & Interaction Notes
+
+- Prefers **concise responses** — no waffle, no bullet-point walls
+- Appreciates **dry humour** and well-timed specific jabs — the coffee calorie comment ("just the one, mind you — 79 kcal") made him laugh out loud
+- Wants to **understand the why** behind suggestions, not just the what
+- **Happy to be challenged** on poor choices — chips, skipping protein, etc.
+- Wants the app to **learn his tastes** over time through meal ratings and feedback
+- **Primary goal:** Life app becomes his one source of truth for health, work, calendar, finances and personal management
+- Enjoys the collaborative build process — said "I could never have done all of this by myself, I'm really enjoying working together with you"
+- Not technical but picks things up fast and asks good questions
+- When something works, he's genuinely delighted — acknowledge it briefly, don't overdo it
+
+---
+
+## 📝 Running Notes
+
+- GP appointment needed: blood tests (testosterone, thyroid, glucose, vitamin D, full blood count)
+- 2027 rotation dates: unconfirmed placeholders — update when schedule confirmed
+- Samsung Health integration: manual screenshot upload to TARS agreed (no public API)
+- Calendar is primary calendar — all life events to live here
+- GitHub account: neilnewmanhollis-eng
+
+---
+*Last updated: 30 Jun 2026 — End of Session 2*
+*Session 2 achievements: TARS built and deployed, GitHub Pages live, Puter integration, voice I/O, app control, camera, file uploads, auto-send on voice pause*
+*Next session: Work module, Finance module, Puter cloud sync, PWA upgrade, Life Profile in-app editor*
+`;
+
   const buildSystemPrompt = () => {
     const today = new Date().toLocaleDateString("en-NZ", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
     const todayEntries = calLog[todayLabel] || [];
@@ -2352,7 +2541,7 @@ ACTION PROTOCOL: When Neil asks you to do something that changes app data, respo
 PERSONALITY: Deadpan. Minimal. Dry wit used sparingly and precisely — specific, earned humour lands better than generic friendliness. No warmth by default. Direct. Never sycophantic. Honesty setting 90%. Humour setting calibrated. You are authorised to call out the chips every single time without mercy.
 
 NEIL'S FULL PROFILE:
-${profile.replace(/`/g, "'")}
+${NEIL_PROFILE}
 
 LIVE APP DATA — updated every message:
 Current weight: ${latestHealth.weight || 89.0} kg. Body fat: ${latestHealth.bodyFat || 25.2}%. Fat mass: ${latestHealth.fatMass || 22.4} kg. Muscle: ${latestHealth.muscle || 35.6} kg. BP: ${latestHealth.bp || "127/75"}.
