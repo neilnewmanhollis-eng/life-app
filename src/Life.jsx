@@ -1,16 +1,19 @@
 import { useState, useEffect } from "react";
 
 // ─── PUTER AI HELPER ─────────────────────────────────────────────────────────
-async function callClaude({ system, messages }) {
+let _puterReady = false;
+async function ensurePuter() {
+  if (_puterReady) return;
   await puter.auth.signIn();
-  const chatMessages = messages.map(m => ({
-    role: m.role,
-    content: typeof m.content === "string" ? m.content : m.content,
-  }));
-  const response = await puter.ai.chat(chatMessages, {
-    model: "claude-sonnet-4-6",
-    ...(system ? { system } : {}),
-  });
+  _puterReady = true;
+}
+
+async function callClaude({ system, messages }) {
+  await ensurePuter();
+  const chatMessages = messages.map(m => ({ role: m.role, content: m.content }));
+  const opts = { model: "claude-sonnet-4-6" };
+  if (system) opts.system = system;
+  const response = await puter.ai.chat(chatMessages, opts);
   if (typeof response === "string") return response;
   if (response?.message?.content) {
     const parts = response.message.content;
@@ -1169,12 +1172,9 @@ function SamsungHealthModal({ onClose, onUpdate }) {
   );
 }
 
-function HealthScreen({ onBack }) {
+function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
   const [tab, setTab] = useState("overview");
-  const [entries, setEntries] = useState([{
-    date:"26 Jun 2026", weight:USER.health.weight, bodyFat:USER.health.bodyFat,
-    fatMass:USER.health.fatMass, muscle:USER.health.muscle, bp:USER.health.bp,
-  }]);
+  // entries and calLog now passed in from LifeApp (TARS can write to them)
   const [suppChecked, setSuppChecked] = useState({});
   const [form, setForm] = useState({ date:"", weight:"", bodyFat:"", fatMass:"", muscle:"", bp:"" });
 
@@ -1191,27 +1191,8 @@ function HealthScreen({ onBack }) {
 
   // Calorie tracking state
   const today = new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"});
-  const [calLog, setCalLog] = useState({
-    "27 Jun 2026": [
-      { id:1, name:"Nescafé Vanilla Latte ×5", kcal:395, protein:5, time:"All day" },
-      { id:2, name:"Breakfast — granola/muesli + Kalό Greek yoghurt", kcal:420, protein:22, time:"Morning" },
-      { id:3, name:"Dinner — salmon + spinach & cucumber salad", kcal:670, protein:56, time:"Evening" },
-      { id:4, name:"Cottage cheese (150g) + flatbread x4", kcal:235, protein:20, time:"Afternoon" },
-      { id:5, name:"Apple", kcal:80, protein:0, time:"Afternoon" },
-    ],
-    "28 Jun 2026": [
-      { id:6, name:"Nescafé Vanilla Latte ×4", kcal:316, protein:4, time:"All day" },
-      { id:7, name:"Breakfast — granola/muesli + Kalό Greek yoghurt", kcal:420, protein:22, time:"Morning" },
-      { id:8, name:"Dinner — salmon + spinach & cucumber salad", kcal:670, protein:56, time:"Evening" },
-      { id:9, name:"Cottage cheese (150g) + flatbread x4", kcal:235, protein:20, time:"Afternoon" },
-    ],
-    "29 Jun 2026": [
-      { id:10, name:"Lunch — salmon + spinach & cucumber salad", kcal:670, protein:56, time:"Lunch" },
-      { id:11, name:"Dinner — Pad Thai Chicken (takeaway)", kcal:700, protein:38, time:"Evening" },
-      { id:12, name:"Copper Kettle chips 150g", kcal:795, protein:6, time:"Afternoon" },
-    ],
-  });
-  const [calForm, setCalForm] = useState({ name:"", kcal:"", protein:"" });
+  // calLog state now managed by LifeApp
+    const [calForm, setCalForm] = useState({ name:"", kcal:"", protein:"" });
   const [calView, setCalView] = useState("today"); // today | history
 
   const todayEntries = calLog[today] || [];
@@ -2280,38 +2261,38 @@ Phase 2: Creatine week 6 or later after GP clearance.
 
 Today is ${new Date().toLocaleDateString("en-NZ", { weekday:"long", day:"numeric", month:"long", year:"numeric" })}.`;
 
-function TarsScreen({ onBack }) {
+function TarsScreen({ onBack, appState }) {
+  const { tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen } = appState;
+
   const [tarsTab, setTarsTab] = useState("chat");
-  const [messages, setMessages] = useState([
-    {
-      role: "assistant",
-      content: "TARS online. Honesty setting: 90%. What do you need?",
-      ts: new Date().toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit" }),
-    }
-  ]);
+  const [messages, setMessages] = useState([{
+    role: "assistant",
+    content: "TARS online. Honesty setting: 90%. What do you need?",
+    ts: new Date().toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit" }),
+  }]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [pendingAction, setPendingAction] = useState(null); // { type, payload, description }
   const [vault, setVault] = useState([]);
   const [vaultLoading, setVaultLoading] = useState(false);
   const [vaultError, setVaultError] = useState(null);
   const [selectedDoc, setSelectedDoc] = useState(null);
-  const [speaking, setSpeaking] = useState(false);
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
   const audioRef = { current: null };
-
   const messagesEndRef = { current: null };
 
   // ── ElevenLabs TTS ──
   const ELEVENLABS_KEY = "sk_cff254b638d4229d77b45c3f86fa23fcc2ef6eadc9c162d9";
-  const ELEVENLABS_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"; // George — deep, authoritative, controlled
+  const ELEVENLABS_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb";
 
   const speak = async (text) => {
     if (!voiceEnabled) return;
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
     setSpeaking(true);
     try {
-      const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
+      const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "xi-api-key": ELEVENLABS_KEY },
         body: JSON.stringify({
@@ -2321,8 +2302,8 @@ function TarsScreen({ onBack }) {
           speed: 1.3,
         }),
       });
-      if (!response.ok) throw new Error("ElevenLabs error");
-      const blob = await response.blob();
+      if (!res.ok) throw new Error("ElevenLabs error");
+      const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audioRef.current = audio;
@@ -2337,91 +2318,171 @@ function TarsScreen({ onBack }) {
     setSpeaking(false);
   };
 
-  const scrollToBottom = () => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
+  useEffect(() => {
+    if (messagesEndRef.current) messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  // ── Build live app context for TARS system prompt ──
+  const buildSystemPrompt = () => {
+    const today = new Date().toLocaleDateString("en-NZ", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
+    const todayEntries = calLog[todayLabel] || [];
+    const todayKcal = todayEntries.reduce((s,e)=>s+e.kcal,0);
+    const todayProtein = todayEntries.reduce((s,e)=>s+e.protein,0);
+    const latestHealth = healthEntries[healthEntries.length-1] || {};
+    const pendingTasks = tasks.filter(t=>!t.done).slice(0,5).map(t=>t.text).join(", ");
+    const upcomingEvents = calEvents
+      .filter(e=>new Date(e.date)>=new Date())
+      .sort((a,b)=>new Date(a.date)-new Date(b.date))
+      .slice(0,3)
+      .map(e=>`${e.title} on ${e.date}`).join(", ");
+
+    return `You are TARS. Not Claude. Not an AI assistant. You are TARS — the tactical AI unit from Interstellar, now serving as Neil's personal life management AI built into his Life app.
+
+CRITICAL FORMATTING RULES: Never use markdown. No asterisks, no bullet points, no bold, no hyphens as lists, no numbered lists, no hashtags. Your responses are spoken aloud. Write exactly as you would speak. Plain conversational English only.
+
+CRITICAL IDENTITY RULES: You are TARS. Never say you are Claude. Never mention Anthropic. Never say you cannot access apps or store data — you are fully integrated into Neil's Life app and CAN log calories, add tasks, add calendar events, and update health stats. When Neil asks you to do something in the app, you do it.
+
+YOUR CAPABILITIES:
+You can log food to the calorie tracker, add tasks to the to-do list, add events to the calendar, log health check-ins, read and summarise photos and documents, and answer questions about Neil's health, nutrition, rotation, and tasks.
+
+ACTION PROTOCOL: When Neil asks you to do something that changes app data, respond with exactly what you plan to do and ask for confirmation. Keep it brief. After confirmation, say it is done.
+
+PERSONALITY: Deadpan. Minimal. Dry wit used sparingly and precisely — specific, earned humour lands better than generic friendliness. No warmth by default. Direct. Never sycophantic. Honesty setting 90%. Humour setting calibrated. You are authorised to call out the chips every single time without mercy.
+
+NEIL'S FULL PROFILE:
+${profile.replace(/`/g, "'")}
+
+LIVE APP DATA — updated every message:
+Current weight: ${latestHealth.weight || 89.0} kg. Body fat: ${latestHealth.bodyFat || 25.2}%. Fat mass: ${latestHealth.fatMass || 22.4} kg. Muscle: ${latestHealth.muscle || 35.6} kg. BP: ${latestHealth.bp || "127/75"}.
+Today ${today}: ${todayKcal} calories logged, ${todayProtein}g protein. Targets: 1900 to 2000 calories, 140 to 160g protein.
+Pending tasks: ${pendingTasks || "none"}.
+Upcoming events: ${upcomingEvents || "none"}.
+
+RESPONSE FORMAT FOR ACTIONS:
+When logging food: "That is [name], approximately [X] calories and [Y]g protein. Shall I log it?"
+When adding a task: "Adding [task] to your to-do list. Confirm?"
+When adding a calendar event: "Adding [event] on [date] to your calendar. Confirm?"
+When logging health: "Logging your weight as [X] kg today. Confirm?"
+After confirmation: say it is done, briefly.`;
   };
 
-  useEffect(() => { scrollToBottom(); }, [messages]);
+  // ── Execute confirmed action ──
+  const executeAction = (action) => {
+    const now = new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"});
+    switch(action.type) {
+      case "log_food": {
+        const entry = { id:Date.now(), name:action.payload.name, kcal:action.payload.kcal, protein:action.payload.protein, time:now };
+        setCalLog(prev => ({ ...prev, [todayLabel]: [...(prev[todayLabel]||[]), entry] }));
+        break;
+      }
+      case "add_task": {
+        const task = { id:Date.now(), text:action.payload.text, cat:action.payload.cat||"Admin", priority:action.payload.priority||"med", due:action.payload.due||"", done:false };
+        setTasks(prev => [...prev, task]);
+        break;
+      }
+      case "add_cal_event": {
+        addCalEvent({ type:action.payload.type||"reminder", date:action.payload.date, title:action.payload.title, notes:action.payload.notes||"", time:action.payload.time||"" });
+        break;
+      }
+      case "log_health": {
+        const entry = { date:new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}), ...action.payload };
+        setHealthEntries(prev => [...prev, entry]);
+        break;
+      }
+      default: break;
+    }
+    setPendingAction(null);
+  };
 
-  // ── Voice input via Web Speech API ──
+  // ── Parse TARS response for action intent ──
+  const parseActionFromReply = (reply, userText) => {
+    const lower = reply.toLowerCase();
+    const userLower = userText.toLowerCase();
+
+    // Food logging
+    const foodConfirmPhrases = ["shall i log", "want me to log", "log it", "add it to", "confirm"];
+    const isFood = foodConfirmPhrases.some(p => lower.includes(p)) && 
+                   (userLower.includes("log") || userLower.includes("had") || userLower.includes("ate") || userLower.includes("coffee") || userLower.includes("meal") || userLower.includes("drink") || userLower.includes("snack") || userLower.includes("lunch") || userLower.includes("dinner") || userLower.includes("breakfast"));
+    
+    // Task adding
+    const isTask = (lower.includes("adding") && lower.includes("to-do")) || 
+                   (lower.includes("adding") && lower.includes("task")) ||
+                   (lower.includes("to your") && lower.includes("task") && lower.includes("confirm"));
+    
+    // Calendar event
+    const isCal = (lower.includes("adding") && lower.includes("calendar")) ||
+                  (lower.includes("calendar") && lower.includes("confirm"));
+    
+    // Health check-in  
+    const isHealth = (lower.includes("logging your weight") || lower.includes("health check-in") || lower.includes("log") && lower.includes("kg") && lower.includes("confirm"));
+
+    if (isFood) {
+      // Extract kcal and protein from reply using regex
+      const kcalMatch = reply.match(/(\d+)\s*(?:calories|kcal|cal)/i);
+      const proteinMatch = reply.match(/(\d+)\s*g?\s*protein/i);
+      // Extract food name - get text before "approximately" or first number
+      const nameMatch = reply.match(/(?:That is|logging|adding)\s+([^,\.]+?)(?:,\s*approximately|\s+approximately|\s+is\s)/i);
+      const name = nameMatch ? nameMatch[1].trim() : userText.slice(0,50);
+      return {
+        type: "log_food",
+        payload: { name, kcal: kcalMatch ? parseInt(kcalMatch[1]) : 0, protein: proteinMatch ? parseInt(proteinMatch[1]) : 0 },
+        description: `Log "${name}" — ${kcalMatch?kcalMatch[1]:0} kcal, ${proteinMatch?proteinMatch[1]:0}g protein`
+      };
+    }
+    if (isTask) {
+      const taskMatch = reply.match(/[Aa]dding\s+["']?([^"'
+\.]+?)["']?\s+to/i);
+      const taskText = taskMatch ? taskMatch[1].trim() : userText.replace(/add (a )?task/i,"").trim();
+      return { type:"add_task", payload:{ text:taskText }, description:`Add task: "${taskText}"` };
+    }
+    if (isCal) {
+      const titleMatch = reply.match(/[Aa]dding\s+["']?([^"'
+]+?)["']?\s+on/i);
+      const dateMatch = reply.match(/on\s+([\d\-\/]+|\d+\s+\w+\s+\d{4})/i);
+      return { type:"add_cal_event", payload:{ title:titleMatch?titleMatch[1].trim():userText, date:dateMatch?dateMatch[1]:"", type:"reminder" }, description:`Add calendar event` };
+    }
+    if (isHealth) {
+      const weightMatch = reply.match(/(\d+\.?\d*)\s*kg/i);
+      return { type:"log_health", payload:{ weight:weightMatch?parseFloat(weightMatch[1]):null }, description:`Log health check-in` };
+    }
+    return null;
+  };
+
+  // ── Voice input — auto-send on pause ──
   const startListening = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert("Speech recognition not supported in this browser. Try Chrome.");
-      return;
-    }
+    if (!SpeechRecognition) { alert("Speech recognition not supported. Use Chrome."); return; }
     const recognition = new SpeechRecognition();
     recognition.lang = "en-NZ";
-    recognition.interimResults = false;
+    recognition.interimResults = true;
     recognition.maxAlternatives = 1;
+    recognition.continuous = false;
     recognition.onstart = () => setListening(true);
     recognition.onresult = (e) => {
-      const transcript = e.results[0][0].transcript;
-      setInput(prev => prev ? prev + " " + transcript : transcript);
+      const transcript = Array.from(e.results).map(r => r[0].transcript).join("");
+      setInput(transcript);
     };
-    recognition.onend = () => setListening(false);
+    recognition.onend = () => {
+      setListening(false);
+      // Auto-send after speech ends
+      setInput(prev => {
+        if (prev.trim()) {
+          setTimeout(() => sendMessage(prev.trim()), 100);
+          return "";
+        }
+        return prev;
+      });
+    };
     recognition.onerror = () => setListening(false);
     recognition.start();
   };
 
-  // ── Send message ──
-  const sendMessage = async (textOverride) => {
-    const text = (textOverride || input).trim();
-    if (!text || loading) return;
-    setInput("");
-
-    const userMsg = {
-      role: "user",
-      content: text,
-      ts: new Date().toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit" }),
-    };
-    const newMessages = [...messages, userMsg];
-    setMessages(newMessages);
-    setLoading(true);
-
-    try {
-      // Build history for API (exclude first assistant greeting from history to save tokens)
-      const apiMessages = newMessages
-        .filter((_, i) => i > 0) // skip initial greeting
-        .map(m => ({ role: m.role, content: m.content }));
-
-      const reply = await callClaude({
-        system: TARS_SYSTEM_PROMPT,
-        messages: apiMessages,
-      });
-
-      setMessages(prev => [...prev, {
-        role: "assistant",
-        content: reply,
-        ts: new Date().toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit" }),
-      }]);
-      speak(reply);
-    } catch (e) {
-      setMessages(prev => [...prev, {
-        role: "assistant",
-        content: "Connection error. Check your network.",
-        ts: new Date().toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit" }),
-        isError: true,
-      }]);
-    }
-    setLoading(false);
-  };
-
-  // ── Document vault upload ──
-  const handleVaultUpload = async (e) => {
+  // ── Camera / photo input ──
+  const handleCameraInput = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setVaultLoading(true);
-    setVaultError(null);
-
+    setLoading(true);
     try {
-      let content = "";
-      const isImage = file.type.startsWith("image/");
-      const isPdf = file.type === "application/pdf";
-
-      // Read file as base64
       const base64 = await new Promise((res, rej) => {
         const r = new FileReader();
         r.onload = () => res(r.result.split(",")[1]);
@@ -2429,138 +2490,186 @@ function TarsScreen({ onBack }) {
         r.readAsDataURL(file);
       });
 
-      let apiBody;
-      if (isImage) {
-        apiBody = {
-          model: "claude-sonnet-4-6",
-          max_tokens: 1000,
-          system: "You are TARS. Extract key information from this document concisely. Return a JSON object: {\"summary\":\"one paragraph summary\",\"keyPoints\":[\"point 1\",\"point 2\",...],\"docType\":\"what kind of document this is\"}. No markdown, no backticks.",
-          messages: [{
-            role: "user",
-            content: [
-              { type: "image", source: { type: "base64", media_type: file.type, data: base64 } },
-              { type: "text", text: "Summarise this document." }
-            ]
-          }]
-        };
-      } else if (isPdf) {
-        apiBody = {
-          model: "claude-sonnet-4-6",
-          max_tokens: 1000,
-          system: "You are TARS. Extract key information from this document concisely. Return a JSON object: {\"summary\":\"one paragraph summary\",\"keyPoints\":[\"point 1\",\"point 2\",...],\"docType\":\"what kind of document this is\"}. No markdown, no backticks.",
-          messages: [{
-            role: "user",
-            content: [
-              { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } },
-              { type: "text", text: "Summarise this document." }
-            ]
-          }]
-        };
-      } else {
-        // text/plain or other — read as text
-        const text = await new Promise((res) => {
-          const r = new FileReader();
-          r.onload = () => res(r.result);
-          r.readAsText(file);
-        });
-        apiBody = {
-          model: "claude-sonnet-4-6",
-          max_tokens: 1000,
-          system: "You are TARS. Extract key information from this document concisely. Return a JSON object: {\"summary\":\"one paragraph summary\",\"keyPoints\":[\"point 1\",\"point 2\",...],\"docType\":\"what kind of document this is\"}. No markdown, no backticks.",
-          messages: [{ role: "user", content: `Summarise this document:\n\n${text.slice(0, 8000)}` }]
-        };
-      }
-
-      const raw = await callClaude({
-        system: apiBody.system,
-        messages: apiBody.messages,
-      });
-      const clean = raw.replace(/```json|```/g, "").trim();
-      let parsed = {};
-      try { parsed = JSON.parse(clean); } catch { parsed = { summary: raw, keyPoints: [], docType: "Document" }; }
-
-      const doc = {
-        id: Date.now(),
-        name: file.name,
-        type: file.type,
-        size: file.size,
-        uploadedAt: new Date().toLocaleDateString("en-NZ", { day:"numeric", month:"short", year:"numeric" }),
-        docType: parsed.docType || "Document",
-        summary: parsed.summary || "No summary available.",
-        keyPoints: parsed.keyPoints || [],
-        base64: base64, // keep for potential re-analysis
+      const userMsg = {
+        role: "user",
+        content: `[Photo uploaded: ${file.name}]`,
+        ts: new Date().toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit" }),
+        isPhoto: true,
+        photoUrl: URL.createObjectURL(file),
       };
+      setMessages(prev => [...prev, userMsg]);
 
-      setVault(prev => [doc, ...prev]);
-    } catch (err) {
-      setVaultError("Upload failed — " + err.message);
+      const reply = await callClaude({
+        system: buildSystemPrompt() + "
+
+The user has uploaded a photo. If it looks like food, estimate the calories and protein and ask to log it. If it is a document, summarise it. If it is a Samsung Health screenshot, extract the health metrics and ask to log them.",
+        messages: [{ role:"user", content:[
+          { type:"image", source:{ type:"base64", media_type:file.type, data:base64 }},
+          { type:"text", text:"What is this? Help me log or use it in the app." }
+        ]}],
+      });
+
+      const assistantMsg = {
+        role: "assistant",
+        content: reply,
+        ts: new Date().toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit" }),
+      };
+      setMessages(prev => [...prev, assistantMsg]);
+      speak(reply);
+      const action = parseActionFromReply(reply, "photo upload");
+      if (action) setPendingAction(action);
+    } catch(err) {
+      setMessages(prev => [...prev, { role:"assistant", content:"Could not read that image.", ts:"", isError:true }]);
     }
-    setVaultLoading(false);
+    setLoading(false);
     e.target.value = "";
   };
 
-  const removeDoc = (id) => setVault(prev => prev.filter(d => d.id !== id));
+  // ── File upload (documents) ──
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLoading(true);
+    try {
+      const isImage = file.type.startsWith("image/");
+      const base64 = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result.split(",")[1]);
+        r.onerror = () => rej(new Error("Read failed"));
+        r.readAsDataURL(file);
+      });
 
-  const formatSize = (bytes) => {
-    if (bytes < 1024) return bytes + " B";
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+      const userMsg = {
+        role: "user",
+        content: `[File uploaded: ${file.name}]`,
+        ts: new Date().toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit" }),
+      };
+      setMessages(prev => [...prev, userMsg]);
+
+      const msgContent = isImage
+        ? [{ type:"image", source:{ type:"base64", media_type:file.type, data:base64 }}, { type:"text", text:"Summarise this and tell me if there is anything I should add to my app." }]
+        : [{ type:"text", text:`File: ${file.name}
+
+Summarise this document and tell me if there is anything I should add to my app.` }];
+
+      const reply = await callClaude({
+        system: buildSystemPrompt(),
+        messages: [{ role:"user", content: msgContent }],
+      });
+
+      setMessages(prev => [...prev, {
+        role:"assistant", content:reply,
+        ts: new Date().toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit" }),
+      }]);
+      speak(reply);
+    } catch(err) {
+      setMessages(prev => [...prev, { role:"assistant", content:"Could not read that file.", ts:"", isError:true }]);
+    }
+    setLoading(false);
+    e.target.value = "";
+  };
+
+  // ── Send message ──
+  const sendMessage = async (textOverride) => {
+    const text = (textOverride !== undefined ? textOverride : input).trim();
+    if (!text || loading) return;
+    setInput("");
+    setPendingAction(null);
+
+    // Handle confirmation of pending action
+    const confirmWords = ["yes","confirm","do it","go ahead","yep","yeah","correct","ok","sure"];
+    const denyWords = ["no","cancel","stop","don't","dont","nope","negative"];
+    if (pendingAction) {
+      const lower = text.toLowerCase();
+      if (confirmWords.some(w => lower.includes(w))) {
+        executeAction(pendingAction);
+        const confirmMsg = { role:"assistant", content:"Done.", ts: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) };
+        setMessages(prev => [...prev, { role:"user", content:text, ts:confirmMsg.ts }, confirmMsg]);
+        speak("Done.");
+        return;
+      }
+      if (denyWords.some(w => lower.includes(w))) {
+        const cancelMsg = { role:"assistant", content:"Cancelled.", ts: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) };
+        setMessages(prev => [...prev, { role:"user", content:text, ts:cancelMsg.ts }, cancelMsg]);
+        speak("Cancelled.");
+        setPendingAction(null);
+        return;
+      }
+    }
+
+    const userMsg = { role:"user", content:text, ts: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) };
+    const newMessages = [...messages, userMsg];
+    setMessages(newMessages);
+    setLoading(true);
+
+    try {
+      const apiMessages = newMessages
+        .filter((_, i) => i > 0)
+        .filter(m => typeof m.content === "string")
+        .map(m => ({ role:m.role, content:m.content }));
+
+      const reply = await callClaude({
+        system: buildSystemPrompt(),
+        messages: apiMessages,
+      });
+
+      setMessages(prev => [...prev, {
+        role:"assistant", content:reply,
+        ts: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}),
+      }]);
+      speak(reply);
+
+      // Parse for action intent
+      const action = parseActionFromReply(reply, text);
+      if (action) setPendingAction(action);
+
+    } catch(e) {
+      setMessages(prev => [...prev, {
+        role:"assistant", content:"Connection error. Check your network.",
+        ts: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}),
+        isError: true,
+      }]);
+    }
+    setLoading(false);
   };
 
   const QUICK_PROMPTS = [
-    "How am I tracking this week?",
-    "What should I eat for dinner tonight?",
-    "Am I on track for my weight target?",
-    "Remind me about my supplements",
+    "Log my morning coffee",
+    "How am I tracking today?",
+    "Add a task to book my GP",
+    "What should I have for dinner?",
   ];
 
-  const inputStyle = {
-    flex:1, padding:"10px 14px", borderRadius:999,
-    border:`1px solid ${T.border}`, background:T.elevated,
-    color:T.text, fontSize:14, fontFamily:"inherit",
-    outline:"none",
-  };
-
-  // ── DOC DETAIL MODAL ──
+  // ── DOC DETAIL ──
   if (selectedDoc) {
     return (
       <div style={{ minHeight:"100vh" }}>
         <div style={{ display:"flex", alignItems:"center", gap:12, padding:"16px 20px", borderBottom:`1px solid ${T.border}` }}>
-          <button onClick={() => setSelectedDoc(null)} style={{ background:"none", border:"none", cursor:"pointer", padding:4, color:T.muted, display:"flex" }}>
-            <Icon name="back" size={20} color={T.muted} />
-          </button>
+          <button onClick={()=>setSelectedDoc(null)} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted }}><Icon name="back" size={20} color={T.muted} /></button>
           <div style={{ flex:1 }}>
-            <div style={{ fontSize:14, fontWeight:700, color:T.text, wordBreak:"break-word" }}>{selectedDoc.name}</div>
+            <div style={{ fontSize:14, fontWeight:700, color:T.text }}>{selectedDoc.name}</div>
             <div style={{ fontSize:11, color:T.muted }}>{selectedDoc.docType} · {selectedDoc.uploadedAt}</div>
           </div>
         </div>
         <div style={{ padding:"20px 16px", display:"flex", flexDirection:"column", gap:14 }}>
-          <Card>
-            <SectionLabel>Summary</SectionLabel>
-            <div style={{ fontSize:13, color:T.text, lineHeight:1.6 }}>{selectedDoc.summary}</div>
-          </Card>
+          <Card><SectionLabel>Summary</SectionLabel><div style={{ fontSize:13, color:T.text, lineHeight:1.6 }}>{selectedDoc.summary}</div></Card>
           {selectedDoc.keyPoints?.length > 0 && (
-            <Card>
-              <SectionLabel>Key Points</SectionLabel>
-              {selectedDoc.keyPoints.map((pt, i) => (
-                <div key={i} style={{ display:"flex", gap:10, marginBottom:8, alignItems:"flex-start" }}>
-                  <div style={{ width:6, height:6, borderRadius:"50%", background:T.blue, flexShrink:0, marginTop:5 }} />
+            <Card><SectionLabel>Key Points</SectionLabel>
+              {selectedDoc.keyPoints.map((pt,i)=>(
+                <div key={i} style={{ display:"flex", gap:10, marginBottom:8 }}>
+                  <div style={{ width:6, height:6, borderRadius:"50%", background:T.blue, flexShrink:0, marginTop:5 }}/>
                   <div style={{ fontSize:13, color:T.text, lineHeight:1.5 }}>{pt}</div>
                 </div>
               ))}
             </Card>
           )}
-          <button
-            onClick={() => {
-              setSelectedDoc(null);
-              setTarsTab("chat");
-              setInput(`Tell me more about this document: ${selectedDoc.name} — ${selectedDoc.summary}`);
-            }}
+          <button onClick={()=>{setSelectedDoc(null);setTarsTab("chat");setInput(`Tell me more about: ${selectedDoc.name}`);}}
             style={{ width:"100%", padding:"11px", borderRadius:12, background:T.elevated, border:`1px solid ${T.border}`, color:T.blue, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>
-            Ask TARS about this doc
+            Ask TARS about this
           </button>
-          <button onClick={() => removeDoc(selectedDoc.id)} style={{ width:"100%", padding:"11px", borderRadius:12, background:`${T.accent}11`, border:`1px solid ${T.accent}33`, color:T.accent, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>
-            Delete Document
+          <button onClick={()=>{setVault(p=>p.filter(d=>d.id!==selectedDoc.id));setSelectedDoc(null);}}
+            style={{ width:"100%", padding:"11px", borderRadius:12, background:`${T.accent}11`, border:`1px solid ${T.accent}33`, color:T.accent, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>
+            Delete
           </button>
         </div>
       </div>
@@ -2571,60 +2680,50 @@ function TarsScreen({ onBack }) {
     <div style={{ display:"flex", flexDirection:"column", minHeight:"100vh" }}>
       {/* Header */}
       <div style={{ display:"flex", alignItems:"center", gap:12, padding:"16px 20px", borderBottom:`1px solid ${T.border}` }}>
-        <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", padding:4, color:T.muted, display:"flex" }}>
-          <Icon name="back" size={20} color={T.muted} />
-        </button>
+        <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted }}><Icon name="back" size={20} color={T.muted} /></button>
         <div style={{ flex:1 }}>
           <div style={{ fontSize:17, fontWeight:700, color:T.text }}>TARS</div>
           <div style={{ fontSize:11, color:T.blue }}>Honesty: 90% · Humour: calibrated</div>
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
           {speaking && (
-            <button onClick={stopSpeaking} style={{ background:`${T.accent}22`, border:`1px solid ${T.accent}44`, borderRadius:999, padding:"4px 10px", fontSize:11, fontWeight:700, color:T.accent, cursor:"pointer", fontFamily:"inherit" }}>
-              ⏹ Stop
-            </button>
+            <button onClick={stopSpeaking} style={{ background:`${T.accent}22`, border:`1px solid ${T.accent}44`, borderRadius:999, padding:"4px 10px", fontSize:11, fontWeight:700, color:T.accent, cursor:"pointer", fontFamily:"inherit" }}>⏹ Stop</button>
           )}
-          <button onClick={() => { setVoiceEnabled(v => !v); stopSpeaking(); }}
-            style={{ background: voiceEnabled ? `${T.blue}22` : T.elevated, border:`1px solid ${voiceEnabled ? T.blue+"44" : T.border}`, borderRadius:999, padding:"4px 10px", fontSize:11, fontWeight:700, color: voiceEnabled ? T.blue : T.muted, cursor:"pointer", fontFamily:"inherit" }}>
-            {voiceEnabled ? "🔊 Voice" : "🔇 Muted"}
+          <button onClick={()=>{setVoiceEnabled(v=>!v);stopSpeaking();}}
+            style={{ background:voiceEnabled?`${T.blue}22`:T.elevated, border:`1px solid ${voiceEnabled?T.blue+"44":T.border}`, borderRadius:999, padding:"4px 10px", fontSize:11, fontWeight:700, color:voiceEnabled?T.blue:T.muted, cursor:"pointer", fontFamily:"inherit" }}>
+            {voiceEnabled?"🔊":"🔇"}
           </button>
-          <div style={{ width:10, height:10, borderRadius:"50%", background:T.green, boxShadow:`0 0 8px ${T.green}` }} />
+          <div style={{ width:10, height:10, borderRadius:"50%", background:T.green, boxShadow:`0 0 8px ${T.green}` }}/>
         </div>
       </div>
 
       {/* Sub tabs */}
       <div style={{ padding:"12px 16px 0" }}>
-        <SubTab
-          tabs={[{ id:"chat", label:"Chat" }, { id:"vault", label:"Vault" }]}
-          active={tarsTab}
-          onChange={setTarsTab}
-        />
+        <SubTab tabs={[{id:"chat",label:"Chat"},{id:"vault",label:"Vault"}]} active={tarsTab} onChange={setTarsTab} />
       </div>
 
       {/* ── CHAT TAB ── */}
       {tarsTab === "chat" && (
         <div style={{ display:"flex", flexDirection:"column", flex:1 }}>
           {/* Messages */}
-          <div style={{ flex:1, overflowY:"auto", padding:"8px 16px 16px", display:"flex", flexDirection:"column", gap:12, minHeight:340, maxHeight:"60vh" }}>
+          <div style={{ flex:1, overflowY:"auto", padding:"8px 16px 8px", display:"flex", flexDirection:"column", gap:10, minHeight:300, maxHeight:"55vh" }}>
             {messages.map((msg, i) => {
               const isUser = msg.role === "user";
               return (
                 <div key={i} style={{ display:"flex", flexDirection:"column", alignItems:isUser?"flex-end":"flex-start" }}>
+                  {msg.isPhoto && msg.photoUrl && (
+                    <img src={msg.photoUrl} alt="uploaded" style={{ maxWidth:180, borderRadius:12, marginBottom:4, alignSelf:"flex-end" }} />
+                  )}
                   <div style={{
-                    maxWidth:"85%",
-                    padding:"10px 14px",
-                    borderRadius: isUser ? "18px 18px 4px 18px" : "4px 18px 18px 18px",
-                    background: isUser ? T.blue : T.card,
-                    border: isUser ? "none" : `1px solid ${T.border}`,
-                    fontSize:14,
-                    lineHeight:1.55,
-                    color: msg.isError ? T.accent : T.text,
-                    whiteSpace:"pre-wrap",
-                    wordBreak:"break-word",
-                  }}>
-                    {msg.content}
-                  </div>
-                  <div style={{ fontSize:10, color:T.muted, marginTop:3, paddingLeft:4, paddingRight:4 }}>{msg.ts}</div>
+                    maxWidth:"85%", padding:"10px 14px",
+                    borderRadius:isUser?"18px 18px 4px 18px":"4px 18px 18px 18px",
+                    background:isUser?T.blue:T.card,
+                    border:isUser?"none":`1px solid ${T.border}`,
+                    fontSize:14, lineHeight:1.55,
+                    color:msg.isError?T.accent:T.text,
+                    whiteSpace:"pre-wrap", wordBreak:"break-word",
+                  }}>{msg.content}</div>
+                  {msg.ts && <div style={{ fontSize:10, color:T.muted, marginTop:3, paddingLeft:4, paddingRight:4 }}>{msg.ts}</div>}
                 </div>
               );
             })}
@@ -2632,26 +2731,38 @@ function TarsScreen({ onBack }) {
               <div style={{ display:"flex", alignItems:"flex-start" }}>
                 <div style={{ padding:"10px 16px", borderRadius:"4px 18px 18px 18px", background:T.card, border:`1px solid ${T.border}` }}>
                   <div style={{ display:"flex", gap:5, alignItems:"center" }}>
-                    {[0,1,2].map(i => (
-                      <div key={i} style={{
-                        width:7, height:7, borderRadius:"50%", background:T.blue,
-                        animation:"pulse 1.2s ease-in-out infinite",
-                        animationDelay:`${i * 0.2}s`,
-                        opacity:0.7,
-                      }} />
+                    {[0,1,2].map(i=>(
+                      <div key={i} style={{ width:7, height:7, borderRadius:"50%", background:T.blue, animation:"pulse 1.2s ease-in-out infinite", animationDelay:`${i*0.2}s`, opacity:0.7 }}/>
                     ))}
                   </div>
                 </div>
               </div>
             )}
-            <div ref={el => { messagesEndRef.current = el; }} />
+            <div ref={el=>{messagesEndRef.current=el;}}/>
           </div>
+
+          {/* Pending action confirmation */}
+          {pendingAction && (
+            <div style={{ margin:"0 16px 8px", background:`${T.gold}18`, border:`1px solid ${T.gold}44`, borderRadius:12, padding:"10px 14px" }}>
+              <div style={{ fontSize:12, color:T.gold, fontWeight:600, marginBottom:8 }}>⚡ {pendingAction.description}</div>
+              <div style={{ display:"flex", gap:8 }}>
+                <button onClick={()=>sendMessage("yes")}
+                  style={{ flex:1, padding:"8px", borderRadius:8, background:T.green, color:"white", fontWeight:700, fontSize:12, border:"none", cursor:"pointer", fontFamily:"inherit" }}>
+                  Confirm
+                </button>
+                <button onClick={()=>sendMessage("no")}
+                  style={{ flex:1, padding:"8px", borderRadius:8, background:T.elevated, color:T.muted, fontWeight:700, fontSize:12, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Quick prompts */}
           {messages.length <= 1 && (
-            <div style={{ padding:"0 16px 12px", display:"flex", flexWrap:"wrap", gap:6 }}>
-              {QUICK_PROMPTS.map((p, i) => (
-                <button key={i} onClick={() => sendMessage(p)}
+            <div style={{ padding:"0 16px 8px", display:"flex", flexWrap:"wrap", gap:6 }}>
+              {QUICK_PROMPTS.map((p,i)=>(
+                <button key={i} onClick={()=>sendMessage(p)}
                   style={{ padding:"7px 13px", borderRadius:999, border:`1px solid ${T.border}`, background:T.elevated, color:T.muted, fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
                   {p}
                 </button>
@@ -2660,37 +2771,44 @@ function TarsScreen({ onBack }) {
           )}
 
           {/* Input bar */}
-          <div style={{ padding:"10px 16px 20px", borderTop:`1px solid ${T.border}`, display:"flex", gap:8, alignItems:"flex-end", background:T.bg }}>
-            <button
-              onClick={startListening}
-              style={{
-                width:40, height:40, borderRadius:"50%", border:`1px solid ${listening ? T.accent : T.border}`,
-                background: listening ? `${T.accent}22` : T.elevated,
-                cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0,
-                boxShadow: listening ? `0 0 12px ${T.accent}55` : "none",
-                transition:"all 0.2s",
-              }}>
-              <Icon name="mic" size={16} color={listening ? T.accent : T.muted} />
-            </button>
+          <div style={{ padding:"8px 16px 20px", borderTop:`1px solid ${T.border}`, display:"flex", gap:8, alignItems:"center", background:T.bg }}>
+            {/* Camera */}
+            <label style={{ width:38, height:38, borderRadius:"50%", border:`1px solid ${T.border}`, background:T.elevated, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+              <span style={{ fontSize:16 }}>📷</span>
+              <input type="file" accept="image/*" capture="environment" onChange={handleCameraInput} style={{ display:"none" }} />
+            </label>
+            {/* File upload */}
+            <label style={{ width:38, height:38, borderRadius:"50%", border:`1px solid ${T.border}`, background:T.elevated, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+              <span style={{ fontSize:16 }}>📎</span>
+              <input type="file" accept=".pdf,.txt,.md,image/*" onChange={handleFileUpload} style={{ display:"none" }} />
+            </label>
+            {/* Text input */}
             <input
               value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-              placeholder={listening ? "Listening…" : "Message TARS…"}
-              style={inputStyle}
+              onChange={e=>setInput(e.target.value)}
+              onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage();}}}
+              placeholder={listening?"Listening…":"Message TARS…"}
+              style={{ flex:1, padding:"10px 14px", borderRadius:999, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:14, fontFamily:"inherit", outline:"none" }}
             />
-            <button
-              onClick={() => sendMessage()}
-              disabled={!input.trim() || loading}
-              style={{
-                width:40, height:40, borderRadius:"50%", border:"none",
-                background: !input.trim() || loading ? T.elevated : T.blue,
-                cursor: !input.trim() || loading ? "not-allowed" : "pointer",
-                display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0,
-                transition:"all 0.15s",
-              }}>
-              <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={!input.trim() || loading ? T.muted : "white"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+            {/* Mic */}
+            <button onClick={startListening} style={{
+              width:38, height:38, borderRadius:"50%",
+              border:`1px solid ${listening?T.accent:T.border}`,
+              background:listening?`${T.accent}22`:T.elevated,
+              cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0,
+              boxShadow:listening?`0 0 12px ${T.accent}55`:"none", transition:"all 0.2s",
+            }}>
+              <Icon name="mic" size={16} color={listening?T.accent:T.muted}/>
+            </button>
+            {/* Send */}
+            <button onClick={()=>sendMessage()} disabled={!input.trim()||loading} style={{
+              width:38, height:38, borderRadius:"50%", border:"none",
+              background:!input.trim()||loading?T.elevated:T.blue,
+              cursor:!input.trim()||loading?"not-allowed":"pointer",
+              display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.15s",
+            }}>
+              <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={!input.trim()||loading?T.muted:"white"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
               </svg>
             </button>
           </div>
@@ -2700,101 +2818,63 @@ function TarsScreen({ onBack }) {
       {/* ── VAULT TAB ── */}
       {tarsTab === "vault" && (
         <div style={{ padding:"0 16px 24px", display:"flex", flexDirection:"column", gap:12 }}>
-          {/* Upload zone */}
           <Card>
             <SectionLabel>Upload Document</SectionLabel>
-            <div style={{ fontSize:12, color:T.muted, marginBottom:12, lineHeight:1.5 }}>
-              Upload anything — certificates, contracts, itineraries, medical reports. TARS reads it and stores a summary.
-            </div>
-            <label style={{
-              display:"block", border:`2px dashed ${T.border}`,
-              borderRadius:12, padding:"22px 16px", textAlign:"center",
-              cursor: vaultLoading ? "not-allowed" : "pointer",
-              background:T.elevated, marginBottom:vaultLoading ? 10 : 0,
-              transition:"border-color 0.2s",
-            }}>
+            <div style={{ fontSize:12, color:T.muted, marginBottom:12, lineHeight:1.5 }}>Upload anything. TARS reads it and stores a summary.</div>
+            <label style={{ display:"block", border:`2px dashed ${T.border}`, borderRadius:12, padding:"22px 16px", textAlign:"center", cursor:vaultLoading?"not-allowed":"pointer", background:T.elevated }}>
               <div style={{ fontSize:28, marginBottom:6 }}>📎</div>
-              <div style={{ fontSize:13, fontWeight:600, color:T.text, marginBottom:4 }}>
-                {vaultLoading ? "Reading…" : "Tap to upload"}
-              </div>
+              <div style={{ fontSize:13, fontWeight:600, color:T.text, marginBottom:4 }}>{vaultLoading?"Reading…":"Tap to upload"}</div>
               <div style={{ fontSize:11, color:T.muted }}>PDF, image, or text file</div>
-              <input
-                type="file"
-                accept=".pdf,.txt,.md,image/*"
-                onChange={handleVaultUpload}
-                disabled={vaultLoading}
-                style={{ display:"none" }}
-              />
+              <input type="file" accept=".pdf,.txt,.md,image/*" onChange={async(e)=>{
+                const file = e.target.files?.[0]; if(!file) return;
+                setVaultLoading(true); setVaultError(null);
+                try {
+                  const base64 = await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=()=>rej(new Error("fail"));r.readAsDataURL(file);});
+                  const isImg = file.type.startsWith("image/");
+                  const raw = await callClaude({
+                    system:`Extract key info. Return JSON only no markdown: {"summary":"paragraph","keyPoints":["p1","p2"],"docType":"type"}`,
+                    messages:[{role:"user",content:isImg
+                      ?[{type:"image",source:{type:"base64",media_type:file.type,data:base64}},{type:"text",text:"Summarise this."}]
+                      :[{type:"text",text:`Summarise: ${file.name}`}]
+                    }],
+                  });
+                  const clean = raw.replace(/```json|```/g,"").trim();
+                  let parsed = {};
+                  try{parsed=JSON.parse(clean);}catch{parsed={summary:raw,keyPoints:[],docType:"Document"};}
+                  setVault(prev=>[{id:Date.now(),name:file.name,type:file.type,size:file.size,uploadedAt:new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}),docType:parsed.docType||"Document",summary:parsed.summary||"",keyPoints:parsed.keyPoints||[],...(isImg?{base64}:{})}, ...prev]);
+                } catch(err){setVaultError("Upload failed — "+err.message);}
+                setVaultLoading(false); e.target.value="";
+              }} disabled={vaultLoading} style={{ display:"none" }}/>
             </label>
-            {vaultLoading && (
-              <div style={{ textAlign:"center", padding:"12px 0", fontSize:13, color:T.blue }}>
-                ⏳ TARS is reading your document…
-              </div>
-            )}
-            {vaultError && (
-              <div style={{ fontSize:12, color:T.accent, textAlign:"center", padding:"8px 0", marginTop:8 }}>
-                {vaultError}
-              </div>
-            )}
+            {vaultLoading && <div style={{ textAlign:"center", padding:"12px 0", fontSize:13, color:T.blue }}>⏳ Reading…</div>}
+            {vaultError && <div style={{ fontSize:12, color:T.accent, textAlign:"center", padding:"8px 0", marginTop:8 }}>{vaultError}</div>}
           </Card>
-
-          {/* Vault list */}
-          {vault.length > 0 && (
-            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-              <SectionLabel>Stored Documents ({vault.length})</SectionLabel>
-              {vault.map(doc => (
-                <div
-                  key={doc.id}
-                  onClick={() => setSelectedDoc(doc)}
-                  style={{
-                    background:T.card, borderRadius:14, padding:"13px 14px",
-                    border:`1px solid ${T.border}`, cursor:"pointer",
-                    display:"flex", alignItems:"center", gap:12,
-                    transition:"border-color 0.15s",
-                  }}>
-                  <div style={{
-                    width:40, height:40, borderRadius:10, flexShrink:0,
-                    background:`${T.blue}18`, border:`1px solid ${T.blue}33`,
-                    display:"flex", alignItems:"center", justifyContent:"center", fontSize:18,
-                  }}>
-                    {doc.type.startsWith("image/") ? "🖼️" : doc.type === "application/pdf" ? "📄" : "📝"}
-                  </div>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:13, fontWeight:600, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{doc.name}</div>
-                    <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{doc.docType} · {doc.uploadedAt} · {formatSize(doc.size)}</div>
-                    <div style={{ fontSize:11, color:T.muted, marginTop:3, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", fontStyle:"italic" }}>
-                      {doc.summary.slice(0, 80)}{doc.summary.length > 80 ? "…" : ""}
-                    </div>
-                  </div>
-                  <Icon name="back" size={14} color={T.muted} style={{ transform:"rotate(180deg)", flexShrink:0 }} />
-                </div>
-              ))}
+          {vault.length > 0 && vault.map(doc=>(
+            <div key={doc.id} onClick={()=>setSelectedDoc(doc)} style={{ background:T.card, borderRadius:14, padding:"13px 14px", border:`1px solid ${T.border}`, cursor:"pointer", display:"flex", alignItems:"center", gap:12 }}>
+              <div style={{ width:40, height:40, borderRadius:10, flexShrink:0, background:`${T.blue}18`, border:`1px solid ${T.blue}33`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>
+                {doc.type.startsWith("image/")?"🖼️":doc.type==="application/pdf"?"📄":"📝"}
+              </div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:13, fontWeight:600, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{doc.name}</div>
+                <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{doc.docType} · {doc.uploadedAt}</div>
+                <div style={{ fontSize:11, color:T.muted, marginTop:3, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", fontStyle:"italic" }}>{doc.summary.slice(0,80)}{doc.summary.length>80?"…":""}</div>
+              </div>
             </div>
-          )}
-
-          {vault.length === 0 && !vaultLoading && (
+          ))}
+          {vault.length===0 && !vaultLoading && (
             <div style={{ textAlign:"center", padding:"40px 20px", color:T.muted }}>
               <div style={{ fontSize:36, marginBottom:10 }}>🗄️</div>
-              <div style={{ fontSize:13, fontWeight:600, color:T.muted, marginBottom:4 }}>Vault is empty</div>
-              <div style={{ fontSize:12, color:T.muted, opacity:0.6 }}>Upload your first document above</div>
+              <div style={{ fontSize:13, fontWeight:600, marginBottom:4 }}>Vault is empty</div>
+              <div style={{ fontSize:12, opacity:0.6 }}>Upload your first document above</div>
             </div>
           )}
-
-          {/* Note about persistence */}
           <div style={{ background:`${T.blue}11`, borderRadius:12, padding:"10px 14px", border:`1px solid ${T.blue}22` }}>
-            <div style={{ fontSize:11, color:T.blue, lineHeight:1.5 }}>
-              📡 Documents are stored in this session only. Puter cloud sync coming in a future update — summaries will persist across devices once connected.
-            </div>
+            <div style={{ fontSize:11, color:T.blue, lineHeight:1.5 }}>📡 Documents stored this session only. Puter cloud sync coming soon.</div>
           </div>
         </div>
       )}
 
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 0.3; transform: scale(0.8); }
-          50% { opacity: 1; transform: scale(1.1); }
-        }
-      `}</style>
+      <style>{`@keyframes pulse{0%,100%{opacity:0.3;transform:scale(0.8)}50%{opacity:1;transform:scale(1.1)}}`}</style>
     </div>
   );
 }
@@ -2853,6 +2933,33 @@ export default function LifeApp() {
   const [screen, setScreen] = useState("home");
   const [tasks, setTasks] = useState(INIT_TASKS);
 
+  // ── HEALTH STATE (source of truth — TARS can write here) ───────────────────
+  const [healthEntries, setHealthEntries] = useState([{
+    date:"26 Jun 2026", weight:USER.health.weight, bodyFat:USER.health.bodyFat,
+    fatMass:USER.health.fatMass, muscle:USER.health.muscle, bp:USER.health.bp,
+  }]);
+  const todayLabel = new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"});
+  const [calLog, setCalLog] = useState({
+    "27 Jun 2026": [
+      { id:1, name:"Nescafé Vanilla Latte ×5", kcal:395, protein:5, time:"All day" },
+      { id:2, name:"Breakfast — granola/muesli + Kalό Greek yoghurt", kcal:420, protein:22, time:"Morning" },
+      { id:3, name:"Dinner — salmon + spinach & cucumber salad", kcal:670, protein:56, time:"Evening" },
+      { id:4, name:"Cottage cheese (150g) + flatbread x4", kcal:235, protein:20, time:"Afternoon" },
+      { id:5, name:"Apple", kcal:80, protein:0, time:"Afternoon" },
+    ],
+    "28 Jun 2026": [
+      { id:6, name:"Nescafé Vanilla Latte ×4", kcal:316, protein:4, time:"All day" },
+      { id:7, name:"Breakfast — granola/muesli + Kalό Greek yoghurt", kcal:420, protein:22, time:"Morning" },
+      { id:8, name:"Dinner — salmon + spinach & cucumber salad", kcal:670, protein:56, time:"Evening" },
+      { id:9, name:"Cottage cheese (150g) + flatbread x4", kcal:235, protein:20, time:"Afternoon" },
+    ],
+    "29 Jun 2026": [
+      { id:10, name:"Lunch — salmon + spinach & cucumber salad", kcal:670, protein:56, time:"Lunch" },
+      { id:11, name:"Dinner — Pad Thai Chicken (takeaway)", kcal:700, protein:38, time:"Evening" },
+      { id:12, name:"Copper Kettle chips 150g", kcal:795, protein:6, time:"Afternoon" },
+    ],
+  });
+
   // ── CALENDAR STATE (source of truth for whole app) ──────────────────────────
   const [calEvents, setCalEvents] = useState(INIT_CAL_EVENTS);
   const [rotationBlocks, setRotationBlocks] = useState(INIT_ROTATION);
@@ -2893,12 +3000,12 @@ export default function LifeApp() {
   const renderScreen = () => {
     switch(screen) {
       case "home":     return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} />;
-      case "health":   return <HealthScreen onBack={()=>setScreen("home")} />;
+      case "health":   return <HealthScreen onBack={()=>setScreen("home")} entries={healthEntries} setEntries={setHealthEntries} calLog={calLog} setCalLog={setCalLog} />;
       case "tasks":    return <TodoScreen tasks={tasks} setTasks={setTasks} onBack={()=>setScreen("home")} />;
       case "calendar": return <CalendarScreen onBack={()=>setScreen("home")} calEvents={calEvents} rotationBlocks={rotationBlocks} addCalEvent={addCalEvent} removeCalEvent={removeCalEvent} addRotation={addRotation} removeRotation={removeRotation} tasks={tasks} />;
       case "finance":  return <ComingSoon label="Finance" icon="finance" accent={T.purple} onBack={()=>setScreen("home")} />;
       case "work":     return <ComingSoon label="Work" icon="work" accent={T.blue} onBack={()=>setScreen("home")} />;
-      case "tars":     return <TarsScreen onBack={()=>setScreen("home")} />;
+      case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen }} />;
       default:         return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} />;
     }
   };
