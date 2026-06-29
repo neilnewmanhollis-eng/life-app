@@ -2430,14 +2430,12 @@ After confirmation: say it is done, briefly.`;
       };
     }
     if (isTask) {
-      const taskMatch = reply.match(/[Aa]dding\s+["']?([^"'
-\.]+?)["']?\s+to/i);
+      const taskMatch = reply.match(/[Aa]dding\s+["']?([^"'\n\.]+?)["']?\s+to/i);
       const taskText = taskMatch ? taskMatch[1].trim() : userText.replace(/add (a )?task/i,"").trim();
       return { type:"add_task", payload:{ text:taskText }, description:`Add task: "${taskText}"` };
     }
     if (isCal) {
-      const titleMatch = reply.match(/[Aa]dding\s+["']?([^"'
-]+?)["']?\s+on/i);
+      const titleMatch = reply.match(/[Aa]dding\s+["']?([^"'\n]+?)["']?\s+on/i);
       const dateMatch = reply.match(/on\s+([\d\-\/]+|\d+\s+\w+\s+\d{4})/i);
       return { type:"add_cal_event", payload:{ title:titleMatch?titleMatch[1].trim():userText, date:dateMatch?dateMatch[1]:"", type:"reminder" }, description:`Add calendar event` };
     }
