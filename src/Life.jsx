@@ -10,10 +10,12 @@ async function ensurePuter() {
 
 async function callClaude({ system, messages }) {
   await ensurePuter();
-  const chatMessages = messages.map(m => ({ role: m.role, content: m.content }));
-  const opts = { model: "claude-sonnet-4-6" };
-  if (system) opts.system = system;
-  const response = await puter.ai.chat(chatMessages, opts);
+  // Puter requires system prompt as first message with role "system"
+  const chatMessages = [
+    ...(system ? [{ role: "system", content: system }] : []),
+    ...messages.map(m => ({ role: m.role, content: m.content })),
+  ];
+  const response = await puter.ai.chat(chatMessages, { model: "claude-sonnet-4-6" });
   if (typeof response === "string") return response;
   if (response?.message?.content) {
     const parts = response.message.content;
@@ -2767,46 +2769,49 @@ Summarise this document and tell me if there is anything I should add to my app.
           )}
 
           {/* Input bar */}
-          <div style={{ padding:"8px 16px 20px", borderTop:`1px solid ${T.border}`, display:"flex", gap:8, alignItems:"center", background:T.bg }}>
-            {/* Camera */}
-            <label style={{ width:38, height:38, borderRadius:"50%", border:`1px solid ${T.border}`, background:T.elevated, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-              <span style={{ fontSize:16 }}>📷</span>
-              <input type="file" accept="image/*" capture="environment" onChange={handleCameraInput} style={{ display:"none" }} />
-            </label>
-            {/* File upload */}
-            <label style={{ width:38, height:38, borderRadius:"50%", border:`1px solid ${T.border}`, background:T.elevated, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-              <span style={{ fontSize:16 }}>📎</span>
-              <input type="file" accept=".pdf,.txt,.md,image/*" onChange={handleFileUpload} style={{ display:"none" }} />
-            </label>
-            {/* Text input */}
-            <input
-              value={input}
-              onChange={e=>setInput(e.target.value)}
-              onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage();}}}
-              placeholder={listening?"Listening…":"Message TARS…"}
-              style={{ flex:1, padding:"10px 14px", borderRadius:999, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:14, fontFamily:"inherit", outline:"none" }}
-            />
-            {/* Mic */}
-            <button onClick={startListening} style={{
-              width:38, height:38, borderRadius:"50%",
-              border:`1px solid ${listening?T.accent:T.border}`,
-              background:listening?`${T.accent}22`:T.elevated,
-              cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0,
-              boxShadow:listening?`0 0 12px ${T.accent}55`:"none", transition:"all 0.2s",
-            }}>
-              <Icon name="mic" size={16} color={listening?T.accent:T.muted}/>
-            </button>
-            {/* Send */}
-            <button onClick={()=>sendMessage()} disabled={!input.trim()||loading} style={{
-              width:38, height:38, borderRadius:"50%", border:"none",
-              background:!input.trim()||loading?T.elevated:T.blue,
-              cursor:!input.trim()||loading?"not-allowed":"pointer",
-              display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.15s",
-            }}>
-              <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={!input.trim()||loading?T.muted:"white"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-              </svg>
-            </button>
+          <div style={{ borderTop:`1px solid ${T.border}`, background:T.bg, padding:"8px 16px 20px" }}>
+            {/* Top row — camera and file upload */}
+            <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+              <label style={{ flex:1, padding:"7px 0", borderRadius:10, border:`1px solid ${T.border}`, background:T.elevated, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+                <span style={{ fontSize:15 }}>📷</span>
+                <span style={{ fontSize:11, fontWeight:600, color:T.muted }}>Camera</span>
+                <input type="file" accept="image/*" capture="environment" onChange={handleCameraInput} style={{ display:"none" }} />
+              </label>
+              <label style={{ flex:1, padding:"7px 0", borderRadius:10, border:`1px solid ${T.border}`, background:T.elevated, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+                <span style={{ fontSize:15 }}>📎</span>
+                <span style={{ fontSize:11, fontWeight:600, color:T.muted }}>File</span>
+                <input type="file" accept=".pdf,.txt,.md,image/*" onChange={handleFileUpload} style={{ display:"none" }} />
+              </label>
+            </div>
+            {/* Bottom row — mic, text input, send */}
+            <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+              <button onClick={startListening} style={{
+                width:42, height:42, borderRadius:"50%", flexShrink:0,
+                border:`1px solid ${listening?T.accent:T.border}`,
+                background:listening?`${T.accent}22`:T.elevated,
+                cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
+                boxShadow:listening?`0 0 12px ${T.accent}55`:"none", transition:"all 0.2s",
+              }}>
+                <Icon name="mic" size={18} color={listening?T.accent:T.muted}/>
+              </button>
+              <input
+                value={input}
+                onChange={e=>setInput(e.target.value)}
+                onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage();}}}
+                placeholder={listening?"Listening…":"Message TARS…"}
+                style={{ flex:1, padding:"11px 14px", borderRadius:999, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:14, fontFamily:"inherit", outline:"none" }}
+              />
+              <button onClick={()=>sendMessage()} disabled={!input.trim()||loading} style={{
+                width:42, height:42, borderRadius:"50%", border:"none", flexShrink:0,
+                background:!input.trim()||loading?T.elevated:T.blue,
+                cursor:!input.trim()||loading?"not-allowed":"pointer",
+                display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s",
+              }}>
+                <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={!input.trim()||loading?T.muted:"white"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -2935,26 +2940,7 @@ export default function LifeApp() {
     fatMass:USER.health.fatMass, muscle:USER.health.muscle, bp:USER.health.bp,
   }]);
   const todayLabel = new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"});
-  const [calLog, setCalLog] = useState({
-    "27 Jun 2026": [
-      { id:1, name:"Nescafé Vanilla Latte ×5", kcal:395, protein:5, time:"All day" },
-      { id:2, name:"Breakfast — granola/muesli + Kalό Greek yoghurt", kcal:420, protein:22, time:"Morning" },
-      { id:3, name:"Dinner — salmon + spinach & cucumber salad", kcal:670, protein:56, time:"Evening" },
-      { id:4, name:"Cottage cheese (150g) + flatbread x4", kcal:235, protein:20, time:"Afternoon" },
-      { id:5, name:"Apple", kcal:80, protein:0, time:"Afternoon" },
-    ],
-    "28 Jun 2026": [
-      { id:6, name:"Nescafé Vanilla Latte ×4", kcal:316, protein:4, time:"All day" },
-      { id:7, name:"Breakfast — granola/muesli + Kalό Greek yoghurt", kcal:420, protein:22, time:"Morning" },
-      { id:8, name:"Dinner — salmon + spinach & cucumber salad", kcal:670, protein:56, time:"Evening" },
-      { id:9, name:"Cottage cheese (150g) + flatbread x4", kcal:235, protein:20, time:"Afternoon" },
-    ],
-    "29 Jun 2026": [
-      { id:10, name:"Lunch — salmon + spinach & cucumber salad", kcal:670, protein:56, time:"Lunch" },
-      { id:11, name:"Dinner — Pad Thai Chicken (takeaway)", kcal:700, protein:38, time:"Evening" },
-      { id:12, name:"Copper Kettle chips 150g", kcal:795, protein:6, time:"Afternoon" },
-    ],
-  });
+  const [calLog, setCalLog] = useState({});
 
   // ── CALENDAR STATE (source of truth for whole app) ──────────────────────────
   const [calEvents, setCalEvents] = useState(INIT_CAL_EVENTS);
