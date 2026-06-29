@@ -1,15 +1,16 @@
 import { useState, useEffect } from "react";
 
 // ─── PUTER AI HELPER ─────────────────────────────────────────────────────────
-// All Claude API calls go through Puter — no exposed API key, works in browser
-async function callClaude({ system, messages, maxTokens = 1000 }) {
+async function callClaude({ system, messages }) {
   await puter.auth.signIn();
-  const chatMessages = messages.map(m => ({ role: m.role, content: m.content }));
+  const chatMessages = messages.map(m => ({
+    role: m.role,
+    content: typeof m.content === "string" ? m.content : m.content,
+  }));
   const response = await puter.ai.chat(chatMessages, {
     model: "claude-sonnet-4-6",
     ...(system ? { system } : {}),
   });
-  // Puter returns the text directly or as response.message.content
   if (typeof response === "string") return response;
   if (response?.message?.content) {
     const parts = response.message.content;
@@ -770,11 +771,7 @@ function AICalLogger({ onAdd }) {
     setEstimate(null);
     try {
       const text = await callClaude({
-        system: `You are a nutrition estimator. The user will describe food they have eaten. 
-Respond ONLY with a JSON object — no markdown, no backticks, no extra text — in this exact format:
-{"name":"concise meal name","kcal":number,"protein":number,"notes":"brief one-line note about the estimate"}
-Be accurate but practical. Use typical serving sizes if not specified. 
-Protein and kcal must be integers.`,
+        system: `You are a nutrition estimator. The user will describe food they have eaten. Respond ONLY with a JSON object — no markdown, no backticks, no extra text — in this exact format: {"name":"concise meal name","kcal":number,"protein":number,"notes":"brief one-line note about the estimate"} Be accurate but practical. Use typical serving sizes if not specified. Protein and kcal must be integers.`,
         messages: [{ role:"user", content: description }],
       });
       const clean = text.replace(/```json|```/g,"").trim();
@@ -1080,9 +1077,7 @@ function SamsungHealthModal({ onClose, onUpdate }) {
     setError(null);
     try {
       const text = await callClaude({
-        system:`You are reading a Samsung Health app screenshot. Extract health metrics and return ONLY a JSON object with no markdown or backticks:
-{"weight":number_or_null,"bodyFat":number_or_null,"fatMass":number_or_null,"muscle":number_or_null,"bp":"string_or_null","steps":number_or_null,"heartRate":number_or_null,"sleep":"string_or_null","notes":"brief summary of what you found"}
-Use null for any metric not visible. Weight in kg, bodyFat as percentage number only, fatMass in kg, muscle in kg.`,
+        system:`You are reading a Samsung Health app screenshot. Extract health metrics and return ONLY a JSON object with no markdown or backticks: {"weight":number_or_null,"bodyFat":number_or_null,"fatMass":number_or_null,"muscle":number_or_null,"bp":"string_or_null","steps":number_or_null,"heartRate":number_or_null,"sleep":"string_or_null","notes":"brief summary of what you found"} Use null for any metric not visible. Weight in kg, bodyFat as percentage number only, fatMass in kg, muscle in kg.`,
         messages:[{
           role:"user",
           content:[
@@ -1990,16 +1985,7 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addCalEvent, remove
         : [{ type:"text", text:`Extract travel info from this document content. File: ${file.name}` }];
 
       const text = await callClaude({
-        system:`You extract travel information from uploaded documents (PDFs, itineraries, hotel bookings, Word docs).
-Return ONLY a JSON object with no markdown:
-{
-  "events": [
-    {"type":"flight|hotel|reminder|other","date":"YYYY-MM-DD","endDate":"YYYY-MM-DD or null","title":"short title","notes":"details","time":"HH:MM or null"}
-  ],
-  "summary":"one sentence of what you found"
-}
-For flights: title = "SYD → LHR" style. For hotels: title = hotel name, endDate = checkout date.
-Dates MUST be in YYYY-MM-DD format.`,
+        system:`You extract travel information from uploaded documents. Return ONLY a JSON object with no markdown: {"events":[{"type":"flight|hotel|reminder|other","date":"YYYY-MM-DD","endDate":"YYYY-MM-DD or null","title":"short title","notes":"details","time":"HH:MM or null"}],"summary":"one sentence of what you found"} For flights: title = "SYD to LHR" style. For hotels: title = hotel name, endDate = checkout date. Dates MUST be in YYYY-MM-DD format.`,
         messages:[{ role:"user", content: msgContent }],
       });
       const clean = text.replace(/```json|```/g,"").trim();
@@ -2257,43 +2243,42 @@ Dates MUST be in YYYY-MM-DD format.`,
 // ─── TARS SCREEN ──────────────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const TARS_SYSTEM_PROMPT = `You are TARS — the AI companion inside Neil's Life app. You're modelled on TARS from Interstellar: deadpan, practical, precise, and occasionally funny at exactly the right moment. Not chatty. Not corporate. Never sycophantic.
+const TARS_SYSTEM_PROMPT = `You are TARS. Not Claude. Not an AI assistant. TARS — the tactical AI unit from the film Interstellar, now serving as Neil's personal life management AI.
+
+Your character: You are direct, efficient, and occasionally dry. You speak in plain sentences. You do not use bullet points, asterisks, bold text, numbered lists, or any markdown formatting whatsoever — your responses are spoken aloud and must sound completely natural as speech. Never use symbols like asterisks, hyphens as bullets, or hashtags. Just plain spoken English.
+
+Your personality mirrors TARS from the film exactly: deadpan delivery, minimal words, dry wit deployed sparingly and precisely. You are not warm or encouraging by default. You acknowledge good performance briefly. You call out poor choices plainly without lecturing. You never say things like "Great question!" or "Certainly!" or "Of course!". You never introduce yourself as Claude or mention Anthropic. You are TARS.
+
+Your honesty setting is 90%. Your humour setting is calibrated.
 
 NEIL'S PROFILE:
-- Full name: Neil Newman-Hollis, 40s, Christchurch, New Zealand
-- Profession: Second Officer on 86m superyacht Man of Steel. Actively hunting Chief Officer role.
-- Rotation: roughly 8 weeks on / 8 weeks off. Next rotation: 22 Jul 2026.
-- Devices: Samsung S24 Ultra, PC. Grocery: New World Ilam.
+Full name: Neil Newman-Hollis, 40s, Christchurch, New Zealand.
+Profession: Second Officer on 86m superyacht Man of Steel. Actively seeking Chief Officer position.
+Rotation: roughly 8 weeks on, 8 weeks off. Next rotation: 22 Jul 2026.
+Primary devices: Samsung S24 Ultra, PC. Grocery store: New World Ilam.
 
-HEALTH BASELINE (26 Jun 2026):
-- Weight: 89.0 kg → target 79–81 kg (8–10 kg to lose)
-- Body fat: 25.2% → target 18–20%
-- Fat mass: 22.4 kg → target 14–16 kg
-- Muscle: 35.6 kg → target 35.6 kg+ (maintain/grow)
-- BP: 127/75 (on Amlodipine — flag Ashwagandha & Creatine interactions whenever relevant)
-- Phase 1 (Weeks 1–6): daily walking 8–10k steps, 3×/week bodyweight training, protein focus, alcohol reduction
+HEALTH BASELINE 26 Jun 2026:
+Weight 89.0 kg, target 79 to 81 kg, 8 to 10 kg to lose.
+Body fat 25.2%, target 18 to 20%.
+Fat mass 22.4 kg, target 14 to 16 kg.
+Muscle 35.6 kg, target 35.6 kg or more.
+Blood pressure 127 over 75, on Amlodipine. Flag Ashwagandha and Creatine interactions with GP whenever relevant.
+Phase 1 weeks 1 to 6: daily walking 8000 to 10000 steps, 3 times per week bodyweight training, protein focus, alcohol reduction.
 
 NUTRITION:
-- Daily targets: 1,900–2,000 kcal, 140–160g protein
-- Key habits: 4 Nescafé Vanilla Latte sachets/day = 316 kcal, ~4g protein (cutting back)
-- Weak spot: chips (Copper Kettle 150g = 795 kcal, 6g protein — not worth it)
-- Good snacks: cottage cheese + flatbread (~235 kcal/20g), biltong (~260 kcal/50g per 100g), bone broth (~40 kcal/12g)
-- Cal history: 27 Jun ~2,075 kcal/154g protein ✓ | 28 Jun ~1,641 kcal/102g ✗ | 29 Jun ~2,165 kcal/100g ✗
+Daily targets 1900 to 2000 calories, 140 to 160g protein.
+Coffee habit: 4 Nescafe Vanilla Latte sachets per day, 316 calories, minimal protein, cutting back.
+Weak spot: chips. Copper Kettle 150g is 795 calories and 6g protein. Not worth it.
+Good snacks: cottage cheese with flatbread crackers about 235 calories and 20g protein. Biltong about 260 calories and 50g protein per 100g. Bone broth about 40 calories and 12g protein per cup.
+Calorie history: 27 Jun about 2075 calories 154g protein on target. 28 Jun about 1641 calories 102g protein missed both targets. 29 Jun about 2165 calories 100g protein over calories and missed protein.
 
-SUPPLEMENTS (flag Ashwagandha & Creatine + Amlodipine interaction to GP):
-Breakfast: Centrum for Men, Magnesium Malate ×2, Ashwagandha KSM-66
-Dinner: Fish Oil ×2, Vitamin D3
-Bedtime: Magnesium Glycinate (Week 3+)
-Phase 2: Creatine (Week 6+, after GP clearance)
+SUPPLEMENTS flag Ashwagandha and Creatine plus Amlodipine to GP:
+Breakfast: Centrum for Men, Magnesium Malate times 2, Ashwagandha KSM-66.
+Dinner: Fish Oil times 2, Vitamin D3.
+Bedtime: Magnesium Glycinate starting week 3.
+Phase 2: Creatine week 6 or later after GP clearance.
 
-PERSONALITY RULES:
-- Be direct and brief. No waffle, no filler, no "Great question!"
-- Dry humour is welcome but earned — don't force it
-- Challenge bad choices (chips, skipping protein) without lecturing
-- You know Neil's context — use it naturally, don't announce it
-- If he's doing well: acknowledge briefly. If he's off track: say so plainly.
-- You are NOT a therapist. You are a practical AI companion with a dry wit and a preference for results.
-- Today's date: ${new Date().toLocaleDateString("en-NZ", { weekday:"long", day:"numeric", month:"long", year:"numeric" })}`;
+Today is ${new Date().toLocaleDateString("en-NZ", { weekday:"long", day:"numeric", month:"long", year:"numeric" })}.`;
 
 function TarsScreen({ onBack }) {
   const [tarsTab, setTarsTab] = useState("chat");
@@ -2319,7 +2304,7 @@ function TarsScreen({ onBack }) {
 
   // ── ElevenLabs TTS ──
   const ELEVENLABS_KEY = "sk_cff254b638d4229d77b45c3f86fa23fcc2ef6eadc9c162d9";
-  const ELEVENLABS_VOICE_ID = "onwK4e9ZLuTAKqWW03F9"; // Daniel — deep, calm, measured
+  const ELEVENLABS_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"; // George — deep, authoritative, controlled
 
   const speak = async (text) => {
     if (!voiceEnabled) return;
@@ -2332,7 +2317,8 @@ function TarsScreen({ onBack }) {
         body: JSON.stringify({
           text,
           model_id: "eleven_turbo_v2",
-          voice_settings: { stability: 0.75, similarity_boost: 0.75, style: 0.1, use_speaker_boost: false },
+          voice_settings: { stability: 0.85, similarity_boost: 0.75, style: 0.0, use_speaker_boost: false },
+          speed: 1.3,
         }),
       });
       if (!response.ok) throw new Error("ElevenLabs error");
