@@ -2622,8 +2622,10 @@ Summarise this document and tell me if there is anything I should add to my app.
       if (action) setPendingAction(action);
 
     } catch(e) {
+      const errDetail = e?.message || e?.toString() || "Unknown error";
       setMessages(prev => [...prev, {
-        role:"assistant", content:"Connection error. Check your network.",
+        role:"assistant",
+        content:`Error: ${errDetail}`,
         ts: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}),
         isError: true,
       }]);
@@ -2631,12 +2633,7 @@ Summarise this document and tell me if there is anything I should add to my app.
     setLoading(false);
   };
 
-  const QUICK_PROMPTS = [
-    "Log my morning coffee",
-    "How am I tracking today?",
-    "Add a task to book my GP",
-    "What should I have for dinner?",
-  ];
+
 
   // ── DOC DETAIL ──
   if (selectedDoc) {
@@ -2756,17 +2753,7 @@ Summarise this document and tell me if there is anything I should add to my app.
             </div>
           )}
 
-          {/* Quick prompts */}
-          {messages.length <= 1 && (
-            <div style={{ padding:"0 16px 8px", display:"flex", flexWrap:"wrap", gap:6 }}>
-              {QUICK_PROMPTS.map((p,i)=>(
-                <button key={i} onClick={()=>sendMessage(p)}
-                  style={{ padding:"7px 13px", borderRadius:999, border:`1px solid ${T.border}`, background:T.elevated, color:T.muted, fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
-                  {p}
-                </button>
-              ))}
-            </div>
-          )}
+
 
           {/* Input bar */}
           <div style={{ borderTop:`1px solid ${T.border}`, background:T.bg, padding:"8px 16px 20px" }}>
