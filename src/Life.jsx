@@ -1,28 +1,37 @@
 import { useState, useEffect } from "react";
 
-// ─── PUTER AI HELPER ─────────────────────────────────────────────────────────
-let _puterReady = false;
-async function ensurePuter() {
-  if (_puterReady) return;
-  await puter.auth.signIn();
-  _puterReady = true;
+// ─── ANTHROPIC API HELPER ────────────────────────────────────────────────────
+function getAnthropicKey() {
+  return localStorage.getItem("tars_anthropic_key") || "";
 }
 
 async function callClaude({ system, messages }) {
-  await ensurePuter();
-  // Puter requires system prompt as first message with role "system"
-  const chatMessages = [
-    ...(system ? [{ role: "system", content: system }] : []),
-    ...messages.map(m => ({ role: m.role, content: m.content })),
-  ];
-  const response = await puter.ai.chat(chatMessages, { model: "claude-sonnet-4-6" });
-  if (typeof response === "string") return response;
-  if (response?.message?.content) {
-    const parts = response.message.content;
-    if (Array.isArray(parts)) return parts.map(p => p.text || "").join("");
-    return String(parts);
+  const apiKey = getAnthropicKey();
+  if (!apiKey) throw new Error("NO_KEY");
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 1024,
+      system: system || "",
+      messages: messages.map(m => ({ role: m.role, content: m.content })),
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `API error ${response.status}`);
   }
-  return String(response);
+
+  const data = await response.json();
+  return data.content?.map(b => b.text || "").join("") || "";
 }
 
 // ─── THEME ────────────────────────────────────────────────────────────────────
@@ -2267,6 +2276,20 @@ function TarsScreen({ onBack, appState }) {
   const { tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen } = appState;
 
   const [tarsTab, setTarsTab] = useState("chat");
+  const [showSettings, setShowSettings] = useState(false);
+  const [anthropicKeyInput, setAnthropicKeyInput] = useState("");
+  const [elevenLabsKeyInput, setElevenLabsKeyInput] = useState("");
+  const [keysSaved, setKeysSaved] = useState(false);
+
+  const hasAnthropicKey = () => !!localStorage.getItem("tars_anthropic_key");
+  const hasElevenLabsKey = () => !!localStorage.getItem("tars_elevenlabs_key");
+
+  const saveKeys = () => {
+    if (anthropicKeyInput.trim()) localStorage.setItem("tars_anthropic_key", anthropicKeyInput.trim());
+    if (elevenLabsKeyInput.trim()) localStorage.setItem("tars_elevenlabs_key", elevenLabsKeyInput.trim());
+    setKeysSaved(true);
+    setTimeout(() => { setKeysSaved(false); setShowSettings(false); }, 1200);
+  };
   const [messages, setMessages] = useState([{
     role: "assistant",
     content: "TARS online. Honesty setting: 90%. What do you need?",
@@ -2286,7 +2309,7 @@ function TarsScreen({ onBack, appState }) {
   const messagesEndRef = { current: null };
 
   // ── ElevenLabs TTS ──
-  const ELEVENLABS_KEY = "sk_cff254b638d4229d77b45c3f86fa23fcc2ef6eadc9c162d9";
+  const getElevenLabsKey = () => localStorage.getItem("tars_elevenlabs_key") || "";
   const ELEVENLABS_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb";
 
   const speak = async (text) => {
@@ -2296,7 +2319,7 @@ function TarsScreen({ onBack, appState }) {
     try {
       const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "xi-api-key": ELEVENLABS_KEY },
+        headers: { "Content-Type": "application/json", "xi-api-key": getElevenLabsKey() },
         body: JSON.stringify({
           text,
           model_id: "eleven_turbo_v2",
@@ -2814,7 +2837,7 @@ Summarise this document and tell me if there is anything I should add to my app.
       const errDetail = e?.message || e?.toString() || "Unknown error";
       setMessages(prev => [...prev, {
         role:"assistant",
-        content:`Error: ${errDetail}`,
+        content: errDetail === "NO_KEY" ? "No Anthropic API key set. Tap ⚙️ above to add your key." : `Error: ${errDetail}`,
         ts: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}),
         isError: true,
       }]);
@@ -2877,9 +2900,33 @@ Summarise this document and tell me if there is anything I should add to my app.
             style={{ background:voiceEnabled?`${T.blue}22`:T.elevated, border:`1px solid ${voiceEnabled?T.blue+"44":T.border}`, borderRadius:999, padding:"4px 10px", fontSize:11, fontWeight:700, color:voiceEnabled?T.blue:T.muted, cursor:"pointer", fontFamily:"inherit" }}>
             {voiceEnabled?"🔊":"🔇"}
           </button>
-          <div style={{ width:10, height:10, borderRadius:"50%", background:T.green, boxShadow:`0 0 8px ${T.green}` }}/>
+          <button onClick={()=>setShowSettings(s=>!s)} style={{ background:T.elevated, border:`1px solid ${T.border}`, borderRadius:999, padding:"4px 10px", fontSize:11, fontWeight:700, color:T.muted, cursor:"pointer", fontFamily:"inherit" }}>⚙️</button>
+          <div style={{ width:10, height:10, borderRadius:"50%", background:hasAnthropicKey()?T.green:T.accent, boxShadow:`0 0 8px ${hasAnthropicKey()?T.green:T.accent}` }}/>
         </div>
       </div>
+
+      {/* Settings panel */}
+      {showSettings && (
+        <div style={{ margin:"12px 16px 0", background:T.card, borderRadius:14, padding:"14px 16px", border:`1px solid ${T.border}` }}>
+          <div style={{ fontSize:13, fontWeight:700, color:T.text, marginBottom:12 }}>API Keys</div>
+          <div style={{ fontSize:11, color:T.muted, marginBottom:10, lineHeight:1.5 }}>Keys are saved to this device only. Never stored in the app code.</div>
+          <div style={{ marginBottom:10 }}>
+            <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:4 }}>Anthropic API Key {hasAnthropicKey() ? "✓" : "⚠️ Required"}</div>
+            <input type="password" value={anthropicKeyInput} onChange={e=>setAnthropicKeyInput(e.target.value)}
+              placeholder={hasAnthropicKey() ? "sk-ant-... (saved — paste to update)" : "sk-ant-..."}
+              style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${hasAnthropicKey()?T.green:T.accent}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:4 }}>ElevenLabs API Key {hasElevenLabsKey() ? "✓" : "(optional — for voice)"}</div>
+            <input type="password" value={elevenLabsKeyInput} onChange={e=>setElevenLabsKeyInput(e.target.value)}
+              placeholder={hasElevenLabsKey() ? "sk-... (saved — paste to update)" : "sk-..."}
+              style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${hasElevenLabsKey()?T.green:T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+          </div>
+          <button onClick={saveKeys} style={{ width:"100%", padding:"9px", borderRadius:9, background:keysSaved?T.green:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit", transition:"background 0.2s" }}>
+            {keysSaved ? "✓ Saved" : "Save Keys"}
+          </button>
+        </div>
+      )}
 
       {/* Sub tabs */}
       <div style={{ padding:"12px 16px 0" }}>
