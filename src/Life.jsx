@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 // ─── ANTHROPIC API HELPER ────────────────────────────────────────────────────
 function getAnthropicKey() {
@@ -2332,8 +2332,9 @@ function TarsScreen({ onBack, appState }) {
   const [vaultLoading, setVaultLoading] = useState(false);
   const [vaultError, setVaultError] = useState(null);
   const [selectedDoc, setSelectedDoc] = useState(null);
-  const audioRef = { current: null };
-  const messagesEndRef = { current: null };
+  const audioRef = useRef(null);
+  const messagesEndRef = useRef(null);
+  const speakRequestId = useRef(0);
 
   // ── Proactive opening nudge ──
   useEffect(() => {
@@ -2390,6 +2391,7 @@ Generate your opening message.` }]
   const speak = async (text) => {
     if (!voiceEnabled) return;
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    const myRequestId = ++speakRequestId.current;
     setSpeaking(true);
     try {
       const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
@@ -2404,6 +2406,8 @@ Generate your opening message.` }]
       });
       if (!res.ok) throw new Error("ElevenLabs error");
       const blob = await res.blob();
+      // If Stop/Mute was pressed while this fetch was in flight, or voice got disabled, don't play
+      if (myRequestId !== speakRequestId.current || !voiceEnabled) { setSpeaking(false); return; }
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audioRef.current = audio;
@@ -2414,6 +2418,7 @@ Generate your opening message.` }]
   };
 
   const stopSpeaking = () => {
+    speakRequestId.current++; // invalidate any in-flight speak() calls so they don't start playing after this
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
@@ -3096,28 +3101,7 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
     const text = (textOverride !== undefined ? textOverride : input).trim();
     if (!text || loading) return;
     setInput("");
-    setPendingAction(null);
-
-    // Handle confirmation of pending action
-    const confirmWords = ["yes","confirm","do it","go ahead","yep","yeah","correct","ok","sure"];
-    const denyWords = ["no","cancel","stop","don't","dont","nope","negative"];
-    if (pendingAction) {
-      const lower = text.toLowerCase();
-      if (confirmWords.some(w => lower.includes(w))) {
-        executeAction(pendingAction);
-        const confirmMsg = { role:"assistant", content:"Done.", ts: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) };
-        setMessages(prev => [...prev, { role:"user", content:text, ts:confirmMsg.ts }, confirmMsg]);
-        speak("Done.");
-        return;
-      }
-      if (denyWords.some(w => lower.includes(w))) {
-        const cancelMsg = { role:"assistant", content:"Cancelled.", ts: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) };
-        setMessages(prev => [...prev, { role:"user", content:text, ts:cancelMsg.ts }, cancelMsg]);
-        speak("Cancelled.");
-        setPendingAction(null);
-        return;
-      }
-    }
+    if (pendingAction) setPendingAction(null); // new message supersedes any unconfirmed action — use the card buttons to confirm/cancel instead
 
     const userMsg = { role:"user", content:text, ts: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) };
     const newMessages = [...messages, userMsg];
