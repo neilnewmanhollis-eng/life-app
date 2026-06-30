@@ -4209,7 +4209,51 @@ export default function LifeApp() {
     };
   }, []);
 
-  const [screen, setScreen] = useState("home");
+  const [screen, setScreenRaw] = useState("home");
+
+  // ── Android back-gesture / swipe-back handling ──────────────────────────────
+  // By default, Android's edge-swipe gesture on an installed PWA closes the app
+  // entirely rather than navigating back within it, since there's no browser history
+  // for it to step back through — every screen change here was just swapping React
+  // state, invisible to the OS. The fix: every navigation pushes a real entry onto
+  // the browser history stack, and we listen for the resulting "popstate" event
+  // (which fires when the system swipe-back or hardware back button is used) to
+  // step back to the previous screen in our own history instead of letting the
+  // browser's default behaviour (closing the PWA) happen.
+  const screenHistory = useRef(["home"]);
+  const isPoppingState = useRef(false);
+
+  const setScreen = (next) => {
+    setScreenRaw(next);
+    if (isPoppingState.current) { isPoppingState.current = false; return; } // came from a back-gesture, don't push again
+    screenHistory.current.push(next);
+    try { window.history.pushState({ screen: next }, "", ""); } catch {}
+  };
+
+  useEffect(() => {
+    const handlePopState = (e) => {
+      // Pop our own internal history first — if there's a previous screen, go there
+      // instead of letting the browser actually navigate away or close the app.
+      if (screenHistory.current.length > 1) {
+        screenHistory.current.pop();
+        const prevScreen = screenHistory.current[screenHistory.current.length - 1];
+        isPoppingState.current = true;
+        setScreenRaw(prevScreen);
+        // Re-push state so the next swipe-back still has something to pop —
+        // otherwise after one swipe the app would have nothing left and the
+        // very next swipe would close it.
+        try { window.history.pushState({ screen: prevScreen }, "", ""); } catch {}
+      }
+      // If we're already on the last screen in our stack (effectively Home),
+      // do nothing further here — letting the event proceed naturally means a
+      // second swipe from Home will close the app, which is the expected exit point.
+    };
+    window.addEventListener("popstate", handlePopState);
+    // Establish an initial history entry so the very first swipe-back has something to catch
+    try { window.history.replaceState({ screen: "home" }, "", ""); } catch {}
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
   const [tasks, setTasks] = usePersistentState("life_tasks", INIT_TASKS);
 
   // ── HEALTH STATE (source of truth — TARS can write here) ───────────────────
