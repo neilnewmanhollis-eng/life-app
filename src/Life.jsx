@@ -41,9 +41,17 @@ function getAnthropicKey() {
   return localStorage.getItem("tars_anthropic_key") || "";
 }
 
-async function callClaude({ system, messages }) {
+async function callClaudeRaw({ system, messages, tools }) {
   const apiKey = getAnthropicKey();
   if (!apiKey) throw new Error("NO_KEY");
+
+  const body = {
+    model: "claude-sonnet-4-6",
+    max_tokens: 1024,
+    system: system || "",
+    messages,
+  };
+  if (tools && tools.length > 0) body.tools = tools;
 
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -53,21 +61,58 @@ async function callClaude({ system, messages }) {
       "anthropic-version": "2023-06-01",
       "anthropic-dangerous-direct-browser-access": "true",
     },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1024,
-      system: system || "",
-      messages: messages.map(m => ({ role: m.role, content: m.content })),
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
     throw new Error(err?.error?.message || `API error ${response.status}`);
   }
+  return response.json();
+}
 
-  const data = await response.json();
+// Simple version — no tools, just text in, text out (used by memory summarisation etc)
+async function callClaude({ system, messages }) {
+  const data = await callClaudeRaw({ system, messages: messages.map(m => ({ role: m.role, content: m.content })) });
   return data.content?.map(b => b.text || "").join("") || "";
+}
+
+// Tool-use version — lets Claude call search_vault to look up real documents from the
+// vault by itself, the same way Claude (in this chat, talking to Neil) can search files
+// rather than guessing. toolHandlers maps tool name -> function that returns a result string.
+async function callClaudeWithTools({ system, messages, tools, toolHandlers, maxRounds = 4 }) {
+  let convo = messages.map(m => ({ role: m.role, content: m.content }));
+
+  for (let round = 0; round < maxRounds; round++) {
+    const data = await callClaudeRaw({ system, messages: convo, tools });
+    const stopReason = data.stop_reason;
+    const blocks = data.content || [];
+
+    if (stopReason !== "tool_use") {
+      // Final answer — return the text
+      return blocks.map(b => b.text || "").join("");
+    }
+
+    // Claude wants to call one or more tools — run them and feed results back
+    convo.push({ role: "assistant", content: blocks });
+
+    const toolResults = [];
+    for (const block of blocks) {
+      if (block.type === "tool_use") {
+        const handler = toolHandlers[block.name];
+        let resultContent = "Tool not available.";
+        try {
+          resultContent = handler ? await handler(block.input) : resultContent;
+        } catch (err) {
+          resultContent = `Tool error: ${err.message}`;
+        }
+        toolResults.push({ type: "tool_result", tool_use_id: block.id, content: resultContent });
+      }
+    }
+    convo.push({ role: "user", content: toolResults });
+  }
+
+  return "I tried looking that up but couldn't pin it down — can you be a bit more specific?";
 }
 
 // ─── THEME ────────────────────────────────────────────────────────────────────
@@ -2325,7 +2370,7 @@ Keep the total under 400 words. Return only the updated memory text, no preamble
 }
 
 function TarsScreen({ onBack, appState }) {
-  const { tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen } = appState;
+  const { tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages } = appState;
 
   const [tarsTab, setTarsTab] = useState("chat");
   const [showSettings, setShowSettings] = useState(false);
@@ -2355,7 +2400,8 @@ function TarsScreen({ onBack, appState }) {
     setMemoryJustSaved(true);
     setTimeout(() => setMemoryJustSaved(false), 2000);
   };
-  const [messages, setMessages] = useState([]);
+  const messages = tarsMessages;
+  const setMessages = setTarsMessages;
   const [nudgeLoading, setNudgeLoading] = useState(true);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -2372,53 +2418,16 @@ function TarsScreen({ onBack, appState }) {
   const audioRef = useRef(null);
   const messagesEndRef = useRef(null);
   const speakRequestId = useRef(0);
+  const lastUploadedFile = useRef(null); // { kind, base64/text, mediaType, name } — re-attached to follow-up questions until a new file is uploaded
 
-  // ── Proactive opening nudge ──
+  // ── Opening greeting — only on a genuinely fresh session (empty messages), not every time
+  // Neil navigates back to TARS. Proactive nudge parked for now (too frequent/repetitive). ──
   useEffect(() => {
-    const generateNudge = async () => {
+    if (messages.length === 0) {
       const now = new Date();
-      const hour = now.getHours();
-      const timeOfDay = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
-      const todayEntries = calLog[todayLabel] || [];
-      const todayKcal = todayEntries.reduce((s,e)=>s+e.kcal,0);
-      const todayProtein = todayEntries.reduce((s,e)=>s+e.protein,0);
-      const latestHealth = healthEntries[healthEntries.length-1] || {};
-      const pendingTasks = tasks.filter(t=>!t.done);
-      const highPriorityTasks = pendingTasks.filter(t=>t.priority==="high").map(t=>t.text).join(", ");
-
-      // Build a context string for the nudge
-      const nudgeContext = `Time: ${timeOfDay} (${hour}:${String(now.getMinutes()).padStart(2,'0')}).
-Calories logged today: ${todayKcal} of 1900-2000 target.
-Protein logged today: ${todayProtein}g of 140-160g target.
-Current weight: ${latestHealth.weight || 89.0} kg, target 79-81 kg.
-High priority pending tasks: ${highPriorityTasks || "none"}.`;
-
-      if (!getAnthropicKey()) {
-        setMessages([{ role:"assistant", content:"TARS online. No API key set — tap ⚙️ to add your Anthropic key.", ts: now.toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) }]);
-        setNudgeLoading(false);
-        return;
-      }
-
-      try {
-        const reply = await callClaude({
-          system: `You are TARS, Neil's personal AI. Generate a single short opening message — one to three sentences max. 
-Check the live data and say something genuinely useful or observational if the data warrants it. 
-If calories are low for the time of day, mention it. If protein is behind, flag it. If there are high priority tasks, note one. If it's evening and targets are nearly met, acknowledge it briefly.
-If nothing is notably off, just come online with a short dry greeting — no need to force an observation.
-Never be generic. Never say "Great to see you" or "How can I help". Be TARS. Plain spoken English, no markdown.`,
-          messages: [{ role:"user", content:`Live data:
-${nudgeContext}
-
-Generate your opening message.` }]
-        });
-        setMessages([{ role:"assistant", content:reply, ts: now.toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) }]);
-        if (voiceEnabled) setTimeout(() => speak(reply), 300);
-      } catch {
-        setMessages([{ role:"assistant", content:"TARS online. Honesty setting: 90%. What do you need?", ts: now.toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) }]);
-      }
-      setNudgeLoading(false);
-    };
-    generateNudge();
+      setMessages([{ role:"assistant", content:"TARS online. What do you need?", ts: now.toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) }]);
+    }
+    setNudgeLoading(false);
   }, []);
 
   // ── ElevenLabs TTS ──
@@ -2428,7 +2437,7 @@ Generate your opening message.` }]
   const speak = async (text) => {
     if (!voiceEnabled) return;
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
-    const myRequestId = ++speakRequestId.current;
+    const myRequestId = speakRequestId.current; // capture current id WITHOUT incrementing — only stopSpeaking() increments
     setSpeaking(true);
     try {
       const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
@@ -2443,7 +2452,7 @@ Generate your opening message.` }]
       });
       if (!res.ok) throw new Error("ElevenLabs error");
       const blob = await res.blob();
-      // If Stop/Mute was pressed while this fetch was in flight, or voice got disabled, don't play
+      // Only skip playback if Stop/Mute was explicitly pressed while this fetch was in flight
       if (myRequestId !== speakRequestId.current || !voiceEnabled) { setSpeaking(false); return; }
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
@@ -2664,21 +2673,32 @@ A React PWA deployed on GitHub Pages at: https://neilnewmanhollis-eng.github.io/
     const today = now.toLocaleDateString("en-NZ", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
     const todayISO = now.toLocaleDateString("en-CA"); // YYYY-MM-DD in local device time
 
-    // Build a hard date-anchor table for the next 14 days so TARS never has to calculate
+    // Build a hard date-anchor table for the next 30 days so TARS never has to calculate
     // "this Friday" or "next Tuesday" itself — it just looks up the exact date.
     const dateAnchor = [];
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < 30; i++) {
       const d = new Date(now);
       d.setDate(now.getDate() + i);
       const label = i === 0 ? "Today" : i === 1 ? "Tomorrow" : d.toLocaleDateString("en-NZ", { weekday:"long" });
       dateAnchor.push(`${label}: ${d.toLocaleDateString("en-CA")} (${d.toLocaleDateString("en-NZ",{weekday:"long",day:"numeric",month:"long"})})`);
     }
 
+    // Long-range monthly anchors covering 2 years out — gives TARS a reliable fixed point
+    // per month (the 1st of each month and its day name) so it can correctly work out any
+    // date far in the future for rotation planning, flights, or certificate expiries,
+    // without needing a full day-by-day table that far out (which would be huge and costly).
+    const monthAnchor = [];
+    for (let i = 0; i < 24; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      monthAnchor.push(`${d.toLocaleDateString("en-NZ",{month:"long",year:"numeric"})}: 1st is a ${d.toLocaleDateString("en-NZ",{weekday:"long"})}`);
+    }
+
     const todayEntries = calLog[todayLabel] || [];
     const todayKcal = todayEntries.reduce((s,e)=>s+e.kcal,0);
     const todayProtein = todayEntries.reduce((s,e)=>s+e.protein,0);
     const latestHealth = healthEntries[healthEntries.length-1] || {};
-    const pendingTasks = tasks.filter(t=>!t.done).slice(0,5).map(t=>t.text).join(", ");
+    const pendingTasksFull = tasks.filter(t=>!t.done);
+    const pendingTasks = pendingTasksFull.map(t=>`id:${t.id} "${t.text}"`).join(", ");
     const upcomingEvents = calEvents
       .filter(e=>new Date(e.date)>=new Date())
       .sort((a,b)=>new Date(a.date)-new Date(b.date))
@@ -2734,15 +2754,27 @@ DATE FORMAT RULE — CRITICAL:
 All dates you speak or write must be day-first. Either spell the month out in full, e.g. "4 July 2026" or "Saturday the 4th of July", or if you must use numbers, always write them as DD/MM/YYYY, e.g. "04/07/2026" for the 4th of July. NEVER write dates as MM/DD/YYYY American-style under any circumstances — Neil reads day/month/year only and a reversed date could send him to the wrong appointment on the wrong day.
 
 DATE HANDLING — CRITICAL, READ CAREFULLY:
-You must NEVER calculate dates yourself by counting days in your head. You have a fixed reference table below mapping every day name to its exact date for the next two weeks. When Neil says "Friday" or "this Saturday" or "tomorrow", look it up in the table — do not compute it. If a date Neil mentions is outside this 14 day window, state the exact date you've worked out and ask him to confirm it before proceeding, since you have no anchor table that far out.
-Before creating any calendar event, ALWAYS state the resolved date back in full plain language including the day name, e.g. "Friday the 3rd of July" — never just "Friday" — so any mismatch between what Neil meant and what you understood is caught immediately, before it's saved.
-DATE REFERENCE TABLE (today and next 13 days, device local time):
+You must NEVER calculate dates yourself by counting days in your head. You have two fixed reference tables below — use them, do not compute dates manually under any circumstances.
+For anything within the next 30 days, use the DAILY REFERENCE TABLE — it maps every day name to its exact date. When Neil says "Friday" or "this Saturday" or "tomorrow", look it up directly.
+For anything further out — rotation planning, flights, hotel bookings, certificate expiries, or any date more than 30 days away — use the MONTHLY ANCHOR TABLE, which gives you the day-of-week for the 1st of each month for the next 2 years. From that single fixed point you can reliably count forward within that month to find any date Neil mentions (e.g. if the 1st of October 2026 is a Thursday, the 15th is two weeks later, also a Thursday). Work this out carefully and always show your reasoning briefly if it's not obvious, then state the resolved date back to Neil for confirmation before saving anything.
+Before creating any calendar event, ALWAYS state the resolved date back in full plain language including the day name, e.g. "Friday the 3rd of July 2026" — never just "Friday" — so any mismatch between what Neil meant and what you understood is caught immediately, before it's saved.
+
+DAILY REFERENCE TABLE (today and next 29 days, device local time):
 ${dateAnchor.join("\n")}
+
+MONTHLY ANCHOR TABLE (1st of each month, next 24 months — use for dates beyond 30 days out):
+${monthAnchor.join("\n")}
 
 TIMEZONE HANDLING — CRITICAL:
 Neil travels constantly for work and crosses timezones often. His phone's current timezone is always correct — it updates automatically as he travels — and "today" above is already in his current local time, wherever he is.
 Calendar events follow the same convention as Google Calendar and every other calendar app: a time you are given is ALWAYS local to wherever that event takes place, never converted to NZ time or to Neil's current location. If Neil says a flight departs Brisbane at 2100, that means 9pm Brisbane time, full stop — store it exactly as given, do not convert it.
 For flights, hotels, or any event clearly happening somewhere other than Christchurch, always capture the city/location and include it in the event so it displays clearly, e.g. "Flight departs 2100, Brisbane". For ordinary local reminders and appointments in Christchurch, a location is not necessary.
+
+VAULT USE — CRITICAL:
+You have a search_vault tool. Use it whenever Neil asks about something that might be in a previously uploaded document — flight times, hotel addresses, check-in times, booking references, certificate expiry dates, leave schedules — and you don't already have the specific detail in front of you. Don't guess from memory of what you said earlier; call the tool and read the real document. You'll be given a vault index showing what's available — match Neil's natural description (e.g. "my Brisbane hotel") against the index by reasoning about name, type, and summary, then retrieve the right one. If nothing in the index looks like a good match, say so plainly rather than guessing.
+
+VAULT-WORTHY DOCUMENTS — judgement call:
+When Neil uploads a file, decide if it belongs in the permanent vault or not. Reference material he'll want to come back to later belongs in the vault: flights, hotel bookings, leave planners, work certificates, qualifications, itineraries, official documents with dates or reference numbers. One-off in-the-moment tasks do NOT belong in the vault: a food photo for calorie logging, a Samsung Health screenshot for a single check-in — these get used once and discarded, no lasting value. If you're genuinely unsure which category something falls into, ask Neil rather than guessing either way.
 
 ACTION PROTOCOL — CRITICAL:
 When you want to perform an action, you MUST include a JSON block at the end of your message in this exact format:
@@ -2767,9 +2799,9 @@ For logging health check-in:
 Your natural response here. Confirm?
 ACTION:{"type":"log_health","weight":88.5,"bodyFat":24.5}
 
-For completing/ticking off a task:
+For completing/ticking off a task — use the exact task id from the pending tasks list given to you, never guess the text:
 Done. 
-ACTION:{"type":"complete_task","text":"book GP appointment"}
+ACTION:{"type":"complete_task","id":"1719820800000"}
 
 For deleting a calendar event:
 Your natural response here, confirming exactly which event you're about to remove including its date. Confirm?
@@ -2781,7 +2813,7 @@ LIVE DATA — right now:
 Today is ${today}.
 Weight: ${latestHealth.weight || 89.0} kg. Body fat: ${latestHealth.bodyFat || 25.2}%. Fat mass: ${latestHealth.fatMass || 22.4} kg. Muscle: ${latestHealth.muscle || 35.6} kg. BP: ${latestHealth.bp || "127/75"}.
 Calories logged today: ${todayKcal}. Protein: ${todayProtein}g. Targets: 1900 to 2000 cal, 140 to 160g protein.
-Pending tasks: ${pendingTasks || "none"}.
+Pending tasks (use the id when marking one complete — match Neil's natural description, e.g. "the GP appointment" or "I booked my doctor", against the task text below, then use that task's exact id): ${pendingTasks || "none"}.
 Upcoming events: ${upcomingEvents || "none"}.
 
 ${memory ? `MEMORY FROM PREVIOUS SESSIONS — things learned about Neil over time:
@@ -2803,7 +2835,7 @@ ${memory}` : "No previous session memory yet. This is early days."}`;
         break;
       }
       case "complete_task": {
-        setTasks(prev => prev.map(t => t.text.toLowerCase().includes(action.payload.text.toLowerCase().slice(0,20)) ? {...t, done:true} : t));
+        setTasks(prev => prev.map(t => String(t.id) === String(action.payload.id) ? {...t, done:true} : t));
         break;
       }
       case "add_cal_event": {
@@ -2859,8 +2891,10 @@ ${memory}` : "No previous session memory yet. This is early days."}`;
           return { type:"add_cal_events", payload:{ events:data.events||[] }, description:`Add ${data.events?.length||0} events to calendar` };
         case "log_health":
           return { type:"log_health", payload:{ weight:data.weight, bodyFat:data.bodyFat, fatMass:data.fatMass, muscle:data.muscle, bp:data.bp }, description:`Log health check-in` };
-        case "complete_task":
-          return { type:"complete_task", payload:{ text:data.text }, description:`Complete task: "${data.text}"` };
+        case "complete_task": {
+          const matchedTask = tasks.find(t => String(t.id) === String(data.id));
+          return { type:"complete_task", payload:{ id:data.id }, description:`Mark complete: "${matchedTask?.text || "task"}"` };
+        }
         case "delete_cal_event":
           return { type:"delete_cal_event", payload:{ title:data.title, date:data.date }, description:`Delete "${data.title}" on ${formatDateDDMMYYYY(data.date)}` };
         default: return null;
@@ -2924,6 +2958,9 @@ ${memory}` : "No previous session memory yet. This is early days."}`;
       };
       setMessages(prev => [...prev, userMsg]);
 
+      // Remember this image so follow-up questions can still reference it
+      lastUploadedFile.current = { kind:"image", base64, mediaType:file.type, fileName:file.name||"photo", fileType:file.type };
+
       // Step 1 — classify what the image is
       const classifyReply = await callClaude({
         system: `You are an image classifier. Look at this image and respond with exactly one word only:
@@ -2979,12 +3016,13 @@ OTHER — anything else`,
       const action = parseActionFromReply(reply);
       if (action) setPendingAction(action);
 
-      // Auto-add to vault if it's a document
+      // Auto-add to vault if it's a document — store full content for later re-reading
       if (imageType === "DOCUMENT") {
         setVault(prev => [{
           id: Date.now(), name: file.name || "Photo document", type: file.type,
           size: file.size, uploadedAt: new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}),
           docType: "Document", summary: reply, keyPoints: [], base64,
+          fullContent: base64, contentKind: "image",
         }, ...prev]);
       }
 
@@ -3089,6 +3127,11 @@ OTHER — anything else`,
       ...(extracted.kind==="image" ? { isPhoto:true, photoUrl:URL.createObjectURL(file) } : {})
     }]);
 
+    // Remember this file's content so follow-up questions ("what time does it arrive")
+    // can still reference it — Claude has no memory of uploaded files beyond the single
+    // turn they were sent in, so we re-attach this on every subsequent message.
+    lastUploadedFile.current = { ...extracted, fileName: file.name, fileType: file.type };
+
     const systemAddendum = `The user has uploaded a file: ${file.name}.${comment ? ` Their instruction: "${comment}"` : " No specific instruction given — use your judgement."}
 Your job: understand the full content, then act on it. 
 If it contains dates, events, flights, hotel bookings, appointments or a leave schedule → extract them all and offer to add to the calendar one by one or all at once.
@@ -3125,12 +3168,17 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
     const action = parseActionFromReply(reply);
     if (action) setPendingAction(action);
 
-    // Auto-vault documents
+    // Auto-vault documents — store the FULL extracted content, not just a summary,
+    // so TARS can genuinely re-read the original later for specific follow-up questions
+    // (check-in times, addresses, booking references etc), not just recall what he
+    // said about it at upload time.
     if (extracted.kind !== "image") {
       setVault(prev => [{
         id:Date.now(), name:file.name, type:file.type, size:file.size,
         uploadedAt:new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}),
         docType:"Document", summary:reply.slice(0,300), keyPoints:[],
+        fullContent: extracted.kind === "text" ? extracted.text : extracted.base64,
+        contentKind: extracted.kind, // "text" or "pdf" — tells the vault search how to re-attach it later
       }, ...prev]);
     }
   };
@@ -3192,9 +3240,57 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
         .filter(m => typeof m.content === "string")
         .map(m => ({ role:m.role, content:m.content }));
 
-      const reply = await callClaude({
-        system: buildSystemPrompt(),
+      // ── VAULT SEARCH TOOL — lets TARS look up any previously uploaded document by
+      // natural description ("my Brisbane hotel", "the flight on the 16th"), the same way
+      // Claude can search files in this chat, rather than guessing from memory or only
+      // having access to whatever was uploaded most recently. ──
+      const vaultIndex = vault.map(d => `id:${d.id} | ${d.name} | ${d.docType} | uploaded ${d.uploadedAt} | ${d.summary?.slice(0,150) || ""}`).join("\n");
+
+      const vaultTool = {
+        name: "search_vault",
+        description: "Search Neil's document vault (flights, hotels, certificates, leave planners, bookings etc) to find and read the FULL content of a specific document when he asks about details not already in your context — e.g. check-in times, addresses, booking references, exact dates. Call this whenever a question references a document you don't already have the full content for in this conversation.",
+        input_schema: {
+          type: "object",
+          properties: {
+            documentId: { type:"string", description:"The id of the document to retrieve, from the vault index you've been given. Pick the best match based on name, type, and summary." }
+          },
+          required: ["documentId"]
+        }
+      };
+
+      const toolHandlers = {
+        search_vault: async (input) => {
+          const doc = vault.find(d => String(d.id) === String(input.documentId));
+          if (!doc) return "Document not found in vault.";
+          if (doc.contentKind === "text" && doc.fullContent) {
+            return `Full content of "${doc.name}":\n\n${doc.fullContent}`;
+          }
+          if (doc.contentKind === "pdf" && doc.fullContent) {
+            return [
+              { type:"document", source:{ type:"base64", media_type:"application/pdf", data:doc.fullContent } },
+              { type:"text", text:`The above is the full original PDF for "${doc.name}", uploaded ${doc.uploadedAt}. Read it carefully to answer Neil's question.` }
+            ];
+          }
+          if (doc.contentKind === "image" && doc.fullContent) {
+            return [
+              { type:"image", source:{ type:"base64", media_type:doc.type, data:doc.fullContent } },
+              { type:"text", text:`The above is the original image for "${doc.name}", uploaded ${doc.uploadedAt}. Read it carefully to answer Neil's question.` }
+            ];
+          }
+          // Fallback — older vault entries from before fullContent was stored
+          return `Document "${doc.name}" (${doc.docType}, uploaded ${doc.uploadedAt}). Only a summary is available for this older entry: ${doc.summary || "No summary available."}`;
+        }
+      };
+
+      const systemWithVault = buildSystemPrompt() + (vault.length > 0
+        ? `\n\nVAULT INDEX — documents Neil has previously uploaded (use the search_vault tool to retrieve full details for any of these when relevant to his question):\n${vaultIndex}`
+        : "\n\nVault is currently empty — no documents uploaded yet.");
+
+      const reply = await callClaudeWithTools({
+        system: systemWithVault,
         messages: apiMessages,
+        tools: [vaultTool],
+        toolHandlers,
       });
 
       const displayReply = stripAction(reply);
@@ -3599,6 +3695,12 @@ export default function LifeApp() {
   const todayLabel = new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"});
   const [calLog, setCalLog] = usePersistentState("life_cal_log", {});
 
+  // ── TARS CHAT STATE — lives here (not inside TarsScreen) so it survives navigating
+  // away and back, but resets naturally when the app is fully closed since it's plain
+  // in-memory state, not localStorage. This matches the "stays while I'm working,
+  // clears when I'm done for the day" behaviour Neil wanted. ──
+  const [tarsMessages, setTarsMessages] = useState([]);
+
   // ── CALENDAR STATE (source of truth for whole app) ──────────────────────────
   const [calEvents, setCalEvents] = usePersistentState("life_cal_events", INIT_CAL_EVENTS);
   const [rotationBlocks, setRotationBlocks] = usePersistentState("life_rotation_blocks", INIT_ROTATION);
@@ -3644,7 +3746,7 @@ export default function LifeApp() {
       case "calendar": return <CalendarScreen onBack={()=>setScreen("home")} calEvents={calEvents} rotationBlocks={rotationBlocks} addCalEvent={addCalEvent} removeCalEvent={removeCalEvent} addRotation={addRotation} removeRotation={removeRotation} tasks={tasks} />;
       case "finance":  return <ComingSoon label="Finance" icon="finance" accent={T.purple} onBack={()=>setScreen("home")} />;
       case "work":     return <ComingSoon label="Work" icon="work" accent={T.blue} onBack={()=>setScreen("home")} />;
-      case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen }} />;
+      case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages }} />;
       default:         return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} />;
     }
   };
