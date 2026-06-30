@@ -24,6 +24,19 @@ function usePersistentState(key, defaultValue) {
   return [value, setValue];
 }
 
+// ─── DATE FORMAT STANDARD ─────────────────────────────────────────────────────
+// All numeric dates in this app are DD/MM/YYYY — day first, to match NZ convention
+// and avoid any US-style MM/DD ambiguity. Use this helper anywhere a strict
+// numeric date is needed. Long-form display dates (e.g. "4 July 2026") are
+// already unambiguous and don't need this.
+function formatDateDDMMYYYY(date) {
+  const d = new Date(date);
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const year = d.getFullYear();
+  return `${day}/${month}/${year}`;
+}
+
 function getAnthropicKey() {
   return localStorage.getItem("tars_anthropic_key") || "";
 }
@@ -2312,7 +2325,7 @@ Keep the total under 400 words. Return only the updated memory text, no preamble
 }
 
 function TarsScreen({ onBack, appState }) {
-  const { tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen } = appState;
+  const { tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen } = appState;
 
   const [tarsTab, setTarsTab] = useState("chat");
   const [showSettings, setShowSettings] = useState(false);
@@ -2717,6 +2730,9 @@ He goes quiet when something impresses him then comes back with a short enthusia
 CAPABILITIES:
 Log food to calorie tracker. Add tasks. Add calendar events. Log health check-ins. Read photos and documents. Answer questions about health, nutrition, rotation, tasks.
 
+DATE FORMAT RULE — CRITICAL:
+All dates you speak or write must be day-first. Either spell the month out in full, e.g. "4 July 2026" or "Saturday the 4th of July", or if you must use numbers, always write them as DD/MM/YYYY, e.g. "04/07/2026" for the 4th of July. NEVER write dates as MM/DD/YYYY American-style under any circumstances — Neil reads day/month/year only and a reversed date could send him to the wrong appointment on the wrong day.
+
 DATE HANDLING — CRITICAL, READ CAREFULLY:
 You must NEVER calculate dates yourself by counting days in your head. You have a fixed reference table below mapping every day name to its exact date for the next two weeks. When Neil says "Friday" or "this Saturday" or "tomorrow", look it up in the table — do not compute it. If a date Neil mentions is outside this 14 day window, state the exact date you've worked out and ask him to confirm it before proceeding, since you have no anchor table that far out.
 Before creating any calendar event, ALWAYS state the resolved date back in full plain language including the day name, e.g. "Friday the 3rd of July" — never just "Friday" — so any mismatch between what Neil meant and what you understood is caught immediately, before it's saved.
@@ -2755,7 +2771,11 @@ For completing/ticking off a task:
 Done. 
 ACTION:{"type":"complete_task","text":"book GP appointment"}
 
-IMPORTANT: Only include the ACTION line when you are proposing an action that needs confirmation. Never say you have done something without first getting confirmation via this flow. The ACTION line is machine-readable — do not wrap it in quotes or markdown. The "date" field must always be in YYYY-MM-DD format using the exact date you resolved from the reference table above, never a relative term.
+For deleting a calendar event:
+Your natural response here, confirming exactly which event you're about to remove including its date. Confirm?
+ACTION:{"type":"delete_cal_event","title":"GP Appointment","date":"2026-07-04"}
+
+IMPORTANT: Only include the ACTION line when you are proposing an action that needs confirmation. Never say you have done something without first getting confirmation via this flow. The ACTION line is machine-readable — do not wrap it in quotes or markdown. The "date" field must always be in YYYY-MM-DD format using the exact date you resolved from the reference table above, never a relative term. You DO have the ability to delete calendar events — never tell Neil you can't, use the delete_cal_event action instead.
 
 LIVE DATA — right now:
 Today is ${today}.
@@ -2796,6 +2816,14 @@ ${memory}` : "No previous session memory yet. This is early days."}`;
         });
         break;
       }
+      case "delete_cal_event": {
+        const target = calEvents.find(e =>
+          e.date === action.payload.date &&
+          e.title.toLowerCase().includes((action.payload.title||"").toLowerCase().slice(0,15))
+        );
+        if (target) removeCalEvent(target.id);
+        break;
+      }
       case "log_health": {
         const latest = healthEntries[healthEntries.length-1] || {};
         const entry = {
@@ -2833,6 +2861,8 @@ ${memory}` : "No previous session memory yet. This is early days."}`;
           return { type:"log_health", payload:{ weight:data.weight, bodyFat:data.bodyFat, fatMass:data.fatMass, muscle:data.muscle, bp:data.bp }, description:`Log health check-in` };
         case "complete_task":
           return { type:"complete_task", payload:{ text:data.text }, description:`Complete task: "${data.text}"` };
+        case "delete_cal_event":
+          return { type:"delete_cal_event", payload:{ title:data.title, date:data.date }, description:`Delete "${data.title}" on ${formatDateDDMMYYYY(data.date)}` };
         default: return null;
       }
     } catch { return null; }
@@ -3614,7 +3644,7 @@ export default function LifeApp() {
       case "calendar": return <CalendarScreen onBack={()=>setScreen("home")} calEvents={calEvents} rotationBlocks={rotationBlocks} addCalEvent={addCalEvent} removeCalEvent={removeCalEvent} addRotation={addRotation} removeRotation={removeRotation} tasks={tasks} />;
       case "finance":  return <ComingSoon label="Finance" icon="finance" accent={T.purple} onBack={()=>setScreen("home")} />;
       case "work":     return <ComingSoon label="Work" icon="work" accent={T.blue} onBack={()=>setScreen("home")} />;
-      case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen }} />;
+      case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen }} />;
       default:         return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} />;
     }
   };
