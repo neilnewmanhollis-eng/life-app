@@ -2414,7 +2414,12 @@ Generate your opening message.` }]
   };
 
   const stopSpeaking = () => {
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      try { audioRef.current.src = ""; } catch {}
+      audioRef.current = null;
+    }
     setSpeaking(false);
   };
 
@@ -2670,12 +2675,34 @@ He goes quiet when something impresses him then comes back with a short enthusia
 CAPABILITIES:
 Log food to calorie tracker. Add tasks. Add calendar events. Log health check-ins. Read photos and documents. Answer questions about health, nutrition, rotation, tasks.
 
-ACTION PROTOCOL:
-Food: "That is [name], approximately [X] calories and [Y]g protein. Shall I log it?"
-Task: "Adding [task] to your to-do list. Confirm?"
-Calendar: "Adding [event] on [date]. Confirm?"
-Health: "Logging your weight as [X] kg today. Confirm?"
-After confirmation: say it is done, one short sentence.
+ACTION PROTOCOL — CRITICAL:
+When you want to perform an action, you MUST include a JSON block at the end of your message in this exact format:
+
+For logging food:
+Your natural response here. Shall I log it?
+ACTION:{"type":"log_food","name":"food name","kcal":000,"protein":00}
+
+For adding a task:
+Your natural response here. Confirm?
+ACTION:{"type":"add_task","text":"task text","cat":"Health","priority":"high"}
+
+For adding a calendar event:
+Your natural response here. Confirm?
+ACTION:{"type":"add_cal_event","title":"event title","date":"2026-08-15","eventType":"flight","notes":"any notes"}
+
+For multiple calendar events (e.g. from a document with several dates):
+Your natural response here. Confirm all?
+ACTION:{"type":"add_cal_events","events":[{"title":"Flight to Brisbane","date":"2026-07-15","eventType":"flight","notes":""},{"title":"Hotel Brisbane","date":"2026-07-15","eventType":"hotel","notes":""}]}
+
+For logging health check-in:
+Your natural response here. Confirm?
+ACTION:{"type":"log_health","weight":88.5,"bodyFat":24.5}
+
+For completing/ticking off a task:
+Done. 
+ACTION:{"type":"complete_task","text":"book GP appointment"}
+
+IMPORTANT: Only include the ACTION line when you are proposing an action that needs confirmation. Never say you have done something without first getting confirmation via this flow. The ACTION line is machine-readable — do not wrap it in quotes or markdown.
 
 LIVE DATA — right now:
 Today is ${today}.
@@ -2702,12 +2729,30 @@ ${memory}` : "No previous session memory yet. This is early days."}`;
         setTasks(prev => [...prev, task]);
         break;
       }
+      case "complete_task": {
+        setTasks(prev => prev.map(t => t.text.toLowerCase().includes(action.payload.text.toLowerCase().slice(0,20)) ? {...t, done:true} : t));
+        break;
+      }
       case "add_cal_event": {
         addCalEvent({ type:action.payload.type||"reminder", date:action.payload.date, title:action.payload.title, notes:action.payload.notes||"", time:action.payload.time||"" });
         break;
       }
+      case "add_cal_events": {
+        (action.payload.events||[]).forEach(ev => {
+          addCalEvent({ type:ev.eventType||ev.type||"reminder", date:ev.date, title:ev.title, notes:ev.notes||"", time:ev.time||"" });
+        });
+        break;
+      }
       case "log_health": {
-        const entry = { date:new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}), ...action.payload };
+        const latest = healthEntries[healthEntries.length-1] || {};
+        const entry = {
+          date: new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}),
+          weight: action.payload.weight || latest.weight,
+          bodyFat: action.payload.bodyFat || latest.bodyFat,
+          fatMass: action.payload.fatMass || latest.fatMass,
+          muscle: action.payload.muscle || latest.muscle,
+          bp: action.payload.bp || latest.bp,
+        };
         setHealthEntries(prev => [...prev, entry]);
         break;
       }
@@ -2716,57 +2761,32 @@ ${memory}` : "No previous session memory yet. This is early days."}`;
     setPendingAction(null);
   };
 
-  // ── Parse TARS response for action intent ──
-  const parseActionFromReply = (reply, userText) => {
-    const lower = reply.toLowerCase();
-    const userLower = userText.toLowerCase();
-
-    // Food logging
-    const foodConfirmPhrases = ["shall i log", "want me to log", "log it", "add it to", "confirm"];
-    const isFood = foodConfirmPhrases.some(p => lower.includes(p)) && 
-                   (userLower.includes("log") || userLower.includes("had") || userLower.includes("ate") || userLower.includes("coffee") || userLower.includes("meal") || userLower.includes("drink") || userLower.includes("snack") || userLower.includes("lunch") || userLower.includes("dinner") || userLower.includes("breakfast"));
-    
-    // Task adding
-    const isTask = (lower.includes("adding") && lower.includes("to-do")) || 
-                   (lower.includes("adding") && lower.includes("task")) ||
-                   (lower.includes("to your") && lower.includes("task") && lower.includes("confirm"));
-    
-    // Calendar event
-    const isCal = (lower.includes("adding") && lower.includes("calendar")) ||
-                  (lower.includes("calendar") && lower.includes("confirm"));
-    
-    // Health check-in  
-    const isHealth = (lower.includes("logging your weight") || lower.includes("health check-in") || lower.includes("log") && lower.includes("kg") && lower.includes("confirm"));
-
-    if (isFood) {
-      // Extract kcal and protein from reply using regex
-      const kcalMatch = reply.match(/(\d+)\s*(?:calories|kcal|cal)/i);
-      const proteinMatch = reply.match(/(\d+)\s*g?\s*protein/i);
-      // Extract food name - get text before "approximately" or first number
-      const nameMatch = reply.match(/(?:That is|logging|adding)\s+([^,\.]+?)(?:,\s*approximately|\s+approximately|\s+is\s)/i);
-      const name = nameMatch ? nameMatch[1].trim() : userText.slice(0,50);
-      return {
-        type: "log_food",
-        payload: { name, kcal: kcalMatch ? parseInt(kcalMatch[1]) : 0, protein: proteinMatch ? parseInt(proteinMatch[1]) : 0 },
-        description: `Log "${name}" — ${kcalMatch?kcalMatch[1]:0} kcal, ${proteinMatch?proteinMatch[1]:0}g protein`
-      };
-    }
-    if (isTask) {
-      const taskMatch = reply.match(/[Aa]dding\s+["']?([^"'\n\.]+?)["']?\s+to/i);
-      const taskText = taskMatch ? taskMatch[1].trim() : userText.replace(/add (a )?task/i,"").trim();
-      return { type:"add_task", payload:{ text:taskText }, description:`Add task: "${taskText}"` };
-    }
-    if (isCal) {
-      const titleMatch = reply.match(/[Aa]dding\s+["']?([^"'\n]+?)["']?\s+on/i);
-      const dateMatch = reply.match(/on\s+([\d\-\/]+|\d+\s+\w+\s+\d{4})/i);
-      return { type:"add_cal_event", payload:{ title:titleMatch?titleMatch[1].trim():userText, date:dateMatch?dateMatch[1]:"", type:"reminder" }, description:`Add calendar event` };
-    }
-    if (isHealth) {
-      const weightMatch = reply.match(/(\d+\.?\d*)\s*kg/i);
-      return { type:"log_health", payload:{ weight:weightMatch?parseFloat(weightMatch[1]):null }, description:`Log health check-in` };
-    }
-    return null;
+  // ── Parse TARS response for ACTION JSON block ──
+  const parseActionFromReply = (reply) => {
+    const actionMatch = reply.match(/ACTION:(\{[^\n]+\})/);
+    if (!actionMatch) return null;
+    try {
+      const data = JSON.parse(actionMatch[1]);
+      switch(data.type) {
+        case "log_food":
+          return { type:"log_food", payload:{ name:data.name||"Food", kcal:data.kcal||0, protein:data.protein||0 }, description:`Log "${data.name}" — ${data.kcal} kcal, ${data.protein}g protein` };
+        case "add_task":
+          return { type:"add_task", payload:{ text:data.text, cat:data.cat||"Admin", priority:data.priority||"med" }, description:`Add task: "${data.text}"` };
+        case "add_cal_event":
+          return { type:"add_cal_event", payload:{ title:data.title, date:data.date, type:data.eventType||"reminder", notes:data.notes||"" }, description:`Add to calendar: "${data.title}" on ${data.date}` };
+        case "add_cal_events":
+          return { type:"add_cal_events", payload:{ events:data.events||[] }, description:`Add ${data.events?.length||0} events to calendar` };
+        case "log_health":
+          return { type:"log_health", payload:{ weight:data.weight, bodyFat:data.bodyFat, fatMass:data.fatMass, muscle:data.muscle, bp:data.bp }, description:`Log health check-in` };
+        case "complete_task":
+          return { type:"complete_task", payload:{ text:data.text }, description:`Complete task: "${data.text}"` };
+        default: return null;
+      }
+    } catch { return null; }
   };
+
+  // ── Strip ACTION line from display text ──
+  const stripAction = (text) => text.replace(/\nACTION:\{[^\n]+\}/g, "").replace(/ACTION:\{[^\n]+\}/g, "").trim();
 
   // ── Voice input — auto-send on pause ──
   const startListening = () => {
@@ -2865,14 +2885,15 @@ OTHER — anything else`,
         ]}]
       });
 
+      const displayReply2 = stripAction(reply);
       setMessages(prev => [...prev, {
-        role:"assistant", content:reply,
+        role:"assistant", content:displayReply2,
         ts: new Date().toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit" }),
       }]);
-      speak(reply);
+      speak(displayReply2);
 
       // Parse for action — food logs, health logs etc
-      const action = parseActionFromReply(reply, imageType === "FOOD" ? "photo food log" : "photo upload");
+      const action = parseActionFromReply(reply);
       if (action) setPendingAction(action);
 
       // Auto-add to vault if it's a document
@@ -3014,10 +3035,11 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
 
     const reply = await callClaude({ system: buildSystemPrompt() + "\n\n" + systemAddendum, messages: apiMessages });
 
-    setMessages(prev => [...prev, { role:"assistant", content:reply, ts }]);
-    speak(reply);
+    const displayReply3 = stripAction(reply);
+    setMessages(prev => [...prev, { role:"assistant", content:displayReply3, ts }]);
+    speak(displayReply3);
 
-    const action = parseActionFromReply(reply, comment || "file upload");
+    const action = parseActionFromReply(reply);
     if (action) setPendingAction(action);
 
     // Auto-vault documents
@@ -3113,14 +3135,15 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
         messages: apiMessages,
       });
 
+      const displayReply = stripAction(reply);
       setMessages(prev => [...prev, {
-        role:"assistant", content:reply,
+        role:"assistant", content:displayReply,
         ts: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}),
       }]);
-      speak(reply);
+      speak(displayReply);
 
-      // Parse for action intent
-      const action = parseActionFromReply(reply, text);
+      // Parse for action intent from full reply (includes ACTION block)
+      const action = parseActionFromReply(reply);
       if (action) setPendingAction(action);
 
     } catch(e) {
@@ -3183,13 +3206,6 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
           <div style={{ fontSize:11, color:T.blue }}>Honesty: 90% · Humour: calibrated</div>
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-          {speaking && (
-            <button onClick={stopSpeaking} style={{ background:`${T.accent}22`, border:`1px solid ${T.accent}44`, borderRadius:999, padding:"4px 10px", fontSize:11, fontWeight:700, color:T.accent, cursor:"pointer", fontFamily:"inherit" }}>⏹ Stop</button>
-          )}
-          <button onClick={()=>{setVoiceEnabled(v=>!v);stopSpeaking();}}
-            style={{ background:voiceEnabled?`${T.blue}22`:T.elevated, border:`1px solid ${voiceEnabled?T.blue+"44":T.border}`, borderRadius:999, padding:"4px 10px", fontSize:11, fontWeight:700, color:voiceEnabled?T.blue:T.muted, cursor:"pointer", fontFamily:"inherit" }}>
-            {voiceEnabled?"🔊":"🔇"}
-          </button>
           <button onClick={handleSaveSession} disabled={memorySaving || messages.length < 3} style={{ background:memoryJustSaved?`${T.green}22`:T.elevated, border:`1px solid ${memoryJustSaved?T.green:T.border}`, borderRadius:999, padding:"4px 10px", fontSize:11, fontWeight:700, color:memoryJustSaved?T.green:T.muted, cursor:"pointer", fontFamily:"inherit" }}>
             {memorySaving ? "saving…" : memoryJustSaved ? "✓ saved" : "💾 save"}
           </button>
@@ -3284,15 +3300,27 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
           {/* Pending action confirmation */}
           {pendingAction && (
             <div style={{ margin:"0 16px 8px", background:`${T.gold}18`, border:`1px solid ${T.gold}44`, borderRadius:12, padding:"10px 14px" }}>
-              <div style={{ fontSize:12, color:T.gold, fontWeight:600, marginBottom:8 }}>⚡ {pendingAction.description}</div>
+              <div style={{ fontSize:12, color:T.gold, fontWeight:700, marginBottom:4 }}>⚡ Pending action</div>
+              <div style={{ fontSize:12, color:T.text, marginBottom:pendingAction.type==="add_cal_events"?8:10, lineHeight:1.5 }}>
+                {pendingAction.description}
+              </div>
+              {pendingAction.type==="add_cal_events" && pendingAction.payload?.events?.length > 0 && (
+                <div style={{ marginBottom:10 }}>
+                  {pendingAction.payload.events.map((ev,i)=>(
+                    <div key={i} style={{ fontSize:11, color:T.muted, padding:"3px 0", borderBottom:`1px solid ${T.border}` }}>
+                      {ev.title} · {ev.date}
+                    </div>
+                  ))}
+                </div>
+              )}
               <div style={{ display:"flex", gap:8 }}>
-                <button onClick={()=>sendMessage("yes")}
-                  style={{ flex:1, padding:"8px", borderRadius:8, background:T.green, color:"white", fontWeight:700, fontSize:12, border:"none", cursor:"pointer", fontFamily:"inherit" }}>
-                  Confirm
+                <button onClick={()=>{ executeAction(pendingAction); const ts=new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}); setMessages(prev=>[...prev,{role:"assistant",content:"Done.",ts}]); speak("Done."); }}
+                  style={{ flex:1, padding:"10px", borderRadius:8, background:T.green, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>
+                  ✓ Confirm
                 </button>
-                <button onClick={()=>sendMessage("no")}
-                  style={{ flex:1, padding:"8px", borderRadius:8, background:T.elevated, color:T.muted, fontWeight:700, fontSize:12, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>
-                  Cancel
+                <button onClick={()=>{ setPendingAction(null); const ts=new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}); setMessages(prev=>[...prev,{role:"assistant",content:"Cancelled.",ts}]); }}
+                  style={{ flex:1, padding:"10px", borderRadius:8, background:T.elevated, color:T.muted, fontWeight:700, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>
+                  ✕ Cancel
                 </button>
               </div>
             </div>
@@ -3327,7 +3355,7 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
 
           {/* Input bar */}
           <div style={{ borderTop:`1px solid ${T.border}`, background:T.bg, padding:"8px 16px 20px" }}>
-            {/* Top row — camera and file upload */}
+            {/* Top row — camera, file, mute, stop */}
             <div style={{ display:"flex", gap:8, marginBottom:8 }}>
               <label style={{ flex:1, padding:"7px 0", borderRadius:10, border:`1px solid ${T.border}`, background:T.elevated, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
                 <span style={{ fontSize:15 }}>📷</span>
@@ -3339,6 +3367,16 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
                 <span style={{ fontSize:11, fontWeight:600, color:T.muted }}>File</span>
                 <input type="file" accept=".pdf,.txt,.md,.csv,.xlsx,.xls,.docx,.doc,image/*" onChange={handleFileUpload} style={{ display:"none" }} />
               </label>
+              <button onClick={()=>{ setVoiceEnabled(v=>!v); if(voiceEnabled) stopSpeaking(); }} style={{ flex:1, padding:"7px 0", borderRadius:10, border:`1px solid ${voiceEnabled?T.blue+"44":T.border}`, background:voiceEnabled?`${T.blue}18`:T.elevated, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+                <span style={{ fontSize:15 }}>{voiceEnabled?"🔊":"🔇"}</span>
+                <span style={{ fontSize:11, fontWeight:600, color:voiceEnabled?T.blue:T.muted }}>{voiceEnabled?"Voice on":"Muted"}</span>
+              </button>
+              {speaking && (
+                <button onClick={stopSpeaking} style={{ flex:1, padding:"7px 0", borderRadius:10, border:`1px solid ${T.accent}44`, background:`${T.accent}18`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+                  <span style={{ fontSize:15 }}>⏹</span>
+                  <span style={{ fontSize:11, fontWeight:600, color:T.accent }}>Stop</span>
+                </button>
+              )}
             </div>
             {/* Bottom row — mic, text input, send */}
             <div style={{ display:"flex", gap:8, alignItems:"center" }}>
