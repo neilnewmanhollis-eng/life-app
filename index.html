@@ -19,15 +19,20 @@
         background: #0a0f1e;
         width: 100%;
         min-height: 100%;
+        /* Stops the Android edge-swipe (left/right) gesture from closing the installed
+           PWA. Left untouched on the Y axis so normal up/down scrolling still works
+           exactly as before — this only blocks horizontal overscroll navigation. */
+        overscroll-behavior-x: none;
       }
       #root {
         margin: 0;
         padding: 0;
         width: 100%;
         min-height: 100vh;
+        overscroll-behavior-x: none;
       }
     </style>
-    <script type="module" crossorigin src="/life-app/assets/index-D-uLa6IM.js"></script>
+    <script type="module" crossorigin src="/life-app/assets/index-CkYEdMBZ.js"></script>
   </head>
   <body>
     <div id="root"></div>
