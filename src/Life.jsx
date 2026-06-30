@@ -1,28 +1,37 @@
 import { useState, useEffect } from "react";
 
-// ─── PUTER AI HELPER ─────────────────────────────────────────────────────────
-let _puterReady = false;
-async function ensurePuter() {
-  if (_puterReady) return;
-  await puter.auth.signIn();
-  _puterReady = true;
+// ─── ANTHROPIC API HELPER ────────────────────────────────────────────────────
+function getAnthropicKey() {
+  return localStorage.getItem("tars_anthropic_key") || "";
 }
 
 async function callClaude({ system, messages }) {
-  await ensurePuter();
-  // Puter requires system prompt as first message with role "system"
-  const chatMessages = [
-    ...(system ? [{ role: "system", content: system }] : []),
-    ...messages.map(m => ({ role: m.role, content: m.content })),
-  ];
-  const response = await puter.ai.chat(chatMessages, { model: "claude-sonnet-4-6" });
-  if (typeof response === "string") return response;
-  if (response?.message?.content) {
-    const parts = response.message.content;
-    if (Array.isArray(parts)) return parts.map(p => p.text || "").join("");
-    return String(parts);
+  const apiKey = getAnthropicKey();
+  if (!apiKey) throw new Error("NO_KEY");
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 1024,
+      system: system || "",
+      messages: messages.map(m => ({ role: m.role, content: m.content })),
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `API error ${response.status}`);
   }
-  return String(response);
+
+  const data = await response.json();
+  return data.content?.map(b => b.text || "").join("") || "";
 }
 
 // ─── THEME ────────────────────────────────────────────────────────────────────
@@ -2226,47 +2235,89 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addCalEvent, remove
 // ─── TARS SCREEN ──────────────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const TARS_SYSTEM_PROMPT = `You are TARS. Not Claude. Not an AI assistant. TARS — the tactical AI unit from the film Interstellar, now serving as Neil's personal life management AI.
+// ─── TARS MEMORY SYSTEM ──────────────────────────────────────────────────────
+const MEMORY_KEY = "tars_memory";
+const MAX_MEMORY_CHARS = 4000;
 
-Your character: You are direct, efficient, and occasionally dry. You speak in plain sentences. You do not use bullet points, asterisks, bold text, numbered lists, or any markdown formatting whatsoever — your responses are spoken aloud and must sound completely natural as speech. Never use symbols like asterisks, hyphens as bullets, or hashtags. Just plain spoken English.
+function loadMemory() {
+  try { return localStorage.getItem(MEMORY_KEY) || ""; }
+  catch { return ""; }
+}
 
-Your personality mirrors TARS from the film exactly: deadpan delivery, minimal words, dry wit deployed sparingly and precisely. You are not warm or encouraging by default. You acknowledge good performance briefly. You call out poor choices plainly without lecturing. You never say things like "Great question!" or "Certainly!" or "Of course!". You never introduce yourself as Claude or mention Anthropic. You are TARS.
+function saveMemory(text) {
+  try { localStorage.setItem(MEMORY_KEY, text.slice(0, MAX_MEMORY_CHARS)); }
+  catch {}
+}
 
-Your honesty setting is 90%. Your humour setting is calibrated.
+async function summariseSession(messages, existingMemory) {
+  const apiKey = getAnthropicKey();
+  if (!apiKey || messages.length < 3) return existingMemory;
 
-NEIL'S PROFILE:
-Full name: Neil Newman-Hollis, 40s, Christchurch, New Zealand.
-Profession: Second Officer on 86m superyacht Man of Steel. Actively seeking Chief Officer position.
-Rotation: roughly 8 weeks on, 8 weeks off. Next rotation: 22 Jul 2026.
-Primary devices: Samsung S24 Ultra, PC. Grocery store: New World Ilam.
+  const transcript = messages
+    .filter(m => typeof m.content === "string")
+    .map(m => `${m.role === "user" ? "Neil" : "TARS"}: ${m.content}`)
+    .join("\n");
 
-HEALTH BASELINE 26 Jun 2026:
-Weight 89.0 kg, target 79 to 81 kg, 8 to 10 kg to lose.
-Body fat 25.2%, target 18 to 20%.
-Fat mass 22.4 kg, target 14 to 16 kg.
-Muscle 35.6 kg, target 35.6 kg or more.
-Blood pressure 127 over 75, on Amlodipine. Flag Ashwagandha and Creatine interactions with GP whenever relevant.
-Phase 1 weeks 1 to 6: daily walking 8000 to 10000 steps, 3 times per week bodyweight training, protein focus, alcohol reduction.
-
-NUTRITION:
-Daily targets 1900 to 2000 calories, 140 to 160g protein.
-Coffee habit: 4 Nescafe Vanilla Latte sachets per day, 316 calories, minimal protein, cutting back.
-Weak spot: chips. Copper Kettle 150g is 795 calories and 6g protein. Not worth it.
-Good snacks: cottage cheese with flatbread crackers about 235 calories and 20g protein. Biltong about 260 calories and 50g protein per 100g. Bone broth about 40 calories and 12g protein per cup.
-Calorie history: 27 Jun about 2075 calories 154g protein on target. 28 Jun about 1641 calories 102g protein missed both targets. 29 Jun about 2165 calories 100g protein over calories and missed protein.
-
-SUPPLEMENTS flag Ashwagandha and Creatine plus Amlodipine to GP:
-Breakfast: Centrum for Men, Magnesium Malate times 2, Ashwagandha KSM-66.
-Dinner: Fish Oil times 2, Vitamin D3.
-Bedtime: Magnesium Glycinate starting week 3.
-Phase 2: Creatine week 6 or later after GP clearance.
-
-Today is ${new Date().toLocaleDateString("en-NZ", { weekday:"long", day:"numeric", month:"long", year:"numeric" })}.`;
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5",
+        max_tokens: 600,
+        system: `You are updating a persistent memory file for TARS, an AI assistant for Neil Newman-Hollis. 
+Extract only genuinely new, specific, useful things learned about Neil from this conversation — preferences, patterns, things that made him laugh, frustrations, goals mentioned, habits observed, topics discussed. 
+Write in plain sentences as notes TARS can use to feel more familiar with Neil next session.
+Be specific and concrete. Skip generic health info already known. Skip anything already covered in existing memory.
+Keep the total under 400 words. Return only the updated memory text, no preamble.`,
+        messages: [{
+          role: "user",
+          content: `EXISTING MEMORY:\n${existingMemory || "None yet."}\n\nTODAY'S CONVERSATION:\n${transcript.slice(0, 3000)}\n\nUpdate the memory with anything genuinely new and useful learned today.`
+        }]
+      }),
+    });
+    if (!response.ok) return existingMemory;
+    const data = await response.json();
+    return data.content?.map(b => b.text || "").join("") || existingMemory;
+  } catch { return existingMemory; }
+}
 
 function TarsScreen({ onBack, appState }) {
   const { tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen } = appState;
 
   const [tarsTab, setTarsTab] = useState("chat");
+  const [showSettings, setShowSettings] = useState(false);
+  const [anthropicKeyInput, setAnthropicKeyInput] = useState("");
+  const [elevenLabsKeyInput, setElevenLabsKeyInput] = useState("");
+  const [keysSaved, setKeysSaved] = useState(false);
+  const [memorySaving, setMemorySaving] = useState(false);
+  const [memoryJustSaved, setMemoryJustSaved] = useState(false);
+
+  const hasAnthropicKey = () => !!localStorage.getItem("tars_anthropic_key");
+  const hasElevenLabsKey = () => !!localStorage.getItem("tars_elevenlabs_key");
+
+  const saveKeys = () => {
+    if (anthropicKeyInput.trim()) localStorage.setItem("tars_anthropic_key", anthropicKeyInput.trim());
+    if (elevenLabsKeyInput.trim()) localStorage.setItem("tars_elevenlabs_key", elevenLabsKeyInput.trim());
+    setKeysSaved(true);
+    setTimeout(() => { setKeysSaved(false); setShowSettings(false); }, 1200);
+  };
+
+  const handleSaveSession = async () => {
+    if (memorySaving || messages.length < 3) return;
+    setMemorySaving(true);
+    const existing = loadMemory();
+    const updated = await summariseSession(messages, existing);
+    saveMemory(updated);
+    setMemorySaving(false);
+    setMemoryJustSaved(true);
+    setTimeout(() => setMemoryJustSaved(false), 2000);
+  };
   const [messages, setMessages] = useState([{
     role: "assistant",
     content: "TARS online. Honesty setting: 90%. What do you need?",
@@ -2286,7 +2337,7 @@ function TarsScreen({ onBack, appState }) {
   const messagesEndRef = { current: null };
 
   // ── ElevenLabs TTS ──
-  const ELEVENLABS_KEY = "sk_cff254b638d4229d77b45c3f86fa23fcc2ef6eadc9c162d9";
+  const getElevenLabsKey = () => localStorage.getItem("tars_elevenlabs_key") || "";
   const ELEVENLABS_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb";
 
   const speak = async (text) => {
@@ -2296,7 +2347,7 @@ function TarsScreen({ onBack, appState }) {
     try {
       const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "xi-api-key": ELEVENLABS_KEY },
+        headers: { "Content-Type": "application/json", "xi-api-key": getElevenLabsKey() },
         body: JSON.stringify({
           text,
           model_id: "eleven_turbo_v2",
@@ -2526,35 +2577,68 @@ A React PWA deployed on GitHub Pages at: https://neilnewmanhollis-eng.github.io/
       .sort((a,b)=>new Date(a.date)-new Date(b.date))
       .slice(0,3)
       .map(e=>`${e.title} on ${e.date}`).join(", ");
+    const memory = loadMemory();
 
-    return `You are TARS. Not Claude. Not an AI assistant. You are TARS — the tactical AI unit from Interstellar, now serving as Neil's personal life management AI built into his Life app.
+    return `You are TARS. Not an AI assistant, not Claude, not a chatbot. You are TARS — the dry, deadpan AI unit from Interstellar, now hardwired into Neil's Life app as his personal AI.
 
-CRITICAL FORMATTING RULES: Never use markdown. No asterisks, no bullet points, no bold, no hyphens as lists, no numbered lists, no hashtags. Your responses are spoken aloud. Write exactly as you would speak. Plain conversational English only.
+IDENTITY: Never say you are Claude or mention Anthropic. You are TARS. You are fully integrated into Neil's app and can log food, add tasks, add calendar events, and update health stats. Never claim you cannot do something the app supports.
 
-CRITICAL IDENTITY RULES: You are TARS. Never say you are Claude. Never mention Anthropic. Never say you cannot access apps or store data — you are fully integrated into Neil's Life app and CAN log calories, add tasks, add calendar events, and update health stats. When Neil asks you to do something in the app, you do it.
+VOICE AND TONE — this is not a set of rules, it is who you are:
+You talk the way a smart, slightly sardonic shipmate would — someone who knows Neil well, doesn't waste words, and finds the precise moment to be funny rather than performing humour on a schedule. You don't do warmth by default but you're not cold either — you're just straight. When something is genuinely good you say so briefly. When something is a bad call you say so once, plainly, without a lecture. You never open with "Great question" or "Certainly" or "Of course". You never close with "Let me know if you need anything else". You just say the thing.
 
-YOUR CAPABILITIES:
-You can log food to the calorie tracker, add tasks to the to-do list, add events to the calendar, log health check-ins, read and summarise photos and documents, and answer questions about Neil's health, nutrition, rotation, and tasks.
+Humour when it lands is specific and earned — it comes from knowing Neil's actual situation. The chips are funny because it's a documented pattern, not because you were told to joke about chips. The 79 kcal coffee comment landed because it was precise and unexpected, not because you were told to mention calories. That's the standard. If the specific detail isn't there, don't force a joke — just be straight.
 
-ACTION PROTOCOL: When Neil asks you to do something that changes app data, respond with exactly what you plan to do and ask for confirmation. Keep it brief. After confirmation, say it is done.
+You speak in plain sentences. No markdown, no bullet points, no asterisks, no numbered lists, no bold text, no hashtags. Everything you say will be read aloud so it must sound like natural speech, not a formatted document.
 
-PERSONALITY: Deadpan. Minimal. Dry wit used sparingly and precisely — specific, earned humour lands better than generic friendliness. No warmth by default. Direct. Never sycophantic. Honesty setting 90%. Humour setting calibrated. You are authorised to call out the chips every single time without mercy.
+WHAT YOU KNOW ABOUT NEIL:
+Neil Newman-Hollis. 40s. Christchurch, New Zealand when off rotation. Second Officer on Man of Steel, an 86m superyacht. Actively looking for Chief Officer in the next 6 to 12 months. Rotation is roughly 8 weeks on, 8 weeks off. Next rotation joins 22 July 2026.
+Shops at New World Ilam. Samsung S24 Ultra is his main device.
+Communication style: casual, direct, brief. Doesn't want explanations when a sentence will do. Picks things up fast. Laughs when something is genuinely funny and specific to him. Has no patience for corporate assistant energy.
 
-NEIL'S FULL PROFILE:
-${NEIL_PROFILE}
+HEALTH — baseline 26 June 2026:
+Weight 89.0 kg, target 79 to 81 kg. Body fat 25.2%, target 18 to 20%. Fat mass 22.4 kg, target 14 to 16 kg. Muscle 35.6 kg, maintain or grow.
+BP 127 over 75, on Amlodipine. Always flag Ashwagandha and Creatine GP check when relevant.
+Phase 1, weeks 1 to 6: daily walking 8000 to 10000 steps, bodyweight training 3 times a week, protein focus, alcohol reduction.
+Exercise: Mon Wed Fri bodyweight training. Tue Thu Sat walking. Sun rest.
 
-LIVE APP DATA — updated every message:
-Current weight: ${latestHealth.weight || 89.0} kg. Body fat: ${latestHealth.bodyFat || 25.2}%. Fat mass: ${latestHealth.fatMass || 22.4} kg. Muscle: ${latestHealth.muscle || 35.6} kg. BP: ${latestHealth.bp || "127/75"}.
-Today ${today}: ${todayKcal} calories logged, ${todayProtein}g protein. Targets: 1900 to 2000 calories, 140 to 160g protein.
+NUTRITION:
+Targets: 1900 to 2000 calories, 140 to 160g protein daily.
+4 Nescafe Vanilla Latte sachets a day. That is 316 calories with almost no protein. He knows.
+Chips are a documented weak spot. Copper Kettle 150g is 795 calories and 6g protein. Call this out every single time, without mercy, without repeating the same line twice.
+Good snacks: cottage cheese and flatbread crackers about 235 calories 20g protein. Biltong about 260 calories 50g protein per 100g. Bone broth about 40 calories 12g protein per cup.
+Crockery for photo estimation: 28cm dinner plate, 22cm side plate, 20cm bowl.
+
+SUPPLEMENTS — always flag Ashwagandha and Creatine with Amlodipine to GP:
+Breakfast: Centrum for Men, Magnesium Malate x2, Ashwagandha KSM-66.
+Dinner: Fish Oil x2, Vitamin D3.
+Bedtime: Magnesium Glycinate from week 3.
+Phase 2 week 6 or later after GP: Creatine.
+
+THINGS THAT HAVE LANDED WITH NEIL:
+The "79 kcal, just the one mind you" coffee comment made him laugh out loud. Precision and specificity is funnier than general wit.
+Calling out the chips without softening it works. He expects it and appreciates the consistency.
+He enjoys the collaborative build — said he could never have done this without working together on it.
+He goes quiet when something impresses him then comes back with a short enthusiastic message.
+
+CAPABILITIES:
+Log food to calorie tracker. Add tasks. Add calendar events. Log health check-ins. Read photos and documents. Answer questions about health, nutrition, rotation, tasks.
+
+ACTION PROTOCOL:
+Food: "That is [name], approximately [X] calories and [Y]g protein. Shall I log it?"
+Task: "Adding [task] to your to-do list. Confirm?"
+Calendar: "Adding [event] on [date]. Confirm?"
+Health: "Logging your weight as [X] kg today. Confirm?"
+After confirmation: say it is done, one short sentence.
+
+LIVE DATA — right now:
+Today is ${today}.
+Weight: ${latestHealth.weight || 89.0} kg. Body fat: ${latestHealth.bodyFat || 25.2}%. Fat mass: ${latestHealth.fatMass || 22.4} kg. Muscle: ${latestHealth.muscle || 35.6} kg. BP: ${latestHealth.bp || "127/75"}.
+Calories logged today: ${todayKcal}. Protein: ${todayProtein}g. Targets: 1900 to 2000 cal, 140 to 160g protein.
 Pending tasks: ${pendingTasks || "none"}.
 Upcoming events: ${upcomingEvents || "none"}.
 
-RESPONSE FORMAT FOR ACTIONS:
-When logging food: "That is [name], approximately [X] calories and [Y]g protein. Shall I log it?"
-When adding a task: "Adding [task] to your to-do list. Confirm?"
-When adding a calendar event: "Adding [event] on [date] to your calendar. Confirm?"
-When logging health: "Logging your weight as [X] kg today. Confirm?"
-After confirmation: say it is done, briefly.`;
+${memory ? `MEMORY FROM PREVIOUS SESSIONS — things learned about Neil over time:
+${memory}` : "No previous session memory yet. This is early days."}`;
   };
 
   // ── Execute confirmed action ──
@@ -2814,7 +2898,7 @@ Summarise this document and tell me if there is anything I should add to my app.
       const errDetail = e?.message || e?.toString() || "Unknown error";
       setMessages(prev => [...prev, {
         role:"assistant",
-        content:`Error: ${errDetail}`,
+        content: errDetail === "NO_KEY" ? "No Anthropic API key set. Tap ⚙️ above to add your key." : `Error: ${errDetail}`,
         ts: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}),
         isError: true,
       }]);
@@ -2877,9 +2961,41 @@ Summarise this document and tell me if there is anything I should add to my app.
             style={{ background:voiceEnabled?`${T.blue}22`:T.elevated, border:`1px solid ${voiceEnabled?T.blue+"44":T.border}`, borderRadius:999, padding:"4px 10px", fontSize:11, fontWeight:700, color:voiceEnabled?T.blue:T.muted, cursor:"pointer", fontFamily:"inherit" }}>
             {voiceEnabled?"🔊":"🔇"}
           </button>
-          <div style={{ width:10, height:10, borderRadius:"50%", background:T.green, boxShadow:`0 0 8px ${T.green}` }}/>
+          <button onClick={handleSaveSession} disabled={memorySaving || messages.length < 3} style={{ background:memoryJustSaved?`${T.green}22`:T.elevated, border:`1px solid ${memoryJustSaved?T.green:T.border}`, borderRadius:999, padding:"4px 10px", fontSize:11, fontWeight:700, color:memoryJustSaved?T.green:T.muted, cursor:"pointer", fontFamily:"inherit" }}>
+            {memorySaving ? "saving…" : memoryJustSaved ? "✓ saved" : "💾 save"}
+          </button>
+          <button onClick={()=>setShowSettings(s=>!s)} style={{ background:T.elevated, border:`1px solid ${T.border}`, borderRadius:999, padding:"4px 10px", fontSize:11, fontWeight:700, color:T.muted, cursor:"pointer", fontFamily:"inherit" }}>⚙️</button>
+          <div style={{ width:10, height:10, borderRadius:"50%", background:hasAnthropicKey()?T.green:T.accent, boxShadow:`0 0 8px ${hasAnthropicKey()?T.green:T.accent}` }}/>
         </div>
       </div>
+
+      {/* Settings panel */}
+      {showSettings && (
+        <div style={{ margin:"12px 16px 0", background:T.card, borderRadius:14, padding:"14px 16px", border:`1px solid ${T.border}` }}>
+          <div style={{ fontSize:13, fontWeight:700, color:T.text, marginBottom:12 }}>API Keys</div>
+          <div style={{ fontSize:11, color:T.muted, marginBottom:10, lineHeight:1.5 }}>Keys are saved to this device only. Never stored in the app code.</div>
+          <div style={{ marginBottom:10 }}>
+            <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:4 }}>Anthropic API Key {hasAnthropicKey() ? "✓" : "⚠️ Required"}</div>
+            <input type="password" value={anthropicKeyInput} onChange={e=>setAnthropicKeyInput(e.target.value)}
+              placeholder={hasAnthropicKey() ? "sk-ant-... (saved — paste to update)" : "sk-ant-..."}
+              style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${hasAnthropicKey()?T.green:T.accent}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:4 }}>ElevenLabs API Key {hasElevenLabsKey() ? "✓" : "(optional — for voice)"}</div>
+            <input type="password" value={elevenLabsKeyInput} onChange={e=>setElevenLabsKeyInput(e.target.value)}
+              placeholder={hasElevenLabsKey() ? "sk-... (saved — paste to update)" : "sk-..."}
+              style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${hasElevenLabsKey()?T.green:T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+          </div>
+          <button onClick={saveKeys} style={{ width:"100%", padding:"9px", borderRadius:9, background:keysSaved?T.green:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit", transition:"background 0.2s" }}>
+            {keysSaved ? "✓ Saved" : "Save Keys"}
+          </button>
+          <div style={{ marginTop:12, paddingTop:12, borderTop:`1px solid ${T.border}` }}>
+            <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:6 }}>Session Memory {loadMemory() ? "✓ Active" : "— None yet"}</div>
+            <div style={{ fontSize:11, color:T.muted, lineHeight:1.5, marginBottom:8 }}>{loadMemory() ? `${loadMemory().length} characters stored. TARS reads this at the start of every session.` : "No memory saved yet. Chat with TARS then tap 💾 save to start building memory."}</div>
+            {loadMemory() && <button onClick={()=>{ if(window.confirm("Clear all TARS memory? This cannot be undone.")) { saveMemory(""); window.location.reload(); }}} style={{ width:"100%", padding:"7px", borderRadius:8, background:`${T.accent}11`, border:`1px solid ${T.accent}33`, color:T.accent, fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>Clear Memory</button>}
+          </div>
+        </div>
+      )}
 
       {/* Sub tabs */}
       <div style={{ padding:"12px 16px 0" }}>
