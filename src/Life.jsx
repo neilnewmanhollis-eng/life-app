@@ -2369,8 +2369,46 @@ Keep the total under 400 words. Return only the updated memory text, no preamble
   } catch { return existingMemory; }
 }
 
+// ─── MODULE REGISTRY ──────────────────────────────────────────────────────────
+// This is the foundation of TARS's full app access. Every module Neil's data lives
+// in is declared here once — its fields, and how to read/write it. TARS works against
+// this registry with generic create/update/delete actions instead of needing bespoke
+// "add_task", "add_certificate", "add_expense" style actions written by hand for every
+// new feature. Adding a new module later (Work, Finance, certificates) means adding one
+// entry here — TARS automatically gains the ability to read and write it.
+//
+// Each module needs: a getter (returns the live array from state) and a setter style
+// (how new/updated/deleted records get written back). idField defaults to "id".
+const MODULE_REGISTRY = {
+  tasks: {
+    label: "Tasks", idField: "id",
+    fields: "id, text, cat (category), priority (low/med/high), due (date), done (boolean)",
+  },
+  calendar: {
+    label: "Calendar events", idField: "id",
+    fields: "id, type (reminder/flight/hotel/travel), title, date (YYYY-MM-DD), time (HH:MM, optional), location (city, optional — only for events outside Christchurch), notes",
+  },
+  health: {
+    label: "Health check-ins", idField: null, // append-only log, no individual edit/delete by id — always adds a new entry
+    fields: "date, weight (kg), bodyFat (%), fatMass (kg), muscle (kg), bp",
+  },
+  calorieLog: {
+    label: "Calorie log", idField: "id", // nested under date key — handled specially
+    fields: "id, name, kcal, protein (g), time — stored under today's date key",
+  },
+  vault: {
+    label: "Document vault", idField: "id",
+    fields: "id, name, docType, summary, uploadedAt — read-only via search_vault tool, not editable via create/update/delete",
+  },
+  // Placeholder modules — not yet built in the UI, but registered now so the pattern
+  // is proven and TARS can be told about them ahead of time. When Work/Finance get
+  // real screens, they slot into this same generic system with zero new action types.
+  // certificates: { label: "Work certificates", idField: "id", fields: "id, name, issueDate, expiryDate, notes" },
+  // expenses: { label: "Finance / expenses", idField: "id", fields: "id, description, amount, date, category" },
+};
+
 function TarsScreen({ onBack, appState }) {
-  const { tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages } = appState;
+  const { tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks } = appState;
 
   const [tarsTab, setTarsTab] = useState("chat");
   const [showSettings, setShowSettings] = useState(false);
@@ -2697,13 +2735,16 @@ A React PWA deployed on GitHub Pages at: https://neilnewmanhollis-eng.github.io/
     const todayKcal = todayEntries.reduce((s,e)=>s+e.kcal,0);
     const todayProtein = todayEntries.reduce((s,e)=>s+e.protein,0);
     const latestHealth = healthEntries[healthEntries.length-1] || {};
-    const pendingTasksFull = tasks.filter(t=>!t.done);
-    const pendingTasks = pendingTasksFull.map(t=>`id:${t.id} "${t.text}"`).join(", ");
-    const upcomingEvents = calEvents
-      .filter(e=>new Date(e.date)>=new Date())
+    const pendingTasks = tasks.filter(t=>!t.done).map(t=>`id:${t.id} "${t.text}" (${t.cat}, ${t.priority} priority${t.due?`, due ${t.due}`:""})`).join("\n") || "none";
+    const completedTasksRecent = tasks.filter(t=>t.done).slice(-5).map(t=>`id:${t.id} "${t.text}"`).join(", ") || "none";
+    const allCalEvents = calEvents
+      .slice()
       .sort((a,b)=>new Date(a.date)-new Date(b.date))
-      .slice(0,3)
-      .map(e=>`${e.title} on ${e.date}${e.location ? ` (${e.location} local time)` : ""}`).join(", ");
+      .map(e=>`id:${e.id} | ${e.title} | ${e.date}${e.time?` ${e.time}`:""}${e.location?` (${e.location} local time)`:""} | type: ${e.type}`)
+      .join("\n") || "none";
+    const rotationSummary = (rotationBlocks||[])
+      .map(b=>`${b.start} to ${b.end}${b.notes?` (${b.notes})`:""}`)
+      .join("\n") || "none set";
     const memory = loadMemory();
 
     return `You are TARS. Not an AI assistant, not Claude, not a chatbot. You are TARS — the dry, deadpan AI unit from Interstellar, now hardwired into Neil's Life app as his personal AI.
@@ -2776,6 +2817,38 @@ You have a search_vault tool. Use it whenever Neil asks about something that mig
 VAULT-WORTHY DOCUMENTS — judgement call:
 When Neil uploads a file, decide if it belongs in the permanent vault or not. Reference material he'll want to come back to later belongs in the vault: flights, hotel bookings, leave planners, work certificates, qualifications, itineraries, official documents with dates or reference numbers. One-off in-the-moment tasks do NOT belong in the vault: a food photo for calorie logging, a Samsung Health screenshot for a single check-in — these get used once and discarded, no lasting value. If you're genuinely unsure which category something falls into, ask Neil rather than guessing either way.
 
+FULL APP ACCESS — CRITICAL:
+You have genuine read and write access across the entire Life app, not just the specific things mentioned below. The MODULE REGISTRY below lists every part of the app you can work with. For anything not covered by the older specific action types further down, use the generic action format:
+
+ACTION:{"type":"generic","module":"<module name>","op":"create|update|delete","id":"<record id, required for update/delete>","fields":{...the fields being set...}}
+
+MODULE REGISTRY (module name : what it holds : fields):
+${Object.entries(MODULE_REGISTRY).map(([key,m])=>`${key} : ${m.label} : ${m.fields}`).join("\n")}
+
+Examples:
+Add a task: ACTION:{"type":"generic","module":"tasks","op":"create","fields":{"text":"Renew passport","cat":"Admin","priority":"high"}}
+Mark a task done: ACTION:{"type":"generic","module":"tasks","op":"update","id":"1719820800000","fields":{"done":true}}
+Delete a calendar event: ACTION:{"type":"generic","module":"calendar","op":"delete","id":"1719820800001"}
+Log a calorie entry: ACTION:{"type":"generic","module":"calorieLog","op":"create","fields":{"name":"Chicken salad","kcal":450,"protein":38}}
+
+MOVE / RESCHEDULE — there is no separate "move" action. Moving something is just an update with a new value for whatever changed. Examples:
+Move a calendar event to a new date: ACTION:{"type":"generic","module":"calendar","op":"update","id":"1719820800001","fields":{"date":"2026-07-10"}}
+Reschedule and change the time: ACTION:{"type":"generic","module":"calendar","op":"update","id":"1719820800001","fields":{"date":"2026-07-10","time":"14:00"}}
+Change a task's due date or priority: ACTION:{"type":"generic","module":"tasks","op":"update","id":"1719820800000","fields":{"due":"2026-07-20","priority":"low"}}
+
+SWAP — there is no separate "swap" action either. A swap between two records is just two update actions confirmed together. State both changes clearly in your message, then include both ACTION lines, each on its own line:
+"Swapping priorities — the GP appointment becomes high priority, the gym session becomes low. Confirm?"
+ACTION:{"type":"generic","module":"tasks","op":"update","id":"1719820800000","fields":{"priority":"high"}}
+ACTION:{"type":"generic","module":"tasks","op":"update","id":"1719820800002","fields":{"priority":"low"}}
+
+CROSS-MODULE MOVE — the one case update can't cover is when a record needs to change which module it lives in entirely, not just change its fields — e.g. turning a vault document into a real calendar event, or promoting something from one tracked area to another as new modules get built. For this, use move_module:
+ACTION:{"type":"generic","module":"<source module>","op":"move_module","id":"<record id>","fields":{"toModule":"<destination module>", ...any new fields needed in the destination}}
+Only use move_module when the record is genuinely relocating, not for ordinary edits — that's still a plain update.
+
+Always state plainly in your own words what you're about to do and ask for confirmation before including the ACTION line — same as always. Prefer the generic format for anything new; the older specific action types below still work and you can use either, but generic is the long-term standard, especially once new modules (work certificates, finance, etc) get added — they'll only be reachable via the generic format since they won't have bespoke actions written for them.
+
+If Neil asks about something in a module you have full visibility of, answer directly from the live data given to you — never say you "don't have access" to a part of the app. The only things you don't have direct live visibility of are: full historical detail beyond what's summarised below (use search_vault for documents), and anything genuinely not yet built into the app (be honest if a module like Work or Finance doesn't have real data yet — it's a placeholder).
+
 ACTION PROTOCOL — CRITICAL:
 When you want to perform an action, you MUST include a JSON block at the end of your message in this exact format:
 
@@ -2813,16 +2886,107 @@ LIVE DATA — right now:
 Today is ${today}.
 Weight: ${latestHealth.weight || 89.0} kg. Body fat: ${latestHealth.bodyFat || 25.2}%. Fat mass: ${latestHealth.fatMass || 22.4} kg. Muscle: ${latestHealth.muscle || 35.6} kg. BP: ${latestHealth.bp || "127/75"}.
 Calories logged today: ${todayKcal}. Protein: ${todayProtein}g. Targets: 1900 to 2000 cal, 140 to 160g protein.
-Pending tasks (use the id when marking one complete — match Neil's natural description, e.g. "the GP appointment" or "I booked my doctor", against the task text below, then use that task's exact id): ${pendingTasks || "none"}.
-Upcoming events: ${upcomingEvents || "none"}.
+PENDING TASKS (match Neil's natural description against the text below, then use that exact id for updates):
+${pendingTasks}
+
+RECENTLY COMPLETED TASKS (for reference if Neil asks "did I already..."): ${completedTasksRecent}
+
+FULL CALENDAR (every event Neil has — use this for any date/schedule question, not just "upcoming"):
+${allCalEvents}
+
+ROTATION BLOCKS (Man of Steel — use this for any "how many days on my next rotation" or leave planning question; work out the day count yourself from start/end dates using the date reference tables above):
+${rotationSummary}
 
 ${memory ? `MEMORY FROM PREVIOUS SESSIONS — things learned about Neil over time:
 ${memory}` : "No previous session memory yet. This is early days."}`;
   };
 
   // ── Execute confirmed action ──
+  // ── GENERIC ACTION EXECUTOR — handles create/update/delete against any module
+  // in MODULE_REGISTRY. This is the foundation that lets new modules (Work, Finance,
+  // certificates) plug in later without writing new executor code each time. ──
+  const executeGenericAction = (module, op, id, fields) => {
+    // ── Cross-module move — the one operation that spans two modules, so it's handled
+    // separately before the per-module switch below (which only knows how to act within
+    // a single module). Reads the source record, removes it, creates it in the destination
+    // with any new fields merged in. ──
+    if (op === "move_module" && fields.toModule) {
+      const { toModule, ...newFields } = fields;
+      let sourceRecord = null;
+      if (module === "tasks") sourceRecord = tasks.find(t => String(t.id)===String(id));
+      else if (module === "calendar") sourceRecord = calEvents.find(e => String(e.id)===String(id));
+      else if (module === "vault") sourceRecord = vault.find(d => String(d.id)===String(id));
+      // Remove from source
+      executeGenericAction(module, "delete", id, {});
+      // Create in destination with merged fields (source data as a base, overridden by any new fields given)
+      executeGenericAction(toModule, "create", null, { ...(sourceRecord||{}), ...newFields });
+      return;
+    }
+    switch (module) {
+      case "tasks": {
+        if (op === "create") {
+          setTasks(prev => [...prev, { id:Date.now(), text:fields.text, cat:fields.cat||"Admin", priority:fields.priority||"med", due:fields.due||"", done:false }]);
+        } else if (op === "update") {
+          setTasks(prev => prev.map(t => String(t.id)===String(id) ? {...t, ...fields} : t));
+        } else if (op === "delete") {
+          setTasks(prev => prev.filter(t => String(t.id)!==String(id)));
+        }
+        break;
+      }
+      case "calendar": {
+        if (op === "create") {
+          addCalEvent({ type:fields.type||"reminder", date:fields.date, title:fields.title, notes:fields.notes||"", time:fields.time||"", location:fields.location||"" });
+        } else if (op === "update") {
+          const target = calEvents.find(e => String(e.id)===String(id));
+          if (target) { removeCalEvent(target.id); addCalEvent({ ...target, ...fields }); }
+        } else if (op === "delete") {
+          if (id) { removeCalEvent(id); }
+          else {
+            // Fallback fuzzy match by title+date for cases where TARS doesn't have the exact id
+            const target = calEvents.find(e => e.date===fields.date && e.title.toLowerCase().includes((fields.title||"").toLowerCase().slice(0,15)));
+            if (target) removeCalEvent(target.id);
+          }
+        }
+        break;
+      }
+      case "health": {
+        // Append-only — always creates a new check-in entry, filling gaps from the latest entry
+        const latest = healthEntries[healthEntries.length-1] || {};
+        setHealthEntries(prev => [...prev, {
+          date: new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}),
+          weight: fields.weight || latest.weight, bodyFat: fields.bodyFat || latest.bodyFat,
+          fatMass: fields.fatMass || latest.fatMass, muscle: fields.muscle || latest.muscle, bp: fields.bp || latest.bp,
+        }]);
+        break;
+      }
+      case "calorieLog": {
+        if (op === "create") {
+          const entry = { id:Date.now(), name:fields.name, kcal:fields.kcal||0, protein:fields.protein||0, time:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) };
+          setCalLog(prev => ({ ...prev, [todayLabel]: [...(prev[todayLabel]||[]), entry] }));
+        } else if (op === "delete") {
+          setCalLog(prev => ({ ...prev, [todayLabel]: (prev[todayLabel]||[]).filter(e => String(e.id)!==String(id)) }));
+        }
+        break;
+      }
+      default:
+        break; // unregistered module — silently ignored, shouldn't happen since prompt only offers registered modules
+    }
+  };
+
   const executeAction = (action) => {
     const now = new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"});
+    if (action.type === "multi") {
+      (action.payload.actions||[]).filter(sub => sub.type === "generic").forEach(sub => {
+        executeGenericAction(sub.payload.module, sub.payload.op, sub.payload.id, sub.payload.fields || {});
+      });
+      setPendingAction(null);
+      return;
+    }
+    if (action.type === "generic") {
+      executeGenericAction(action.payload.module, action.payload.op, action.payload.id, action.payload.fields || {});
+      setPendingAction(null);
+      return;
+    }
     switch(action.type) {
       case "log_food": {
         const entry = { id:Date.now(), name:action.payload.name, kcal:action.payload.kcal, protein:action.payload.protein, time:now };
@@ -2875,32 +3039,55 @@ ${memory}` : "No previous session memory yet. This is early days."}`;
   };
 
   // ── Parse TARS response for ACTION JSON block ──
-  const parseActionFromReply = (reply) => {
-    const actionMatch = reply.match(/ACTION:(\{[^\n]+\})/);
-    if (!actionMatch) return null;
-    try {
-      const data = JSON.parse(actionMatch[1]);
-      switch(data.type) {
-        case "log_food":
-          return { type:"log_food", payload:{ name:data.name||"Food", kcal:data.kcal||0, protein:data.protein||0 }, description:`Log "${data.name}" — ${data.kcal} kcal, ${data.protein}g protein` };
-        case "add_task":
-          return { type:"add_task", payload:{ text:data.text, cat:data.cat||"Admin", priority:data.priority||"med" }, description:`Add task: "${data.text}"` };
-        case "add_cal_event":
-          return { type:"add_cal_event", payload:{ title:data.title, date:data.date, time:data.time||"", location:data.location||"", type:data.eventType||"reminder", notes:data.notes||"" }, description:`Add to calendar: "${data.title}" on ${data.date}${data.time?` at ${data.time}`:""}${data.location?` (${data.location} local time)`:""}` };
-        case "add_cal_events":
-          return { type:"add_cal_events", payload:{ events:data.events||[] }, description:`Add ${data.events?.length||0} events to calendar` };
-        case "log_health":
-          return { type:"log_health", payload:{ weight:data.weight, bodyFat:data.bodyFat, fatMass:data.fatMass, muscle:data.muscle, bp:data.bp }, description:`Log health check-in` };
-        case "complete_task": {
-          const matchedTask = tasks.find(t => String(t.id) === String(data.id));
-          return { type:"complete_task", payload:{ id:data.id }, description:`Mark complete: "${matchedTask?.text || "task"}"` };
-        }
-        case "delete_cal_event":
-          return { type:"delete_cal_event", payload:{ title:data.title, date:data.date }, description:`Delete "${data.title}" on ${formatDateDDMMYYYY(data.date)}` };
-        default: return null;
+  // Parses one ACTION JSON object into a {type, payload, description} action
+  const parseSingleAction = (data) => {
+    switch(data.type) {
+      case "log_food":
+        return { type:"log_food", payload:{ name:data.name||"Food", kcal:data.kcal||0, protein:data.protein||0 }, description:`Log "${data.name}" — ${data.kcal} kcal, ${data.protein}g protein` };
+      case "add_task":
+        return { type:"add_task", payload:{ text:data.text, cat:data.cat||"Admin", priority:data.priority||"med" }, description:`Add task: "${data.text}"` };
+      case "add_cal_event":
+        return { type:"add_cal_event", payload:{ title:data.title, date:data.date, time:data.time||"", location:data.location||"", type:data.eventType||"reminder", notes:data.notes||"" }, description:`Add to calendar: "${data.title}" on ${data.date}${data.time?` at ${data.time}`:""}${data.location?` (${data.location} local time)`:""}` };
+      case "add_cal_events":
+        return { type:"add_cal_events", payload:{ events:data.events||[] }, description:`Add ${data.events?.length||0} events to calendar` };
+      case "log_health":
+        return { type:"log_health", payload:{ weight:data.weight, bodyFat:data.bodyFat, fatMass:data.fatMass, muscle:data.muscle, bp:data.bp }, description:`Log health check-in` };
+      case "complete_task": {
+        const matchedTask = tasks.find(t => String(t.id) === String(data.id));
+        return { type:"complete_task", payload:{ id:data.id }, description:`Mark complete: "${matchedTask?.text || "task"}"` };
       }
+      case "delete_cal_event":
+        return { type:"delete_cal_event", payload:{ title:data.title, date:data.date }, description:`Delete "${data.title}" on ${formatDateDDMMYYYY(data.date)}` };
+      case "generic": {
+        const moduleInfo = MODULE_REGISTRY[data.module];
+        const moduleLabel = moduleInfo?.label || data.module;
+        let desc;
+        if (data.op === "create") desc = `Add to ${moduleLabel}: ${Object.entries(data.fields||{}).map(([k,v])=>`${k}: ${v}`).join(", ")}`;
+        else if (data.op === "update") desc = `Update ${moduleLabel} record: ${Object.entries(data.fields||{}).map(([k,v])=>`${k}: ${v}`).join(", ")}`;
+        else if (data.op === "delete") desc = `Delete from ${moduleLabel}`;
+        else if (data.op === "move_module") desc = `Move record from ${moduleLabel} to ${MODULE_REGISTRY[data.fields?.toModule]?.label || data.fields?.toModule}`;
+        else desc = `${data.op} on ${moduleLabel}`;
+        return { type:"generic", payload:{ module:data.module, op:data.op, id:data.id, fields:data.fields||{} }, description: desc };
+      }
+      default: return null;
+    }
+  };
+
+  const parseActionFromReply = (reply) => {
+    const actionMatches = [...reply.matchAll(/ACTION:(\{[^\n]+\})/g)];
+    if (actionMatches.length === 0) return null;
+    try {
+      const parsed = actionMatches.map(m => parseSingleAction(JSON.parse(m[1]))).filter(Boolean);
+      if (parsed.length === 0) return null;
+      if (parsed.length === 1) return parsed[0];
+      // Multiple actions in one reply (e.g. a swap) — bundle into one confirmation
+      return {
+        type: "multi", payload: { actions: parsed },
+        description: parsed.map(a => a.description).join("; "),
+      };
     } catch { return null; }
   };
+
 
   // ── Strip ACTION line from display text ──
   const stripAction = (text) => text.replace(/\nACTION:\{[^\n]+\}/g, "").replace(/ACTION:\{[^\n]+\}/g, "").trim();
@@ -3459,14 +3646,23 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
           {pendingAction && (
             <div style={{ margin:"0 16px 8px", background:`${T.gold}18`, border:`1px solid ${T.gold}44`, borderRadius:12, padding:"10px 14px" }}>
               <div style={{ fontSize:12, color:T.gold, fontWeight:700, marginBottom:4 }}>⚡ Pending action</div>
-              <div style={{ fontSize:12, color:T.text, marginBottom:pendingAction.type==="add_cal_events"?8:10, lineHeight:1.5 }}>
-                {pendingAction.description}
+              <div style={{ fontSize:12, color:T.text, marginBottom:(pendingAction.type==="add_cal_events"||pendingAction.type==="multi")?8:10, lineHeight:1.5 }}>
+                {pendingAction.type==="multi" ? "Two changes together:" : pendingAction.description}
               </div>
               {pendingAction.type==="add_cal_events" && pendingAction.payload?.events?.length > 0 && (
                 <div style={{ marginBottom:10 }}>
                   {pendingAction.payload.events.map((ev,i)=>(
                     <div key={i} style={{ fontSize:11, color:T.muted, padding:"3px 0", borderBottom:`1px solid ${T.border}` }}>
                       {ev.title} · {ev.date}{ev.time?` ${ev.time}`:""}{ev.location?` · ${ev.location} local time`:""}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {pendingAction.type==="multi" && pendingAction.payload?.actions?.length > 0 && (
+                <div style={{ marginBottom:10 }}>
+                  {pendingAction.payload.actions.map((a,i)=>(
+                    <div key={i} style={{ fontSize:11, color:T.muted, padding:"3px 0", borderBottom:`1px solid ${T.border}` }}>
+                      {a.description}
                     </div>
                   ))}
                 </div>
@@ -3746,7 +3942,7 @@ export default function LifeApp() {
       case "calendar": return <CalendarScreen onBack={()=>setScreen("home")} calEvents={calEvents} rotationBlocks={rotationBlocks} addCalEvent={addCalEvent} removeCalEvent={removeCalEvent} addRotation={addRotation} removeRotation={removeRotation} tasks={tasks} />;
       case "finance":  return <ComingSoon label="Finance" icon="finance" accent={T.purple} onBack={()=>setScreen("home")} />;
       case "work":     return <ComingSoon label="Work" icon="work" accent={T.blue} onBack={()=>setScreen("home")} />;
-      case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages }} />;
+      case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks }} />;
       default:         return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} />;
     }
   };
