@@ -4177,6 +4177,38 @@ const INIT_CAL_EVENTS = [];
 
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
 export default function LifeApp() {
+  // ── Fix the outer page white border — this isn't coming from anything inside this
+  // component, it's the default browser body margin + white background on the page
+  // shell outside React's control (index.html). This forces it to match the app at
+  // runtime so there's no visible gap on any screen size, including wider phones like
+  // the S24 Ultra where the centered max-width container used to leave a visible edge. ──
+  useEffect(() => {
+    const prevBodyMargin = document.body.style.margin;
+    const prevBodyBg = document.body.style.background;
+    const prevHtmlBg = document.documentElement.style.background;
+    document.body.style.margin = "0";
+    document.body.style.padding = "0";
+    document.body.style.background = T.bg;
+    document.documentElement.style.background = T.bg;
+    document.documentElement.style.margin = "0";
+    // Also catch any wrapping container around the React mount point itself
+    const root = document.getElementById("root") || document.getElementById("app");
+    let prevRootStyle = null;
+    if (root) {
+      prevRootStyle = { margin: root.style.margin, padding: root.style.padding, maxWidth: root.style.maxWidth, width: root.style.width };
+      root.style.margin = "0";
+      root.style.padding = "0";
+      root.style.maxWidth = "none";
+      root.style.width = "100%";
+    }
+    return () => {
+      document.body.style.margin = prevBodyMargin;
+      document.body.style.background = prevBodyBg;
+      document.documentElement.style.background = prevHtmlBg;
+      if (root && prevRootStyle) Object.assign(root.style, prevRootStyle);
+    };
+  }, []);
+
   const [screen, setScreen] = useState("home");
   const [tasks, setTasks] = usePersistentState("life_tasks", INIT_TASKS);
 
