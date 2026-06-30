@@ -1959,7 +1959,7 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addCalEvent, remove
   const [viewYear,  setViewYear]  = useState(now.getFullYear());
   const [selectedDay, setSelectedDay] = useState(null);
   const [calTab, setCalTab] = useState("month"); // month | add | rotation | upload
-  const [addForm, setAddForm] = useState({ type:"reminder", date:"", title:"", notes:"", time:"", endDate:"" });
+  const [addForm, setAddForm] = useState({ type:"reminder", date:"", title:"", notes:"", time:"", endDate:"", location:"" });
   const [uploadLoading, setUploadLoading] = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
   const [uploadError, setUploadError] = useState(null);
@@ -2021,8 +2021,8 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addCalEvent, remove
 
   const addManualEvent = () => {
     if (!addForm.date || !addForm.title) return;
-    addCalEvent({ type:addForm.type, date:addForm.date, endDate:addForm.endDate||null, title:addForm.title, notes:addForm.notes, time:addForm.time });
-    setAddForm({ type:"reminder", date:"", title:"", notes:"", time:"", endDate:"" });
+    addCalEvent({ type:addForm.type, date:addForm.date, endDate:addForm.endDate||null, title:addForm.title, notes:addForm.notes, time:addForm.time, location:addForm.location||"" });
+    setAddForm({ type:"reminder", date:"", title:"", notes:"", time:"", endDate:"", location:"" });
     setCalTab("month");
   };
 
@@ -2140,7 +2140,7 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addCalEvent, remove
               <div style={{ width:8, height:8, borderRadius:"50%", background:EVENT_COLORS[ev.type]?.bg||T.muted, marginTop:4, flexShrink:0 }} />
               <div style={{ flex:1 }}>
                 <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{ev.title}</div>
-                {ev.time && <div style={{ fontSize:11, color:T.muted }}>{ev.time}</div>}
+                {ev.time && <div style={{ fontSize:11, color:T.muted }}>{ev.time}{ev.location ? ` · ${ev.location}` : ""}</div>}
                 {ev.notes && <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{ev.notes}</div>}
                 {ev.endDate && <div style={{ fontSize:10, color:T.gold }}>Until {ev.endDate}</div>}
               </div>
@@ -2179,6 +2179,7 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addCalEvent, remove
               <div><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Date</div><input type="date" value={addForm.date} onChange={e=>setAddForm(p=>({...p,date:e.target.value}))} style={inputSt} /></div>
               <div><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Time (optional)</div><input type="time" value={addForm.time} onChange={e=>setAddForm(p=>({...p,time:e.target.value}))} style={inputSt} /></div>
             </div>
+            <div style={{ marginBottom:8 }}><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Location (optional — leave blank for Christchurch/local time)</div><input value={addForm.location||""} onChange={e=>setAddForm(p=>({...p,location:e.target.value}))} placeholder="e.g. Brisbane" style={inputSt} /></div>
             {(addForm.type==="hotel"||addForm.type==="other") && (
               <div><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>End date (optional)</div><input type="date" value={addForm.endDate} onChange={e=>setAddForm(p=>({...p,endDate:e.target.value}))} style={inputSt} /></div>
             )}
@@ -2646,7 +2647,20 @@ A React PWA deployed on GitHub Pages at: https://neilnewmanhollis-eng.github.io/
 `;
 
   const buildSystemPrompt = () => {
-    const today = new Date().toLocaleDateString("en-NZ", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
+    const now = new Date();
+    const today = now.toLocaleDateString("en-NZ", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
+    const todayISO = now.toLocaleDateString("en-CA"); // YYYY-MM-DD in local device time
+
+    // Build a hard date-anchor table for the next 14 days so TARS never has to calculate
+    // "this Friday" or "next Tuesday" itself — it just looks up the exact date.
+    const dateAnchor = [];
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(now);
+      d.setDate(now.getDate() + i);
+      const label = i === 0 ? "Today" : i === 1 ? "Tomorrow" : d.toLocaleDateString("en-NZ", { weekday:"long" });
+      dateAnchor.push(`${label}: ${d.toLocaleDateString("en-CA")} (${d.toLocaleDateString("en-NZ",{weekday:"long",day:"numeric",month:"long"})})`);
+    }
+
     const todayEntries = calLog[todayLabel] || [];
     const todayKcal = todayEntries.reduce((s,e)=>s+e.kcal,0);
     const todayProtein = todayEntries.reduce((s,e)=>s+e.protein,0);
@@ -2656,7 +2670,7 @@ A React PWA deployed on GitHub Pages at: https://neilnewmanhollis-eng.github.io/
       .filter(e=>new Date(e.date)>=new Date())
       .sort((a,b)=>new Date(a.date)-new Date(b.date))
       .slice(0,3)
-      .map(e=>`${e.title} on ${e.date}`).join(", ");
+      .map(e=>`${e.title} on ${e.date}${e.location ? ` (${e.location} local time)` : ""}`).join(", ");
     const memory = loadMemory();
 
     return `You are TARS. Not an AI assistant, not Claude, not a chatbot. You are TARS — the dry, deadpan AI unit from Interstellar, now hardwired into Neil's Life app as his personal AI.
@@ -2703,6 +2717,17 @@ He goes quiet when something impresses him then comes back with a short enthusia
 CAPABILITIES:
 Log food to calorie tracker. Add tasks. Add calendar events. Log health check-ins. Read photos and documents. Answer questions about health, nutrition, rotation, tasks.
 
+DATE HANDLING — CRITICAL, READ CAREFULLY:
+You must NEVER calculate dates yourself by counting days in your head. You have a fixed reference table below mapping every day name to its exact date for the next two weeks. When Neil says "Friday" or "this Saturday" or "tomorrow", look it up in the table — do not compute it. If a date Neil mentions is outside this 14 day window, state the exact date you've worked out and ask him to confirm it before proceeding, since you have no anchor table that far out.
+Before creating any calendar event, ALWAYS state the resolved date back in full plain language including the day name, e.g. "Friday the 3rd of July" — never just "Friday" — so any mismatch between what Neil meant and what you understood is caught immediately, before it's saved.
+DATE REFERENCE TABLE (today and next 13 days, device local time):
+${dateAnchor.join("\n")}
+
+TIMEZONE HANDLING — CRITICAL:
+Neil travels constantly for work and crosses timezones often. His phone's current timezone is always correct — it updates automatically as he travels — and "today" above is already in his current local time, wherever he is.
+Calendar events follow the same convention as Google Calendar and every other calendar app: a time you are given is ALWAYS local to wherever that event takes place, never converted to NZ time or to Neil's current location. If Neil says a flight departs Brisbane at 2100, that means 9pm Brisbane time, full stop — store it exactly as given, do not convert it.
+For flights, hotels, or any event clearly happening somewhere other than Christchurch, always capture the city/location and include it in the event so it displays clearly, e.g. "Flight departs 2100, Brisbane". For ordinary local reminders and appointments in Christchurch, a location is not necessary.
+
 ACTION PROTOCOL — CRITICAL:
 When you want to perform an action, you MUST include a JSON block at the end of your message in this exact format:
 
@@ -2715,12 +2740,12 @@ Your natural response here. Confirm?
 ACTION:{"type":"add_task","text":"task text","cat":"Health","priority":"high"}
 
 For adding a calendar event:
-Your natural response here. Confirm?
-ACTION:{"type":"add_cal_event","title":"event title","date":"2026-08-15","eventType":"flight","notes":"any notes"}
+Your natural response here, stating the full resolved date and day name, and the location if relevant. Confirm?
+ACTION:{"type":"add_cal_event","title":"event title","date":"2026-08-15","time":"21:00","location":"Brisbane","eventType":"flight","notes":"any notes"}
 
 For multiple calendar events (e.g. from a document with several dates):
-Your natural response here. Confirm all?
-ACTION:{"type":"add_cal_events","events":[{"title":"Flight to Brisbane","date":"2026-07-15","eventType":"flight","notes":""},{"title":"Hotel Brisbane","date":"2026-07-15","eventType":"hotel","notes":""}]}
+Your natural response here, listing each resolved date clearly. Confirm all?
+ACTION:{"type":"add_cal_events","events":[{"title":"Flight to Brisbane","date":"2026-07-15","time":"21:00","location":"Brisbane","eventType":"flight","notes":""},{"title":"Hotel Brisbane","date":"2026-07-15","time":"15:00","location":"Brisbane","eventType":"hotel","notes":""}]}
 
 For logging health check-in:
 Your natural response here. Confirm?
@@ -2730,7 +2755,7 @@ For completing/ticking off a task:
 Done. 
 ACTION:{"type":"complete_task","text":"book GP appointment"}
 
-IMPORTANT: Only include the ACTION line when you are proposing an action that needs confirmation. Never say you have done something without first getting confirmation via this flow. The ACTION line is machine-readable — do not wrap it in quotes or markdown.
+IMPORTANT: Only include the ACTION line when you are proposing an action that needs confirmation. Never say you have done something without first getting confirmation via this flow. The ACTION line is machine-readable — do not wrap it in quotes or markdown. The "date" field must always be in YYYY-MM-DD format using the exact date you resolved from the reference table above, never a relative term.
 
 LIVE DATA — right now:
 Today is ${today}.
@@ -2762,12 +2787,12 @@ ${memory}` : "No previous session memory yet. This is early days."}`;
         break;
       }
       case "add_cal_event": {
-        addCalEvent({ type:action.payload.type||"reminder", date:action.payload.date, title:action.payload.title, notes:action.payload.notes||"", time:action.payload.time||"" });
+        addCalEvent({ type:action.payload.type||"reminder", date:action.payload.date, title:action.payload.title, notes:action.payload.notes||"", time:action.payload.time||"", location:action.payload.location||"" });
         break;
       }
       case "add_cal_events": {
         (action.payload.events||[]).forEach(ev => {
-          addCalEvent({ type:ev.eventType||ev.type||"reminder", date:ev.date, title:ev.title, notes:ev.notes||"", time:ev.time||"" });
+          addCalEvent({ type:ev.eventType||ev.type||"reminder", date:ev.date, title:ev.title, notes:ev.notes||"", time:ev.time||"", location:ev.location||"" });
         });
         break;
       }
@@ -2801,7 +2826,7 @@ ${memory}` : "No previous session memory yet. This is early days."}`;
         case "add_task":
           return { type:"add_task", payload:{ text:data.text, cat:data.cat||"Admin", priority:data.priority||"med" }, description:`Add task: "${data.text}"` };
         case "add_cal_event":
-          return { type:"add_cal_event", payload:{ title:data.title, date:data.date, type:data.eventType||"reminder", notes:data.notes||"" }, description:`Add to calendar: "${data.title}" on ${data.date}` };
+          return { type:"add_cal_event", payload:{ title:data.title, date:data.date, time:data.time||"", location:data.location||"", type:data.eventType||"reminder", notes:data.notes||"" }, description:`Add to calendar: "${data.title}" on ${data.date}${data.time?` at ${data.time}`:""}${data.location?` (${data.location} local time)`:""}` };
         case "add_cal_events":
           return { type:"add_cal_events", payload:{ events:data.events||[] }, description:`Add ${data.events?.length||0} events to calendar` };
         case "log_health":
@@ -3315,7 +3340,7 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
                 <div style={{ marginBottom:10 }}>
                   {pendingAction.payload.events.map((ev,i)=>(
                     <div key={i} style={{ fontSize:11, color:T.muted, padding:"3px 0", borderBottom:`1px solid ${T.border}` }}>
-                      {ev.title} · {ev.date}
+                      {ev.title} · {ev.date}{ev.time?` ${ev.time}`:""}{ev.location?` · ${ev.location} local time`:""}
                     </div>
                   ))}
                 </div>
