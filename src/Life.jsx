@@ -3924,6 +3924,7 @@ function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState 
   const [messages, setMessages] = usePersistentState(`project_chat_${projectId}`, []);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [listening, setListening] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
   const [vault] = usePersistentState("tars_vault", []); // shared vault, read-only here — Projects can reference it but vault management stays in TARS
 
@@ -4028,6 +4029,34 @@ This project's conversation history below IS its memory — there's no separate 
     setLoading(false);
   };
 
+  // ── Voice input — same pattern as main TARS chat: auto-send once speech ends ──
+  const startListening = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) { alert("Speech recognition not supported. Use Chrome."); return; }
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-NZ";
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+    recognition.continuous = false;
+    recognition.onstart = () => setListening(true);
+    recognition.onresult = (e) => {
+      const transcript = Array.from(e.results).map(r => r[0].transcript).join("");
+      setInput(transcript);
+    };
+    recognition.onend = () => {
+      setListening(false);
+      setInput(prev => {
+        if (prev.trim()) {
+          setTimeout(() => sendMessage(prev.trim()), 100);
+          return "";
+        }
+        return prev;
+      });
+    };
+    recognition.onerror = () => setListening(false);
+    recognition.start();
+  };
+
   // Reuse the same generic executor logic as TarsScreen, scoped to this component's setters
   const executeProjectAction = (action) => {
     const { module, op, id, fields } = action;
@@ -4092,11 +4121,14 @@ This project's conversation history below IS its memory — there's no separate 
       )}
 
       <div style={{ borderTop:`1px solid ${T.border}`, padding:"10px 16px 20px", display:"flex", gap:8, alignItems:"center" }}>
+        <button onClick={startListening} disabled={listening} style={{ width:40, height:40, borderRadius:"50%", background:listening?`${T.accent}22`:T.elevated, border:`1px solid ${listening?T.accent:T.border}`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+          <Icon name="mic" size={16} color={listening?T.accent:T.muted} />
+        </button>
         <input
           value={input}
           onChange={e=>setInput(e.target.value)}
           onKeyDown={e=>{ if(e.key==="Enter") sendMessage(); }}
-          placeholder="Ask TARS about this project..."
+          placeholder={listening ? "Listening..." : "Ask TARS about this project..."}
           style={{ flex:1, padding:"11px 14px", borderRadius:999, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none" }}
         />
         <button onClick={()=>sendMessage()} disabled={loading} style={{ width:40, height:40, borderRadius:"50%", background:T.blue, border:"none", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, opacity:loading?0.5:1 }}>
