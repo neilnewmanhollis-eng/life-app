@@ -295,34 +295,25 @@ function MealPlanScreen({ calLog, setCalLog, todayLabel, appState }) {
         body: JSON.stringify({
           model: "claude-sonnet-4-6",
           max_tokens: 8000,
-          system: `You are a professional meal planner generating personalised dinner suggestions. Return ONLY a valid JSON array, no markdown, no backticks, no preamble.`,
-          messages:[{ role:"user", content:`Generate ${generateCount} dinner meal suggestions for Neil based on his food profile. Budget: ${generateBudget} NZD per serving. Season: ${currentSeason} in Christchurch NZ (Southern Hemisphere). Current pantry staples: ${pantryList}.
+          system: `You are a professional meal planner generating personalised dinner suggestions. Return ONLY a valid JSON array, no markdown, no backticks, no preamble. Keep all text fields SHORT.`,
+          messages:[{ role:"user", content:`Generate ${generateCount} dinner meal suggestions for Neil. Budget: ${generateBudget} NZD per serving. Season: ${currentSeason} in Christchurch NZ (Southern Hemisphere). Current pantry staples: ${pantryList}.
 
-NEIL'S FOOD PROFILE:
-${JSON.stringify(NEIL_FOOD_PROFILE, null, 2)}
+NEIL'S KEY PREFERENCES: Loves beef/chicken/lamb/pork/fish. Mediterranean and classic Western cuisine preferred. Avoids: offal, eggplant, bitter veg, kumara, beans (green beans OK), most legumes. Cooking time: 20-30 mins active max, oven time OK. No marinades. Medium spice. Balanced macros, carbs in moderation.
 
-IMPORTANT RULES:
-- Always makes 2 serves (dinner + next day lunch) — all quantities and costs must reflect 2 serves total
-- Active kitchen time 20-30 mins max. Passive oven time is fine.
-- No overnight marinades
-- Avoid all hard avoids listed in profile
-- Reflect the current season (${currentSeason}) — suggest appropriate seasonal produce and flavour weights
-- Vary cuisines based on his preferences
-- High protein focus (each meal should hit 45-65g protein per serve minimum)
-- Budget per SERVE is ${generateBudget} NZD
+IMPORTANT: Always 2 serves. High protein (45-65g per serve). Vary cuisines. Reflect ${currentSeason} season.
 
-Return a JSON array of exactly ${generateCount} meals in this format:
+Return ONLY a JSON array — no recipe field needed, keep ingredients list short (max 6 items):
 [{
-  "id": unique_number,
-  "name": "Full descriptive meal name",
+  "id": 1,
+  "name": "Meal name",
   "cuisine": "Mediterranean|Asian|Western|Middle Eastern|Mexican|Other",
-  "protein": protein_per_serve_grams,
-  "kcal": calories_per_serve,
-  "costPerServe": estimated_NZD_cost_as_number,
-  "prepTime": "X mins active + Y mins oven" or "X mins total",
+  "protein": 55,
+  "kcal": 650,
+  "costPerServe": 12,
+  "prepTime": "25 mins active",
   "season": "${currentSeason}",
-  "ingredients": [{"name": "ingredient", "qty": "quantity for 2 serves", "type": "fresh|staple|protein"}],
-  "recipe": "Step by step recipe for 2 serves. Numbered steps. Clear and concise.",
+  "ingredients": [{"name": "ingredient", "qty": "qty for 2 serves", "type": "fresh|staple|protein"}],
+  "recipe": "",
   "rating": 0,
   "notes": "",
   "cooked": false,
@@ -366,6 +357,30 @@ Return a JSON array of exactly ${generateCount} meals in this format:
       alert(`Could not generate meals: ${err.message}`);
     }
     setGenerating(false);
+  };
+
+  // ── Generate recipe on demand for a specific meal ──
+  const [generatingRecipe, setGeneratingRecipe] = useState(null);
+
+  const generateRecipe = async (meal) => {
+    const apiKey = localStorage.getItem("tars_anthropic_key");
+    if (!apiKey) return;
+    setGeneratingRecipe(meal.id);
+    try {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", "x-api-key":apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
+        body: JSON.stringify({
+          model:"claude-sonnet-4-6", max_tokens:1000,
+          system:`You are a recipe writer. Return ONLY the recipe as plain numbered steps, no markdown, no preamble.`,
+          messages:[{ role:"user", content:`Write a simple recipe for "${meal.name}" for 2 serves. Active kitchen time should be 20-30 mins max. Passive oven time is fine. Numbered steps, concise. Ingredients: ${meal.ingredients?.map(i=>`${i.name} (${i.qty})`).join(", ")}.` }]
+        })
+      });
+      const data = await response.json();
+      const recipe = data.content?.map(b=>b.text||"").join("") || "";
+      setMealLibrary(prev => prev.map(m => m.id===meal.id ? {...m, recipe} : m));
+    } catch {}
+    setGeneratingRecipe(null);
   };
 
   // ── Log selected meal to calorie tracker ──
@@ -559,7 +574,7 @@ Return a JSON array of exactly ${generateCount} meals in this format:
                   </div>
                 </div>
                 {/* Recipe accordion */}
-                <details style={{ padding:"10px 14px" }}>
+                <details style={{ padding:"10px 14px" }} onToggle={e => { if (e.target.open && !meal.recipe && generatingRecipe !== meal.id) generateRecipe(meal); }}>
                   <summary style={{ fontSize:11, fontWeight:600, color:T.blue, cursor:"pointer", listStyle:"none" }}>
                     📋 View recipe & ingredients
                   </summary>
@@ -569,7 +584,9 @@ Return a JSON array of exactly ${generateCount} meals in this format:
                       <div key={i} style={{ fontSize:11, color:T.text, padding:"2px 0" }}>• {ing.name} — {ing.qty} <span style={{ fontSize:9, color:T.muted }}>({ing.type})</span></div>
                     ))}
                     <div style={{ fontSize:11, fontWeight:600, color:T.muted, marginBottom:6, marginTop:12 }}>RECIPE</div>
-                    <div style={{ fontSize:12, color:T.text, lineHeight:1.6, whiteSpace:"pre-wrap" }}>{meal.recipe}</div>
+                    {generatingRecipe === meal.id && <div style={{ fontSize:12, color:T.blue }}>⏳ Generating recipe...</div>}
+                    {!meal.recipe && generatingRecipe !== meal.id && <div style={{ fontSize:12, color:T.muted }}>Tap to load recipe</div>}
+                    {meal.recipe && <div style={{ fontSize:12, color:T.text, lineHeight:1.6, whiteSpace:"pre-wrap" }}>{meal.recipe}</div>}
                   </div>
                 </details>
                 {/* Actions */}
