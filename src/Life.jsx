@@ -184,52 +184,485 @@ const EXERCISES = [
   { icon:"🧘", name:"Plank + Dead Bugs",         detail:"3 sets, build time", muscles:"Core stability" },
 ];
 
-const MEAL_LIBRARY = [
-  { id:1,  cat:"Fish",    tag:"Fish",    name:"Pan-seared salmon + garlic spinach & cucumber salad",            kcal:670, protein:56, fav:false, cooked:false, rating:0, cookAgain:null, notes:"", cookedDate:"",
-    ingredients:[{cat:"Fish",name:"Salmon fillets",qty:"440g"},{cat:"Produce",name:"Baby spinach",qty:"Large bag"},{cat:"Produce",name:"Cucumber",qty:"1"},{cat:"Produce",name:"Lemon",qty:"1"},{cat:"Pantry",name:"Garlic",qty:"—"},{cat:"Pantry",name:"Olive oil",qty:"—"}]},
-  { id:2,  cat:"Fish",    tag:"Fish",    name:"Baked cod with lemon butter + roasted asparagus & cherry tomatoes", kcal:580, protein:52, fav:false, cooked:false, rating:0, cookAgain:null, notes:"", cookedDate:"",
-    ingredients:[{cat:"Fish",name:"Cod fillets",qty:"440g"},{cat:"Produce",name:"Asparagus",qty:"1 bunch"},{cat:"Produce",name:"Cherry tomatoes",qty:"1 punnet"},{cat:"Produce",name:"Lemon",qty:"1"},{cat:"Dairy",name:"Butter",qty:"50g"},{cat:"Pantry",name:"Garlic",qty:"—"}]},
-  { id:3,  cat:"Seafood", tag:"Seafood", name:"Garlic prawn stir-fry + bok choy, snap peas & brown rice",          kcal:620, protein:48, fav:false, cooked:false, rating:0, cookAgain:null, notes:"", cookedDate:"",
-    ingredients:[{cat:"Seafood",name:"Raw prawns (peeled)",qty:"500g"},{cat:"Produce",name:"Bok choy",qty:"2 heads"},{cat:"Produce",name:"Snap peas",qty:"200g"},{cat:"Pantry",name:"Brown rice",qty:"200g"},{cat:"Pantry",name:"Garlic",qty:"—"},{cat:"Pantry",name:"Soy sauce",qty:"—"}]},
-  { id:4,  cat:"Fish",    tag:"Fish",    name:"Tuna steak with sesame crust + steamed broccoli & edamame",          kcal:640, protein:60, fav:false, cooked:false, rating:0, cookAgain:null, notes:"", cookedDate:"",
-    ingredients:[{cat:"Fish",name:"Tuna steaks",qty:"440g"},{cat:"Produce",name:"Broccoli",qty:"1 large head"},{cat:"Frozen",name:"Edamame",qty:"200g"},{cat:"Pantry",name:"Sesame seeds",qty:"3 tbsp"},{cat:"Pantry",name:"Soy sauce",qty:"—"}]},
-  { id:5,  cat:"Fish",    tag:"Fish",    name:"Miso-glazed salmon + roasted sweet potato & kale salad",             kcal:690, protein:54, fav:false, cooked:false, rating:0, cookAgain:null, notes:"", cookedDate:"",
-    ingredients:[{cat:"Fish",name:"Salmon fillets",qty:"440g"},{cat:"Produce",name:"Sweet potato",qty:"2 medium"},{cat:"Produce",name:"Kale",qty:"1 bunch"},{cat:"Pantry",name:"White miso paste",qty:"2 tbsp"},{cat:"Pantry",name:"Honey",qty:"1 tbsp"}]},
-  { id:6,  cat:"Chicken", tag:"Chicken", name:"Lemon herb chicken thighs + roasted capsicum & green beans",          kcal:680, protein:58, fav:false, cooked:false, rating:0, cookAgain:null, notes:"", cookedDate:"",
-    ingredients:[{cat:"Meat",name:"Chicken thighs (boneless)",qty:"400g"},{cat:"Produce",name:"Capsicum",qty:"2"},{cat:"Produce",name:"Green beans",qty:"200g"},{cat:"Produce",name:"Lemon",qty:"1"},{cat:"Pantry",name:"Olive oil",qty:"—"}]},
-  { id:7,  cat:"Chicken", tag:"Chicken", name:"Greek chicken breast + tzatziki, cucumber & tomato salad",            kcal:580, protein:62, fav:false, cooked:false, rating:0, cookAgain:null, notes:"", cookedDate:"",
-    ingredients:[{cat:"Meat",name:"Chicken breast",qty:"400g"},{cat:"Dairy",name:"Greek yoghurt",qty:"200g"},{cat:"Produce",name:"Cucumber",qty:"1"},{cat:"Produce",name:"Tomatoes",qty:"2"},{cat:"Pantry",name:"Garlic",qty:"—"}]},
-  { id:8,  cat:"Chicken", tag:"Chicken", name:"Thai-style chicken larb + lettuce cups, mint & lime",                 kcal:540, protein:55, fav:false, cooked:false, rating:0, cookAgain:null, notes:"", cookedDate:"",
-    ingredients:[{cat:"Meat",name:"Chicken mince",qty:"400g"},{cat:"Produce",name:"Cos lettuce",qty:"1 head"},{cat:"Produce",name:"Fresh mint",qty:"1 bunch"},{cat:"Produce",name:"Lime",qty:"2"},{cat:"Pantry",name:"Fish sauce",qty:"—"}]},
-  { id:9,  cat:"Chicken", tag:"Chicken", name:"Tandoori chicken thighs + roasted cauliflower & Greek yoghurt",       kcal:620, protein:57, fav:false, cooked:false, rating:0, cookAgain:null, notes:"", cookedDate:"",
-    ingredients:[{cat:"Meat",name:"Chicken thighs",qty:"400g"},{cat:"Dairy",name:"Greek yoghurt",qty:"200g"},{cat:"Produce",name:"Cauliflower",qty:"1 head"},{cat:"Pantry",name:"Tandoori paste",qty:"2 tbsp"}]},
-  { id:10, cat:"Beef",    tag:"Beef",    name:"Beef stir-fry + zucchini, broccoli & soy-ginger sauce",               kcal:690, protein:55, fav:false, cooked:false, rating:0, cookAgain:null, notes:"", cookedDate:"",
-    ingredients:[{cat:"Meat",name:"Beef rump strips",qty:"420g"},{cat:"Produce",name:"Zucchini",qty:"2"},{cat:"Produce",name:"Broccoli",qty:"1 head"},{cat:"Pantry",name:"Soy sauce",qty:"—"},{cat:"Pantry",name:"Ground ginger",qty:"—"}]},
-  { id:11, cat:"Lamb",    tag:"Lamb",    name:"Lamb mince lettuce cups + cucumber, tomato & tzatziki",                kcal:660, protein:54, fav:false, cooked:false, rating:0, cookAgain:null, notes:"", cookedDate:"",
-    ingredients:[{cat:"Meat",name:"Lamb mince",qty:"400g"},{cat:"Produce",name:"Cos lettuce",qty:"1 head"},{cat:"Produce",name:"Cucumber",qty:"1"},{cat:"Produce",name:"Cherry tomatoes",qty:"1 punnet"},{cat:"Dairy",name:"Greek yoghurt",qty:"150g"}]},
-  { id:12, cat:"Beef",    tag:"Beef",    name:"Sirloin steak + sautéed mushrooms, wilted spinach & garlic",           kcal:700, protein:58, fav:false, cooked:false, rating:0, cookAgain:null, notes:"", cookedDate:"",
-    ingredients:[{cat:"Meat",name:"Sirloin steak",qty:"420g"},{cat:"Produce",name:"Mushrooms",qty:"300g"},{cat:"Produce",name:"Baby spinach",qty:"150g"},{cat:"Pantry",name:"Garlic",qty:"—"},{cat:"Dairy",name:"Butter",qty:"30g"}]},
-  { id:13, cat:"Lamb",    tag:"Lamb",    name:"Moroccan lamb mince + roasted eggplant, chickpeas & mint yoghurt",     kcal:680, protein:52, fav:false, cooked:false, rating:0, cookAgain:null, notes:"", cookedDate:"",
-    ingredients:[{cat:"Meat",name:"Lamb mince",qty:"400g"},{cat:"Produce",name:"Eggplant",qty:"1 large"},{cat:"Pantry",name:"Canned chickpeas",qty:"1 can"},{cat:"Dairy",name:"Greek yoghurt",qty:"150g"},{cat:"Produce",name:"Fresh mint",qty:"small bunch"}]},
-  { id:14, cat:"Beef",    tag:"Beef",    name:"Korean-style beef bowl + shredded cabbage, cucumber & sesame",         kcal:670, protein:53, fav:false, cooked:false, rating:0, cookAgain:null, notes:"", cookedDate:"",
-    ingredients:[{cat:"Meat",name:"Beef mince",qty:"420g"},{cat:"Produce",name:"Cabbage",qty:"¼ head"},{cat:"Produce",name:"Cucumber",qty:"1"},{cat:"Pantry",name:"Soy sauce",qty:"—"},{cat:"Pantry",name:"Sesame oil",qty:"—"},{cat:"Pantry",name:"Gochujang",qty:"1 tbsp"}]},
-  { id:15, cat:"Eggs",    tag:"Eggs",    name:"Baked eggs in spiced tomato sauce (shakshuka) + feta & spinach",       kcal:520, protein:38, fav:false, cooked:false, rating:0, cookAgain:null, notes:"", cookedDate:"",
-    ingredients:[{cat:"Eggs",name:"Eggs",qty:"6 large"},{cat:"Pantry",name:"Canned crushed tomatoes",qty:"1 can"},{cat:"Dairy",name:"Feta cheese",qty:"100g"},{cat:"Produce",name:"Baby spinach",qty:"Large handful"},{cat:"Pantry",name:"Smoked paprika",qty:"—"}]},
-  { id:16, cat:"Eggs",    tag:"Eggs+Chicken", name:"Chicken & feta frittata + roasted capsicum & rocket salad",       kcal:580, protein:50, fav:false, cooked:false, rating:0, cookAgain:null, notes:"", cookedDate:"",
-    ingredients:[{cat:"Meat",name:"Chicken breast",qty:"250g"},{cat:"Eggs",name:"Eggs",qty:"6 large"},{cat:"Dairy",name:"Feta cheese",qty:"100g"},{cat:"Produce",name:"Capsicum",qty:"1"},{cat:"Produce",name:"Rocket",qty:"Large bag"}]},
-  { id:17, cat:"Other",   tag:"Pork",    name:"Pork tenderloin + apple slaw, green beans & Dijon mustard",            kcal:620, protein:56, fav:false, cooked:false, rating:0, cookAgain:null, notes:"", cookedDate:"",
-    ingredients:[{cat:"Meat",name:"Pork tenderloin",qty:"400g"},{cat:"Produce",name:"Apple",qty:"1"},{cat:"Produce",name:"Green cabbage",qty:"¼ head"},{cat:"Produce",name:"Green beans",qty:"200g"},{cat:"Pantry",name:"Dijon mustard",qty:"1 tbsp"}]},
-  { id:18, cat:"Other",   tag:"Turkey",  name:"Turkey mince bolognese + zucchini noodles & parmesan",                 kcal:590, protein:54, fav:false, cooked:false, rating:0, cookAgain:null, notes:"", cookedDate:"",
-    ingredients:[{cat:"Meat",name:"Turkey mince",qty:"400g"},{cat:"Produce",name:"Zucchini",qty:"3 large"},{cat:"Pantry",name:"Canned crushed tomatoes",qty:"1 can"},{cat:"Dairy",name:"Parmesan",qty:"40g"}]},
-  { id:19, cat:"Seafood", tag:"Seafood", name:"Scallops + pancetta, wilted spinach & cauliflower purée",              kcal:560, protein:46, fav:false, cooked:false, rating:0, cookAgain:null, notes:"", cookedDate:"",
-    ingredients:[{cat:"Seafood",name:"Scallops",qty:"400g"},{cat:"Meat",name:"Pancetta",qty:"80g"},{cat:"Produce",name:"Baby spinach",qty:"Large bag"},{cat:"Produce",name:"Cauliflower",qty:"1 head"},{cat:"Dairy",name:"Butter",qty:"40g"}]},
-  { id:20, cat:"Fish",    tag:"Fish+Dairy", name:"Smoked salmon & ricotta frittata + mixed greens & capers",          kcal:550, protein:48, fav:false, cooked:false, rating:0, cookAgain:null, notes:"", cookedDate:"",
-    ingredients:[{cat:"Fish",name:"Smoked salmon",qty:"200g"},{cat:"Dairy",name:"Ricotta cheese",qty:"150g"},{cat:"Eggs",name:"Eggs",qty:"6 large"},{cat:"Produce",name:"Mixed greens",qty:"Large bag"},{cat:"Pantry",name:"Capers",qty:"2 tbsp"}]},
-];
 
-const MEALS = MEAL_LIBRARY.slice(0,4);
+// ─── NEIL'S FOOD PROFILE (compiled from onboarding 1 Jul 2026) ───────────────
+const NEIL_FOOD_PROFILE = {
+  proteins: {
+    beef: "love", chicken: "love", lamb: "love", pork: "love",
+    fish: "love", seafood: "like", eggs: "like"
+  },
+  cuisines: {
+    mediterranean: "love", classicWestern: "love",
+    asian: "like", middleEastern: "like", mexican: "like"
+  },
+  cooking: {
+    activeKitchenTime: "20-30 mins max — passive oven/slow cook time is fine, just not actively working longer than that",
+    complexity: "simple multi-step",
+    methods: "mix of everything",
+    leftovers: "always — dinner becomes next day's lunch (always makes 2 serves)",
+    marinades: "no — keep it simple, no overnight prep"
+  },
+  flavour: {
+    spice: "medium",
+    overall: "seasonal variety — lighter in summer, hearty in winter",
+    sweetSavoury: "balanced",
+    garlicOnion: "in moderation"
+  },
+  loves: ["mushrooms", "all cheeses mild and strong", "coconut milk", "cream and butter sauces", "fish sauce", "coriander", "olives", "capsicum", "anchovies"],
+  avoids: [
+    "offal and organ meats",
+    "eggplant / aubergine",
+    "brussels sprouts, kale, radicchio and bitter vegetables",
+    "kumara / sweet potato",
+    "most legumes and pulses — exception: chickpeas in moderation only",
+    "all beans except green beans",
+    "tofu is acceptable in moderation"
+  ],
+  neutral: ["zucchini", "carrot / parsnip / beetroot"],
+  produce: {
+    seasonal: "mostly seasonal NZ produce, flexible",
+    location: "Christchurch, New Zealand — SOUTHERN HEMISPHERE (seasons are flipped from Northern Hemisphere: currently mid-winter July 2026)",
+    context: "Only cooks when off rotation at home in Christchurch. All meals provided on Man of Steel. Never cook when on rotation."
+  },
+  macros: {
+    priority: "balanced — protein, carbs and fats",
+    carbs: "in moderation",
+    targets: "1900-2000 kcal/day, 140-160g protein/day",
+    salad: "a few times a week as a side"
+  },
+  budget: {
+    base: "$8-15 NZD per serving",
+    note: "Budget is a selectable filter at generation time — Neil can ask for 'under $10 options' or 'no limit this week' depending on mood"
+  },
+  generation: {
+    style: "TARS generates 10-15 options for the week, Neil selects which to cook",
+    adventurousness: "loves trying new things",
+    library: "dynamic — all meals generated by TARS/Claude, no fixed hardcoded list"
+  },
+  ratings: {} // populated over time as Neil rates meals
+};
 
-// ─── HELPERS ─────────────────────────────────────────────────────────────────
+// ─── MEAL PLANNING SCREEN ─────────────────────────────────────────────────────
+function MealPlanScreen({ calLog, setCalLog, todayLabel, appState }) {
+  const [mealView, setMealView] = useState("planner"); // planner | pantry | history
+  const [mealLibrary, setMealLibrary] = usePersistentState("meal_library", []);
+  const [pantry, setPantry] = usePersistentState("meal_pantry", [
+    { id:1,  name:"Olive oil",       type:"staple", status:"have", qty:"Bottle", cat:"Oil & Condiments" },
+    { id:2,  name:"Soy sauce",       type:"staple", status:"have", qty:"Bottle", cat:"Oil & Condiments" },
+    { id:3,  name:"Garlic",          type:"staple", status:"have", qty:"Bulb",   cat:"Herbs & Spices" },
+    { id:4,  name:"Salt & pepper",   type:"staple", status:"have", qty:"—",      cat:"Herbs & Spices" },
+    { id:5,  name:"Olive oil spray", type:"staple", status:"have", qty:"Can",    cat:"Oil & Condiments" },
+    { id:6,  name:"Smoked paprika",  type:"staple", status:"have", qty:"Jar",    cat:"Herbs & Spices" },
+    { id:7,  name:"Ground cumin",    type:"staple", status:"have", qty:"Jar",    cat:"Herbs & Spices" },
+    { id:8,  name:"Dried oregano",   type:"staple", status:"have", qty:"Jar",    cat:"Herbs & Spices" },
+    { id:9,  name:"Fish sauce",      type:"staple", status:"have", qty:"Bottle", cat:"Oil & Condiments" },
+    { id:10, name:"Sesame oil",      type:"staple", status:"have", qty:"Bottle", cat:"Oil & Condiments" },
+  ]);
+  const [selectedMeals, setSelectedMeals] = useState(new Set());
+  const [generating, setGenerating] = useState(false);
+  const [generateBudget, setGenerateBudget] = useState("$8-15");
+  const [generateCount, setGenerateCount] = useState(12);
+  const [showShoppingList, setShowShoppingList] = useState(false);
+  const [ratingTarget, setRatingTarget] = useState(null);
+  const [ratingValue, setRatingValue] = useState(0);
+  const [ratingNotes, setRatingNotes] = useState("");
+  const [pantryInput, setPantryInput] = useState("");
+  const [pantryProcessing, setPantryProcessing] = useState(false);
+  const [pantryImage, setPantryImage] = useState(null);
+
+  const toBase64Mp = (file) => new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result.split(",")[1]); r.onerror=()=>rej(); r.readAsDataURL(file); });
+
+  // ── Season detection (Christchurch, NZ — Southern Hemisphere) ──
+  const getSeason = () => {
+    const m = new Date().getMonth(); // 0-indexed
+    if (m >= 11 || m <= 1) return "Summer"; // Dec-Feb
+    if (m >= 2 && m <= 4) return "Autumn";   // Mar-May
+    if (m >= 5 && m <= 7) return "Winter";   // Jun-Aug
+    return "Spring";                          // Sep-Nov
+  };
+  const currentSeason = getSeason();
+
+  // ── Generate meals via Claude ──
+  const generateMeals = async () => {
+    const apiKey = localStorage.getItem("tars_anthropic_key");
+    if (!apiKey) { alert("Add your Anthropic API key in TARS settings first."); return; }
+    setGenerating(true);
+    try {
+      const pantryList = pantry.filter(p=>p.status==="have").map(p=>p.name).join(", ");
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", "x-api-key":apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 4000,
+          system: `You are a professional meal planner generating personalised dinner suggestions. Return ONLY a valid JSON array, no markdown, no backticks, no preamble.`,
+          messages:[{ role:"user", content:`Generate ${generateCount} dinner meal suggestions for Neil based on his food profile. Budget: ${generateBudget} NZD per serving. Season: ${currentSeason} in Christchurch NZ (Southern Hemisphere). Current pantry staples: ${pantryList}.
+
+NEIL'S FOOD PROFILE:
+${JSON.stringify(NEIL_FOOD_PROFILE, null, 2)}
+
+IMPORTANT RULES:
+- Always makes 2 serves (dinner + next day lunch) — all quantities and costs must reflect 2 serves total
+- Active kitchen time 20-30 mins max. Passive oven time is fine.
+- No overnight marinades
+- Avoid all hard avoids listed in profile
+- Reflect the current season (${currentSeason}) — suggest appropriate seasonal produce and flavour weights
+- Vary cuisines based on his preferences
+- High protein focus (each meal should hit 45-65g protein per serve minimum)
+- Budget per SERVE is ${generateBudget} NZD
+
+Return a JSON array of exactly ${generateCount} meals in this format:
+[{
+  "id": unique_number,
+  "name": "Full descriptive meal name",
+  "cuisine": "Mediterranean|Asian|Western|Middle Eastern|Mexican|Other",
+  "protein": protein_per_serve_grams,
+  "kcal": calories_per_serve,
+  "costPerServe": estimated_NZD_cost_as_number,
+  "prepTime": "X mins active + Y mins oven" or "X mins total",
+  "season": "${currentSeason}",
+  "ingredients": [{"name": "ingredient", "qty": "quantity for 2 serves", "type": "fresh|staple|protein"}],
+  "recipe": "Step by step recipe for 2 serves. Numbered steps. Clear and concise.",
+  "rating": 0,
+  "notes": "",
+  "cooked": false,
+  "cookedDates": []
+}]` }]
+        })
+      });
+      const data = await response.json();
+      const text = data.content?.map(b=>b.text||"").join("") || "";
+      const clean = text.replace(/```json|```/g, "").trim();
+      const meals = JSON.parse(clean);
+      setMealLibrary(prev => {
+        // Keep existing meals that have been cooked or rated, replace uncooked/unrated ones
+        const keep = prev.filter(m => m.cooked || m.rating > 0);
+        return [...keep, ...meals.map((m,i) => ({ ...m, id: Date.now() + i }))];
+      });
+    } catch(err) {
+      alert(`Could not generate meals: ${err.message}`);
+    }
+    setGenerating(false);
+  };
+
+  // ── Log selected meal to calorie tracker ──
+  const logMealToCalories = (meal) => {
+    const entry = { id:Date.now(), name:meal.name, kcal:meal.kcal, protein:meal.protein, time:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) };
+    setCalLog(prev => ({ ...prev, [todayLabel]: [...(prev[todayLabel]||[]), entry] }));
+  };
+
+  // ── Mark meal as cooked — removes fresh ingredients from pantry ──
+  const markCooked = (meal) => {
+    const today = new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"});
+    setMealLibrary(prev => prev.map(m => m.id===meal.id ? {...m, cooked:true, cookedDates:[...(m.cookedDates||[]), today]} : m));
+    // Remove fresh ingredients from pantry
+    const freshToRemove = (meal.ingredients||[]).filter(i=>i.type==="fresh").map(i=>i.name.toLowerCase());
+    setPantry(prev => prev.filter(p => !freshToRemove.some(f => p.name.toLowerCase().includes(f.split(" ")[0]))));
+    logMealToCalories(meal);
+  };
+
+  // ── Save meal rating ──
+  const saveRating = () => {
+    if (!ratingTarget) return;
+    setMealLibrary(prev => prev.map(m => m.id===ratingTarget.id ? {...m, rating:ratingValue, notes:ratingNotes} : m));
+    setRatingTarget(null); setRatingValue(0); setRatingNotes("");
+  };
+
+  // ── Process pantry photo via Claude ──
+  const processPantryPhoto = async (file) => {
+    const apiKey = localStorage.getItem("tars_anthropic_key");
+    if (!apiKey) { alert("Add your Anthropic API key in TARS settings first."); return; }
+    setPantryProcessing(true);
+    try {
+      const base64 = await toBase64Mp(file);
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", "x-api-key":apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
+        body: JSON.stringify({
+          model:"claude-sonnet-4-6", max_tokens:1000,
+          system:`You are reading a photo of food items, a pantry, or groceries. Extract every visible food item and classify each as either "staple" (things that persist long-term like oils, sauces, spices, butter, flour, condiments) or "fresh" (things that get used up like meat, vegetables, fruit, dairy). Return ONLY a valid JSON array, no markdown.`,
+          messages:[{ role:"user", content:[
+            { type:"image", source:{ type:"base64", media_type:file.type, data:base64 }},
+            { type:"text", text:`List every food item visible. For each item, determine if it's a staple (long-lasting: oils, spices, sauces, condiments, butter, canned goods) or fresh (used up: meat, vegetables, fruit, fresh dairy). Return JSON array: [{"name": "item name", "type": "staple|fresh", "qty": "estimated quantity or package size", "cat": "Protein|Produce|Dairy|Oil & Condiments|Herbs & Spices|Canned|Other"}]` }
+          ]}]
+        })
+      });
+      const data = await response.json();
+      const text = data.content?.map(b=>b.text||"").join("") || "";
+      const items = JSON.parse(text.replace(/```json|```/g,"").trim());
+      const newItems = items.map((item,i) => ({
+        id: Date.now() + i,
+        name: item.name, type: item.type, status:"have",
+        qty: item.qty || "—", cat: item.cat || "Other"
+      }));
+      setPantry(prev => {
+        const existing = prev.map(p=>p.name.toLowerCase());
+        const toAdd = newItems.filter(n => !existing.includes(n.name.toLowerCase()));
+        return [...prev, ...toAdd];
+      });
+      setPantryImage(null);
+      alert(`Added ${newItems.length} items to pantry.`);
+    } catch(err) {
+      alert(`Could not read photo: ${err.message}`);
+    }
+    setPantryProcessing(false);
+  };
+
+  // ── Build shopping list ──
+  const buildShoppingList = () => {
+    const meals = mealLibrary.filter(m => selectedMeals.has(m.id));
+    const allIngredients = {};
+    meals.forEach(meal => {
+      (meal.ingredients||[]).forEach(ing => {
+        const key = ing.name.toLowerCase();
+        if (!allIngredients[key]) allIngredients[key] = { ...ing, meals:[] };
+        allIngredients[key].meals.push(meal.name);
+      });
+    });
+    const pantryNames = pantry.filter(p=>p.status==="have").map(p=>p.name.toLowerCase());
+    return Object.values(allIngredients).map(ing => ({
+      ...ing,
+      inPantry: ing.type === "staple" || pantryNames.some(p=>p.includes(ing.name.toLowerCase().split(" ")[0]))
+    })).filter(ing => !ing.inPantry);
+  };
+
+  const shoppingList = buildShoppingList();
+  const selectedMealObjects = mealLibrary.filter(m => selectedMeals.has(m.id));
+
+  // ── Render ──
+  return (
+    <div>
+      {/* Sub-nav */}
+      <div style={{ display:"flex", gap:0, borderBottom:`1px solid ${T.border}`, marginBottom:16 }}>
+        {[["planner","🍽 Planner"],["pantry","🫙 Pantry"],["history","⭐ History"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setMealView(id)} style={{ flex:1, padding:"10px 4px", fontSize:12, fontWeight:600, border:"none", background:"none", cursor:"pointer", fontFamily:"inherit", color:mealView===id?T.blue:T.muted, borderBottom:mealView===id?`2px solid ${T.blue}`:"2px solid transparent" }}>{label}</button>
+        ))}
+      </div>
+
+      {/* ── PLANNER TAB ── */}
+      {mealView==="planner" && (
+        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          {/* Generate controls */}
+          <div style={{ background:T.card, borderRadius:14, padding:14, border:`1px solid ${T.border}` }}>
+            <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:10 }}>Generate Meal Options</div>
+            <div style={{ fontSize:11, color:T.muted, marginBottom:10, lineHeight:1.5 }}>
+              Currently {currentSeason} in Christchurch — meals will be seasonally appropriate.
+            </div>
+            <div style={{ display:"flex", gap:8, marginBottom:10 }}>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Budget per serve</div>
+                <select value={generateBudget} onChange={e=>setGenerateBudget(e.target.value)} style={{ width:"100%", padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit" }}>
+                  <option value="under $10">Under $10 NZD</option>
+                  <option value="$8-15">$8–15 NZD</option>
+                  <option value="$12-20">$12–20 NZD</option>
+                  <option value="no limit">No limit</option>
+                </select>
+              </div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Number of options</div>
+                <select value={generateCount} onChange={e=>setGenerateCount(Number(e.target.value))} style={{ width:"100%", padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit" }}>
+                  <option value={8}>8 options</option>
+                  <option value={12}>12 options</option>
+                  <option value={15}>15 options</option>
+                </select>
+              </div>
+            </div>
+            <button onClick={generateMeals} disabled={generating} style={{ width:"100%", padding:"11px", borderRadius:10, background:generating?T.elevated:T.blue, color:generating?T.muted:"white", fontWeight:700, fontSize:13, border:"none", cursor:generating?"not-allowed":"pointer", fontFamily:"inherit" }}>
+              {generating ? "Generating..." : "✨ Generate meals for the week"}
+            </button>
+          </div>
+
+          {/* Selected meals summary */}
+          {selectedMeals.size > 0 && (
+            <div style={{ background:`${T.green}18`, borderRadius:14, padding:14, border:`1px solid ${T.green}44` }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:T.green }}>{selectedMeals.size} meal{selectedMeals.size!==1?"s":""} selected for the week</div>
+                <button onClick={()=>setShowShoppingList(s=>!s)} style={{ fontSize:11, fontWeight:700, color:T.green, background:`${T.green}22`, border:`1px solid ${T.green}44`, borderRadius:8, padding:"4px 10px", cursor:"pointer", fontFamily:"inherit" }}>
+                  {showShoppingList ? "Hide list" : "Shopping list"}
+                </button>
+              </div>
+              {showShoppingList && shoppingList.length > 0 && (
+                <div>
+                  <div style={{ fontSize:11, color:T.muted, marginBottom:6 }}>Items to buy (pantry staples excluded):</div>
+                  {shoppingList.map((item,i)=>(
+                    <div key={i} style={{ fontSize:12, color:T.text, padding:"3px 0", borderBottom:`1px solid ${T.border}33` }}>
+                      {item.name} <span style={{ color:T.muted }}>{item.qty}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {showShoppingList && shoppingList.length === 0 && (
+                <div style={{ fontSize:12, color:T.muted }}>Everything you need is already in your pantry.</div>
+              )}
+            </div>
+          )}
+
+          {/* Meal cards */}
+          {mealLibrary.filter(m=>!m.cooked).length === 0 && !generating && (
+            <div style={{ textAlign:"center", padding:"40px 20px", color:T.muted, fontSize:13, lineHeight:1.6 }}>
+              No meals generated yet. Tap "Generate meals for the week" above to get personalised suggestions based on your food profile and the current season.
+            </div>
+          )}
+
+          {mealLibrary.filter(m=>!m.cooked).map(meal => {
+            const isSelected = selectedMeals.has(meal.id);
+            return (
+              <div key={meal.id} style={{ background:T.card, borderRadius:14, border:`1px solid ${isSelected?T.blue:T.border}`, overflow:"hidden" }}>
+                {/* Header */}
+                <div style={{ padding:"12px 14px", borderBottom:`1px solid ${T.border}` }}>
+                  <div style={{ display:"flex", alignItems:"flex-start", gap:8, marginBottom:6 }}>
+                    <button onClick={()=>setSelectedMeals(prev=>{ const n=new Set(prev); n.has(meal.id)?n.delete(meal.id):n.add(meal.id); return n; })}
+                      style={{ width:22, height:22, borderRadius:6, border:`2px solid ${isSelected?T.blue:T.border}`, background:isSelected?T.blue:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, cursor:"pointer", marginTop:1 }}>
+                      {isSelected && <span style={{ color:"white", fontSize:12 }}>✓</span>}
+                    </button>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:13, fontWeight:700, color:T.text, lineHeight:1.4 }}>{meal.name}</div>
+                      <div style={{ fontSize:10, color:T.muted, marginTop:2 }}>{meal.cuisine} · {meal.prepTime} · ~${meal.costPerServe?.toFixed(0)||"?"}/serve</div>
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", gap:10 }}>
+                    <div style={{ textAlign:"center" }}>
+                      <div style={{ fontSize:15, fontWeight:700, color:T.accent }}>{meal.kcal}</div>
+                      <div style={{ fontSize:9, color:T.muted }}>kcal/serve</div>
+                    </div>
+                    <div style={{ textAlign:"center" }}>
+                      <div style={{ fontSize:15, fontWeight:700, color:T.blue }}>{meal.protein}g</div>
+                      <div style={{ fontSize:9, color:T.muted }}>protein</div>
+                    </div>
+                    <div style={{ textAlign:"center" }}>
+                      <div style={{ fontSize:15, fontWeight:700, color:T.green }}>${meal.costPerServe?.toFixed(0)||"?"}</div>
+                      <div style={{ fontSize:9, color:T.muted }}>NZD/serve</div>
+                    </div>
+                  </div>
+                </div>
+                {/* Recipe accordion */}
+                <details style={{ padding:"10px 14px" }}>
+                  <summary style={{ fontSize:11, fontWeight:600, color:T.blue, cursor:"pointer", listStyle:"none" }}>
+                    📋 View recipe & ingredients
+                  </summary>
+                  <div style={{ marginTop:10 }}>
+                    <div style={{ fontSize:11, fontWeight:600, color:T.muted, marginBottom:6 }}>INGREDIENTS (2 serves)</div>
+                    {(meal.ingredients||[]).map((ing,i)=>(
+                      <div key={i} style={{ fontSize:11, color:T.text, padding:"2px 0" }}>• {ing.name} — {ing.qty} <span style={{ fontSize:9, color:T.muted }}>({ing.type})</span></div>
+                    ))}
+                    <div style={{ fontSize:11, fontWeight:600, color:T.muted, marginBottom:6, marginTop:12 }}>RECIPE</div>
+                    <div style={{ fontSize:12, color:T.text, lineHeight:1.6, whiteSpace:"pre-wrap" }}>{meal.recipe}</div>
+                  </div>
+                </details>
+                {/* Actions */}
+                <div style={{ display:"flex", gap:8, padding:"8px 14px 12px" }}>
+                  <button onClick={()=>logMealToCalories(meal)} style={{ flex:1, padding:"8px", borderRadius:9, background:`${T.blue}18`, border:`1px solid ${T.blue}44`, color:T.blue, fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>+ Log calories</button>
+                  <button onClick={()=>markCooked(meal)} style={{ flex:1, padding:"8px", borderRadius:9, background:`${T.green}18`, border:`1px solid ${T.green}44`, color:T.green, fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>✓ Cooked it</button>
+                  <button onClick={()=>setRatingTarget(meal)} style={{ padding:"8px 12px", borderRadius:9, background:`${T.gold}18`, border:`1px solid ${T.gold}44`, color:T.gold, fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>⭐</button>
+                  <button onClick={()=>{ if(window.confirm(`Remove "${meal.name}" from your meal library?`)) setMealLibrary(prev=>prev.filter(m=>m.id!==meal.id)); }} style={{ padding:"8px 12px", borderRadius:9, background:`${T.accent}11`, border:`1px solid ${T.accent}33`, color:T.accent, fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>✕</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── PANTRY TAB ── */}
+      {mealView==="pantry" && (
+        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          <div style={{ background:T.card, borderRadius:14, padding:14, border:`1px solid ${T.border}` }}>
+            <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:8 }}>Update Pantry via Photo</div>
+            <div style={{ fontSize:11, color:T.muted, marginBottom:10, lineHeight:1.5 }}>
+              Take a photo of your fridge, pantry or groceries. TARS will identify items and tag them as staples (never auto-removed) or fresh (removed when you cook a meal).
+            </div>
+            <label style={{ display:"block", border:`2px dashed ${T.border}`, borderRadius:12, padding:"20px", textAlign:"center", cursor:"pointer", marginBottom:8 }}>
+              <div style={{ fontSize:24, marginBottom:4 }}>📷</div>
+              <div style={{ fontSize:12, fontWeight:600, color:T.text }}>Take or upload a photo</div>
+              <div style={{ fontSize:10, color:T.muted }}>Fridge, pantry shelf, or grocery bag</div>
+              <input type="file" accept="image/*" capture="environment" onChange={async e=>{ const f=e.target.files?.[0]; if(f) await processPantryPhoto(f); e.target.value=""; }} style={{ display:"none" }} />
+            </label>
+            {pantryProcessing && <div style={{ textAlign:"center", fontSize:12, color:T.blue, padding:"8px 0" }}>⏳ Reading photo…</div>}
+          </div>
+
+          {/* Add manually */}
+          <div style={{ background:T.card, borderRadius:14, padding:14, border:`1px solid ${T.border}` }}>
+            <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:8 }}>Add Item Manually</div>
+            <div style={{ display:"flex", gap:8 }}>
+              <input value={pantryInput} onChange={e=>setPantryInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"&&pantryInput.trim()){ setPantry(prev=>[...prev,{id:Date.now(),name:pantryInput.trim(),type:"fresh",status:"have",qty:"—",cat:"Other"}]); setPantryInput(""); }}} placeholder="Item name..." style={{ flex:1, padding:"9px 12px", borderRadius:9, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none" }} />
+              <button onClick={()=>{ if(pantryInput.trim()){ setPantry(prev=>[...prev,{id:Date.now(),name:pantryInput.trim(),type:"fresh",status:"have",qty:"—",cat:"Other"}]); setPantryInput(""); }}} style={{ padding:"9px 14px", borderRadius:9, background:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Add</button>
+            </div>
+          </div>
+
+          {/* Pantry list */}
+          {["staple","fresh"].map(type => {
+            const items = pantry.filter(p=>p.type===type);
+            if (items.length === 0) return null;
+            return (
+              <div key={type} style={{ background:T.card, borderRadius:14, padding:14, border:`1px solid ${T.border}` }}>
+                <div style={{ fontSize:11, fontWeight:700, color:T.muted, marginBottom:10, textTransform:"uppercase", letterSpacing:"0.05em" }}>
+                  {type === "staple" ? "🫙 Staples (never auto-removed)" : "🥩 Fresh items (removed when you cook)"}
+                </div>
+                {items.map(item=>(
+                  <div key={item.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 0", borderBottom:`1px solid ${T.border}` }}>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:12, fontWeight:600, color:T.text }}>{item.name}</div>
+                      <div style={{ fontSize:10, color:T.muted }}>{item.qty} · {item.cat}</div>
+                    </div>
+                    <button onClick={()=>setPantry(prev=>prev.map(p=>p.id===item.id?{...p,type:p.type==="staple"?"fresh":"staple"}:p))} style={{ fontSize:9, padding:"3px 7px", borderRadius:6, border:`1px solid ${T.border}`, background:T.elevated, color:T.muted, cursor:"pointer", fontFamily:"inherit" }}>
+                      {item.type==="staple"?"→ fresh":"→ staple"}
+                    </button>
+                    <button onClick={()=>{ if(window.confirm(`Remove "${item.name}" from pantry?`)) setPantry(prev=>prev.filter(p=>p.id!==item.id)); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:14, padding:"2px 4px" }}>✕</button>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── HISTORY TAB ── */}
+      {mealView==="history" && (
+        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+          {mealLibrary.filter(m=>m.cooked||m.rating>0).length === 0 && (
+            <div style={{ textAlign:"center", padding:"40px 20px", color:T.muted, fontSize:13 }}>No cooking history yet. Cook a meal and rate it to see it here.</div>
+          )}
+          {mealLibrary.filter(m=>m.cooked||m.rating>0).map(meal=>(
+            <div key={meal.id} style={{ background:T.card, borderRadius:14, padding:14, border:`1px solid ${T.border}` }}>
+              <div style={{ fontSize:13, fontWeight:700, color:T.text, marginBottom:4 }}>{meal.name}</div>
+              <div style={{ fontSize:11, color:T.muted, marginBottom:6 }}>
+                Cooked {meal.cookedDates?.length||0} time{meal.cookedDates?.length!==1?"s":""}
+                {meal.cookedDates?.length>0 ? ` · Last: ${meal.cookedDates[meal.cookedDates.length-1]}` : ""}
+              </div>
+              {meal.rating > 0 && (
+                <div style={{ fontSize:13, marginBottom:4 }}>{"⭐".repeat(meal.rating)}{"☆".repeat(5-meal.rating)}</div>
+              )}
+              {meal.notes && <div style={{ fontSize:11, color:T.muted, fontStyle:"italic" }}>{meal.notes}</div>}
+              <div style={{ display:"flex", gap:8, marginTop:8 }}>
+                <button onClick={()=>setRatingTarget(meal)} style={{ fontSize:11, padding:"6px 12px", borderRadius:8, border:`1px solid ${T.gold}44`, background:`${T.gold}18`, color:T.gold, cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>Rate / edit</button>
+                <button onClick={()=>logMealToCalories(meal)} style={{ fontSize:11, padding:"6px 12px", borderRadius:8, border:`1px solid ${T.blue}44`, background:`${T.blue}18`, color:T.blue, cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>+ Log calories</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── RATING MODAL ── */}
+      {ratingTarget && (
+        <div style={{ position:"fixed", inset:0, background:"#000a", zIndex:200, display:"flex", alignItems:"flex-end" }} onClick={()=>setRatingTarget(null)}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:T.card, borderRadius:"20px 20px 0 0", padding:"24px 20px 40px", width:"100%", maxWidth:480, margin:"0 auto" }}>
+            <div style={{ fontSize:14, fontWeight:700, color:T.text, marginBottom:4 }}>Rate this meal</div>
+            <div style={{ fontSize:12, color:T.muted, marginBottom:16 }}>{ratingTarget.name}</div>
+            <div style={{ display:"flex", gap:8, justifyContent:"center", marginBottom:16 }}>
+              {[1,2,3,4,5].map(n=>(
+                <button key={n} onClick={()=>setRatingValue(n)} style={{ fontSize:28, background:"none", border:"none", cursor:"pointer", opacity:n<=ratingValue?1:0.3 }}>⭐</button>
+              ))}
+            </div>
+            <textarea value={ratingNotes} onChange={e=>setRatingNotes(e.target.value)} placeholder="Notes (optional) — what worked, what you'd change, cook again?" rows={3}
+              style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", resize:"none", boxSizing:"border-box", marginBottom:12 }} />
+            <button onClick={saveRating} style={{ width:"100%", padding:"11px", borderRadius:10, background:T.green, color:"white", fontWeight:700, fontSize:14, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Save rating</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function getRotationInfo() {
   const start = new Date(USER.rotation.start);
   const now = new Date();
@@ -587,689 +1020,6 @@ function MealReviewModal({ meal, onSave, onClose }) {
   );
 }
 
-// ─── SHOPPING LIST COMPONENT (extracted to fix hooks-in-inline-function crash) ─
-function MealShoppingList({ selectedMeals, mealLib, onBack, shopCustom, setShopCustom, pantry }) {
-  const [checkedShop, setCheckedShop] = useState({});
-  const [shopCustomInput, setShopCustomInput] = useState("");
-
-  const CAT_ORDER_SHOP = ["Produce","Meat","Fish","Seafood","Dairy","Eggs","Frozen","Pantry"];
-  const CAT_ICONS_SHOP = { Fish:"🐟", Seafood:"🦐", Meat:"🥩", Eggs:"🥚", Dairy:"🧀", Produce:"🥦", Frozen:"❄️", Pantry:"🫙" };
-
-  const toggleShop = (k) => setCheckedShop(p=>({...p,[k]:!p[k]}));
-
-  // Build shopping list from selected meals
-  const byKey = {};
-  selectedMeals.forEach(id => {
-    const m = mealLib.find(x=>x.id===id);
-    if (!m) return;
-    m.ingredients.forEach(ing => {
-      const key = ing.cat+"||"+ing.name;
-      if (!byKey[key]) byKey[key] = { cat:ing.cat, name:ing.name, qtys:[] };
-      if (ing.qty && ing.qty!=="—") byKey[key].qtys.push(ing.qty);
-    });
-  });
-  const cats = {};
-  Object.values(byKey).forEach(item => {
-    if (!cats[item.cat]) cats[item.cat] = [];
-    cats[item.cat].push(item);
-  });
-
-  const addCustom = () => {
-    if (!shopCustomInput.trim()) return;
-    setShopCustom(p=>[...p,{id:Date.now(),name:shopCustomInput.trim()}]);
-    setShopCustomInput("");
-  };
-
-  return (
-    <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-        <div style={{ fontSize:14, fontWeight:700, color:T.text }}>Shopping List</div>
-        <div style={{ fontSize:11, color:T.muted }}>{selectedMeals.size} meals · 2 serves each</div>
-      </div>
-
-      {/* Custom items input */}
-      <Card>
-        <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:8 }}>Add your own items</div>
-        <div style={{ display:"flex", gap:8 }}>
-          <input value={shopCustomInput} onChange={e=>setShopCustomInput(e.target.value)}
-            placeholder="e.g. Oat milk" onKeyDown={e=>e.key==="Enter"&&addCustom()}
-            style={{ flex:1, padding:"8px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none" }} />
-          <button onClick={addCustom} style={{ padding:"8px 14px", borderRadius:8, background:T.blue, color:"white", border:"none", cursor:"pointer", fontWeight:700, fontSize:13, fontFamily:"inherit" }}>+</button>
-        </div>
-        {shopCustom.length>0 && (
-          <div style={{ marginTop:8 }}>
-            {shopCustom.map(item=>(
-              <div key={item.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 0", fontSize:12, color:T.muted }}>
-                <span style={{ flex:1 }}>{item.name}</span>
-                <button onClick={()=>setShopCustom(p=>p.filter(x=>x.id!==item.id))} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:14 }}>✕</button>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
-      {/* Meal ingredients by category */}
-      {CAT_ORDER_SHOP.map(cat => !cats[cat] ? null : (
-        <Card key={cat}>
-          <SectionLabel>{CAT_ICONS_SHOP[cat]||"•"} {cat}</SectionLabel>
-          {cats[cat].map(item => {
-            const k = item.cat+item.name;
-            const inPantry = pantry && pantry.find(p=>p.name.toLowerCase().includes(item.name.toLowerCase().split(" ")[0]));
-            const isLow = inPantry?.status==="low";
-            return (
-              <div key={k} onClick={()=>toggleShop(k)} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 0", borderBottom:`1px solid ${T.border}`, cursor:"pointer", opacity:inPantry&&!isLow?0.5:1 }}>
-                <div style={{ width:18, height:18, borderRadius:5, border:`2px solid ${checkedShop[k]?T.green:T.border}`, background:checkedShop[k]?T.green:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.12s" }}>
-                  {checkedShop[k] && <Icon name="check" size={10} color="white" />}
-                </div>
-                <span style={{ flex:1, fontSize:13, color:checkedShop[k]?T.muted:T.text, textDecoration:checkedShop[k]?"line-through":"none" }}>{item.name}</span>
-                {inPantry && !isLow && <span style={{ fontSize:9, fontWeight:700, color:T.green, background:`${T.green}22`, padding:"2px 6px", borderRadius:999 }}>✅ In pantry</span>}
-                {inPantry && isLow && <span style={{ fontSize:9, fontWeight:700, color:T.gold, background:`${T.gold}22`, padding:"2px 6px", borderRadius:999 }}>⚠️ Running low</span>}
-                {!inPantry && item.qtys.length>0 && <span style={{ fontSize:11, color:T.blue, fontWeight:600 }}>{item.qtys.join(" + ")}</span>}
-              </div>
-            );
-          })}
-        </Card>
-      ))}
-
-      {/* Custom items in list */}
-      {shopCustom.length>0 && (
-        <Card>
-          <SectionLabel>🛒 Your additions</SectionLabel>
-          {shopCustom.map(item=>{
-            const k = "custom"+item.id;
-            return (
-              <div key={k} onClick={()=>toggleShop(k)} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 0", borderBottom:`1px solid ${T.border}`, cursor:"pointer" }}>
-                <div style={{ width:18, height:18, borderRadius:5, border:`2px solid ${checkedShop[k]?T.green:T.border}`, background:checkedShop[k]?T.green:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.12s" }}>
-                  {checkedShop[k] && <Icon name="check" size={10} color="white" />}
-                </div>
-                <span style={{ flex:1, fontSize:13, color:checkedShop[k]?T.muted:T.text, textDecoration:checkedShop[k]?"line-through":"none" }}>{item.name}</span>
-              </div>
-            );
-          })}
-        </Card>
-      )}
-
-      <button onClick={onBack} style={{ width:"100%", padding:"11px", borderRadius:12, background:T.elevated, color:T.muted, fontWeight:700, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>
-        ← Back to meals
-      </button>
-    </div>
-  );
-}
-
-// ─── INITIAL PANTRY DATA ─────────────────────────────────────────────────────
-const INIT_PANTRY = [
-  { id:1,  name:"Olive oil",          cat:"Pantry", type:"staple",   status:"have", qty:"Bottle" },
-  { id:2,  name:"Soy sauce / tamari", cat:"Pantry", type:"staple",   status:"have", qty:"Bottle" },
-  { id:3,  name:"Garlic",             cat:"Pantry", type:"staple",   status:"have", qty:"Bulb" },
-  { id:4,  name:"Sesame oil",         cat:"Pantry", type:"staple",   status:"have", qty:"Bottle" },
-  { id:5,  name:"Ground cumin",       cat:"Pantry", type:"staple",   status:"have", qty:"Jar" },
-  { id:6,  name:"Smoked paprika",     cat:"Pantry", type:"staple",   status:"have", qty:"Jar" },
-  { id:7,  name:"Dried oregano",      cat:"Pantry", type:"staple",   status:"have", qty:"Jar" },
-  { id:8,  name:"Sesame seeds",       cat:"Pantry", type:"staple",   status:"have", qty:"Jar" },
-  { id:9,  name:"Honey",              cat:"Pantry", type:"staple",   status:"have", qty:"Jar" },
-  { id:10, name:"Dijon mustard",      cat:"Pantry", type:"packaged", status:"have", qty:"Jar" },
-];
-
-// ─── PANTRY DEPLETION MODAL ───────────────────────────────────────────────────
-function PantryDepletionModal({ meal, pantry, depletionTypeFn, onConfirm, onSkip }) {
-  const ingredients = meal.ingredients || [];
-  const suggestions = ingredients.map(ing => ({
-    name: ing.name, qty: ing.qty,
-    type: depletionTypeFn(ing),
-    defaultTick: depletionTypeFn(ing) !== "staple",
-  }));
-  const [ticked, setTicked] = useState(suggestions.reduce((a,s)=>({...a,[s.name]:s.defaultTick}),{}));
-  const [partial, setPartial] = useState({});
-  const toggleTick = (name) => setTicked(p=>({...p,[name]:!p[name]}));
-  const togglePartial = (name) => setPartial(p=>({...p,[name]:!p[name]}));
-  const TYPE_LABEL = { staple:"🟢 Staple", fresh:"🟡 Fresh", packaged:"🔵 Packaged" };
-  const TYPE_DESC  = { staple:"Partially used — keeping", fresh:"Fully used — remove", packaged:"Used this pack — remove" };
-
-  return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:300, display:"flex", alignItems:"flex-end" }}>
-      <div style={{ background:T.card, borderRadius:"20px 20px 0 0", padding:"20px 16px 40px", width:"100%", maxWidth:480, margin:"0 auto", maxHeight:"85vh", overflowY:"auto" }}>
-        <div style={{ fontSize:15, fontWeight:700, color:T.text, marginBottom:4 }}>Update Pantry</div>
-        <div style={{ fontSize:12, color:T.muted, marginBottom:16 }}>Just cooked: <span style={{ color:T.blue }}>{meal.name}</span><br/>Review what was used.</div>
-        {suggestions.map(s=>(
-          <div key={s.name} style={{ background:T.elevated, borderRadius:12, padding:"11px 12px", marginBottom:8, border:`1px solid ${T.border}` }}>
-            <div style={{ display:"flex", alignItems:"flex-start", gap:10 }}>
-              <div onClick={()=>s.type!=="staple"&&toggleTick(s.name)} style={{
-                width:20, height:20, borderRadius:6, flexShrink:0, marginTop:1,
-                border:`2px solid ${ticked[s.name]?T.green:T.border}`,
-                background:ticked[s.name]?T.green:"transparent",
-                display:"flex", alignItems:"center", justifyContent:"center",
-                cursor:s.type==="staple"?"not-allowed":"pointer",
-                opacity:s.type==="staple"?0.4:1, transition:"all 0.15s",
-              }}>
-                {ticked[s.name] && <Icon name="check" size={11} color="white" />}
-              </div>
-              <div style={{ flex:1 }}>
-                <div style={{ display:"flex", justifyContent:"space-between" }}>
-                  <span style={{ fontSize:13, fontWeight:600, color:T.text }}>{s.name}</span>
-                  <span style={{ fontSize:9, fontWeight:700, padding:"2px 6px", borderRadius:999,
-                    background:s.type==="staple"?`${T.green}22`:s.type==="fresh"?`${T.gold}22`:`${T.blue}22`,
-                    color:s.type==="staple"?T.green:s.type==="fresh"?T.gold:T.blue,
-                  }}>{TYPE_LABEL[s.type]}</span>
-                </div>
-                <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{TYPE_DESC[s.type]}</div>
-                {s.type==="fresh" && ticked[s.name] && (
-                  <button onClick={()=>togglePartial(s.name)} style={{ marginTop:6, padding:"3px 10px", borderRadius:999, border:"none", cursor:"pointer", fontFamily:"inherit", fontSize:10, fontWeight:700,
-                    background:partial[s.name]?`${T.gold}33`:T.card, color:partial[s.name]?T.gold:T.muted }}>
-                    {partial[s.name]?"🟡 Partial — keeping some":"✅ Fully used"}
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        ))}
-        <div style={{ display:"flex", gap:8, marginTop:16 }}>
-          <button onClick={()=>onConfirm(ticked,partial,suggestions)} style={{ flex:1, padding:"11px", borderRadius:10, background:T.green, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Update Pantry</button>
-          <button onClick={onSkip} style={{ padding:"11px 16px", borderRadius:10, background:T.elevated, color:T.muted, fontWeight:700, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>Skip</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── PANTRY VIEW ─────────────────────────────────────────────────────────────
-function PantryView({ pantry, onAdd, onRemove, onUpdate }) {
-  const [adding, setAdding] = useState(false);
-  const [newItem, setNewItem] = useState({ name:"", cat:"Pantry", type:"staple", qty:"" });
-  const CAT_ICONS_P = { Pantry:"🫙", Produce:"🥦", Meat:"🥩", Fish:"🐟", Seafood:"🦐", Dairy:"🧀", Eggs:"🥚", Frozen:"❄️" };
-  const TYPE_COLORS = { staple:T.green, fresh:T.gold, packaged:T.blue };
-  const TYPE_LABELS = { staple:"🟢 Staple", fresh:"🟡 Fresh", packaged:"🔵 Packaged" };
-  const grouped = {};
-  pantry.forEach(p=>{ if(!grouped[p.cat]) grouped[p.cat]=[]; grouped[p.cat].push(p); });
-  const add = () => {
-    if (!newItem.name.trim()) return;
-    onAdd({ name:newItem.name.trim(), cat:newItem.cat, type:newItem.type, qty:newItem.qty, status:"have" });
-    setNewItem({ name:"", cat:"Pantry", type:"staple", qty:"" });
-    setAdding(false);
-  };
-  return (
-    <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-      <div style={{ background:`${T.blue}18`, borderRadius:12, padding:12, fontSize:12, color:T.blue, border:`1px solid ${T.blue}33` }}>
-        📸 Photo upload coming with TARS. Pantry auto-updates when you mark meals as cooked.
-      </div>
-      {adding ? (
-        <Card>
-          <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:10 }}>Add Item</div>
-          <input value={newItem.name} onChange={e=>setNewItem(p=>({...p,name:e.target.value}))} placeholder="Item name" onKeyDown={e=>e.key==="Enter"&&add()}
-            style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", marginBottom:8, outline:"none", boxSizing:"border-box" }} />
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
-            <div>
-              <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Category</div>
-              <select value={newItem.cat} onChange={e=>setNewItem(p=>({...p,cat:e.target.value}))}
-                style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit" }}>
-                {["Pantry","Produce","Meat","Fish","Seafood","Dairy","Eggs","Frozen"].map(c=><option key={c}>{c}</option>)}
-              </select>
-            </div>
-            <div>
-              <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Type</div>
-              <select value={newItem.type} onChange={e=>setNewItem(p=>({...p,type:e.target.value}))}
-                style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit" }}>
-                <option value="staple">🟢 Staple (herbs, oils)</option>
-                <option value="fresh">🟡 Fresh (veg, meat, fish)</option>
-                <option value="packaged">🔵 Packaged (cans, jars)</option>
-              </select>
-            </div>
-          </div>
-          <input value={newItem.qty} onChange={e=>setNewItem(p=>({...p,qty:e.target.value}))} placeholder="Quantity (e.g. 1 bottle, 500g)"
-            style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", marginBottom:10, outline:"none", boxSizing:"border-box" }} />
-          <div style={{ display:"flex", gap:8 }}>
-            <button onClick={add} style={{ flex:1, padding:"10px", borderRadius:10, background:T.green, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Add</button>
-            <button onClick={()=>setAdding(false)} style={{ padding:"10px 16px", borderRadius:10, background:T.elevated, color:T.muted, fontWeight:700, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>Cancel</button>
-          </div>
-        </Card>
-      ) : (
-        <button onClick={()=>setAdding(true)} style={{ width:"100%", padding:"11px", borderRadius:12, background:T.elevated, border:`1px solid ${T.border}`, color:T.green, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
-          <Icon name="plus" size={14} color={T.green} /> Add Item
-        </button>
-      )}
-      {Object.entries(grouped).map(([cat,items])=>(
-        <Card key={cat}>
-          <SectionLabel>{CAT_ICONS_P[cat]||"•"} {cat} ({items.length})</SectionLabel>
-          {items.map((item,i)=>(
-            <div key={item.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 0", borderBottom:i<items.length-1?`1px solid ${T.border}`:"none" }}>
-              <div style={{ flex:1 }}>
-                <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                  <span style={{ fontSize:13, fontWeight:600, color:item.status==="low"?T.gold:T.text }}>{item.name}</span>
-                  {item.status==="low" && <span style={{ fontSize:9, fontWeight:700, color:T.gold, background:`${T.gold}22`, padding:"1px 5px", borderRadius:999 }}>LOW</span>}
-                </div>
-                <div style={{ display:"flex", gap:8, marginTop:3 }}>
-                  <span style={{ fontSize:9, fontWeight:700, color:TYPE_COLORS[item.type]||T.muted }}>{TYPE_LABELS[item.type]||item.type}</span>
-                  {item.qty && <span style={{ fontSize:10, color:T.muted }}>{item.qty}</span>}
-                </div>
-              </div>
-              <div style={{ display:"flex", gap:6 }}>
-                {item.type!=="staple" && (
-                  <button onClick={()=>onUpdate(item.id,{status:item.status==="low"?"have":"low"})}
-                    style={{ padding:"4px 8px", borderRadius:7, border:"none", cursor:"pointer", fontFamily:"inherit", fontSize:10, fontWeight:700, background:`${T.gold}22`, color:T.gold }}>
-                    {item.status==="low"?"✅":"⚠️"}
-                  </button>
-                )}
-                <button onClick={()=>onRemove(item.id)} style={{ padding:"4px 8px", borderRadius:7, border:"none", cursor:"pointer", background:`${T.accent}11`, color:T.accent, fontSize:12 }}>✕</button>
-              </div>
-            </div>
-          ))}
-        </Card>
-      ))}
-      {pantry.length===0 && <div style={{ textAlign:"center", padding:"40px 20px", color:T.muted, fontSize:13 }}><div style={{ fontSize:32, marginBottom:8 }}>🫙</div>Pantry is empty — add some items!</div>}
-    </div>
-  );
-}
-
-// ─── AI CAL LOGGER ───────────────────────────────────────────────────────────
-function AICalLogger({ onAdd }) {
-  const [description, setDescription] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [estimate, setEstimate] = useState(null); // { name, kcal, protein, notes }
-  const [error, setError] = useState(null);
-
-  const analyse = async () => {
-    if (!description.trim()) return;
-    setLoading(true);
-    setError(null);
-    setEstimate(null);
-    try {
-      const text = await callClaude({
-        system: `You are a nutrition estimator. The user will describe food they have eaten. Respond ONLY with a JSON object — no markdown, no backticks, no extra text — in this exact format: {"name":"concise meal name","kcal":number,"protein":number,"notes":"brief one-line note about the estimate"} Be accurate but practical. Use typical serving sizes if not specified. Protein and kcal must be integers.`,
-        messages: [{ role:"user", content: description }],
-      });
-      const clean = text.replace(/```json|```/g,"").trim();
-      const parsed = JSON.parse(clean);
-      setEstimate(parsed);
-    } catch(e) {
-      setError("Couldn't estimate that — try describing it differently.");
-    }
-    setLoading(false);
-  };
-
-  const confirm = () => {
-    if (!estimate) return;
-    onAdd({ name: estimate.name, kcal: estimate.kcal, protein: estimate.protein });
-    setEstimate(null);
-    setDescription("");
-  };
-
-  const inputStyle = {
-    width:"100%", padding:"10px 12px", borderRadius:10,
-    border:`1px solid ${T.border}`, background:T.elevated,
-    color:T.text, fontSize:13, fontFamily:"inherit",
-    outline:"none", resize:"none", boxSizing:"border-box",
-    lineHeight:1.5,
-  };
-
-  return (
-    <Card>
-      <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:10 }}>
-        Log a meal or snack
-      </div>
-      <textarea
-        value={description}
-        onChange={e=>setDescription(e.target.value)}
-        placeholder="Tell me what you had — e.g. 'bowl of granola with Greek yoghurt' or 'lemon herb chicken thighs with green beans, one serve'"
-        rows={3}
-        style={inputStyle}
-        onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); analyse(); }}}
-      />
-
-      {!estimate && (
-        <button onClick={analyse} disabled={loading||!description.trim()}
-          style={{ marginTop:8, width:"100%", padding:"10px", borderRadius:10, border:"none", cursor:loading||!description.trim()?"not-allowed":"pointer", fontFamily:"inherit", fontSize:13, fontWeight:700,
-            background:loading||!description.trim()?T.elevated:T.blue, color:loading||!description.trim()?T.muted:"white", transition:"all 0.15s" }}>
-          {loading ? "⏳ Estimating…" : "Estimate calories"}
-        </button>
-      )}
-
-      {error && <div style={{ marginTop:8, fontSize:12, color:T.accent, textAlign:"center" }}>{error}</div>}
-
-      {estimate && (
-        <div style={{ marginTop:10, background:T.elevated, borderRadius:12, padding:12, border:`1px solid ${T.border}` }}>
-          <div style={{ fontSize:13, fontWeight:700, color:T.text, marginBottom:6 }}>{estimate.name}</div>
-          <div style={{ display:"flex", gap:16, marginBottom:8 }}>
-            <div><span style={{ fontSize:20, fontWeight:800, color:T.blue }}>{estimate.kcal}</span><span style={{ fontSize:11, color:T.muted }}> kcal</span></div>
-            <div><span style={{ fontSize:20, fontWeight:800, color:T.accent }}>{estimate.protein}g</span><span style={{ fontSize:11, color:T.muted }}> protein</span></div>
-          </div>
-          {estimate.notes && <div style={{ fontSize:11, color:T.muted, fontStyle:"italic", marginBottom:10 }}>{estimate.notes}</div>}
-          <div style={{ display:"flex", gap:8 }}>
-            <button onClick={confirm} style={{ flex:1, padding:"10px", borderRadius:10, background:T.green, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>
-              ✓ Add to log
-            </button>
-            <button onClick={()=>{ setEstimate(null); setDescription(""); }}
-              style={{ padding:"10px 14px", borderRadius:10, background:T.elevated, color:T.muted, fontWeight:700, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>
-              Redo
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div style={{ marginTop:8, fontSize:11, color:T.muted, textAlign:"center" }}>
-        📸 Photo logging coming with TARS
-      </div>
-    </Card>
-  );
-}
-
-// ─── CAL HISTORY COMPONENT ───────────────────────────────────────────────────
-function CalHistory({ calLog }) {
-  const [expandedDay, setExpandedDay] = useState(null);
-  return (
-    <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-      {Object.entries(calLog).reverse().map(([date, entries])=>{
-        const totalK = entries.reduce((s,e)=>s+e.kcal,0);
-        const totalP = entries.reduce((s,e)=>s+e.protein,0);
-        const inRange = totalK >= 1900 && totalK <= 2000;
-        const over = totalK > 2000;
-        const isExpanded = expandedDay === date;
-        return (
-          <Card key={date}>
-            <div onClick={()=>setExpandedDay(isExpanded?null:date)}
-              style={{ display:"flex", justifyContent:"space-between", alignItems:"center", cursor:"pointer" }}>
-              <div>
-                <div style={{ fontSize:13, fontWeight:700, color:T.text }}>{date}</div>
-                <div style={{ fontSize:11, color:T.muted }}>{entries.length} item{entries.length!==1?"s":""} logged</div>
-              </div>
-              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                <div style={{ textAlign:"right" }}>
-                  <div style={{ fontSize:13, fontWeight:700, color:over?T.accent:inRange?T.green:T.blue }}>{totalK} kcal</div>
-                  <div style={{ fontSize:11, color:T.accent }}>{totalP}g protein</div>
-                </div>
-                <span style={{ fontSize:18, color:T.muted, display:"block", transform:isExpanded?"rotate(180deg)":"rotate(0deg)", transition:"transform 0.2s" }}>⌄</span>
-              </div>
-            </div>
-
-            {isExpanded && (
-              <div style={{ marginTop:12, paddingTop:12, borderTop:`1px solid ${T.border}` }}>
-                {[
-                  { label:"Calories", val:totalK, max:2000, min:1900, color:over?T.accent:inRange?T.green:T.blue, unit:"kcal" },
-                  { label:"Protein",  val:totalP, max:160,  min:140,  color:totalP>=140?T.green:T.accent, unit:"g" },
-                ].map(bar=>(
-                  <div key={bar.label} style={{ marginBottom:10 }}>
-                    <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, marginBottom:3 }}>
-                      <span style={{ color:T.muted }}>{bar.label}</span>
-                      <span style={{ fontWeight:700, color:bar.color }}>{bar.val}{bar.unit} / {bar.min}–{bar.max}{bar.unit}</span>
-                    </div>
-                    <div style={{ height:6, background:T.elevated, borderRadius:999, overflow:"hidden" }}>
-                      <div style={{ height:"100%", width:`${Math.min(100,(bar.val/bar.max)*100)}%`, background:bar.color, borderRadius:999, transition:"width 0.3s" }} />
-                    </div>
-                  </div>
-                ))}
-                {entries.map((e,i)=>(
-                  <div key={e.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 0", borderBottom:i<entries.length-1?`1px solid ${T.border}`:"none" }}>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontSize:12, fontWeight:600, color:T.text }}>{e.name}</div>
-                      <div style={{ fontSize:10, color:T.muted }}>{e.time}</div>
-                    </div>
-                    <div style={{ textAlign:"right" }}>
-                      <div style={{ fontSize:12, fontWeight:700, color:T.blue }}>{e.kcal} kcal</div>
-                      <div style={{ fontSize:10, color:T.accent }}>{e.protein}g</div>
-                    </div>
-                  </div>
-                ))}
-                {entries.length===0 && <div style={{ fontSize:12, color:T.muted, textAlign:"center", padding:"8px 0" }}>Nothing logged</div>}
-              </div>
-            )}
-          </Card>
-        );
-      })}
-      {Object.keys(calLog).length===0 && <div style={{ textAlign:"center", padding:"32px 0", color:T.muted, fontSize:13 }}>No history yet</div>}
-    </div>
-  );
-}
-
-// ─── TRENDS CHARTS ───────────────────────────────────────────────────────────
-function TrendsCharts({ entries }) {
-  const drawChart = (canvasId, dataKey, color, targetMin, targetMax, unit) => {
-    const canvas = document.getElementById(canvasId);
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    const W = canvas.parentElement?.clientWidth || 320;
-    canvas.width = W; canvas.height = 160;
-    const pad = { t:14, r:12, b:28, l:44 };
-    const data = entries.map(e => e[dataKey]);
-    const labels = entries.map(e => e.date ? e.date.split(" ").slice(0,2).join(" ") : "");
-    if (data.length < 1) { ctx.fillStyle="#64748b"; ctx.font="12px system-ui"; ctx.textAlign="center"; ctx.fillText("No data yet",W/2,80); return; }
-    const minV = Math.min(...data, targetMin) - 1;
-    const maxV = Math.max(...data, targetMax) + 1;
-    const xStep = data.length > 1 ? (W - pad.l - pad.r) / (data.length - 1) : 0;
-    const yS = v => pad.t + ((maxV - v) / (maxV - minV)) * (160 - pad.t - pad.b);
-    ctx.clearRect(0, 0, W, 160);
-    // Target zone
-    ctx.fillStyle = color + "22";
-    ctx.fillRect(pad.l, yS(targetMax), W - pad.l - pad.r, yS(targetMin) - yS(targetMax));
-    // Target lines
-    [targetMin, targetMax].forEach(v => {
-      ctx.strokeStyle = color + "55"; ctx.lineWidth = 1; ctx.setLineDash([4,4]);
-      ctx.beginPath(); ctx.moveTo(pad.l, yS(v)); ctx.lineTo(W - pad.r, yS(v)); ctx.stroke();
-      ctx.setLineDash([]);
-    });
-    // Data line
-    if (data.length > 1) {
-      ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.beginPath();
-      data.forEach((v,i) => { const x = pad.l + i * xStep; i===0 ? ctx.moveTo(x,yS(v)) : ctx.lineTo(x,yS(v)); });
-      ctx.stroke();
-    }
-    // Dots + labels
-    data.forEach((v,i) => {
-      const x = pad.l + i * xStep;
-      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, yS(v), 4, 0, Math.PI*2); ctx.fill();
-      ctx.fillStyle = "#f8f9fb"; ctx.font = "bold 10px system-ui"; ctx.textAlign = "center";
-      ctx.fillText(v+unit, x, yS(v) - 8);
-      ctx.fillStyle = "#64748b"; ctx.font = "9px system-ui";
-      ctx.fillText(labels[i], x, 155);
-    });
-    // Y axis labels
-    ctx.fillStyle = "#64748b"; ctx.textAlign = "right"; ctx.font = "9px system-ui";
-    [targetMin, targetMax].forEach(v => ctx.fillText(v+unit, pad.l - 4, yS(v) + 3));
-  };
-
-  useEffect(() => {
-    setTimeout(() => {
-      drawChart("chart-w",  "weight",  "#4facde", 79, 81, "kg");
-      drawChart("chart-bf", "bodyFat", "#e94560", 18, 20, "%");
-      drawChart("chart-m",  "muscle",  "#22c55e", 35.6, 40, "kg");
-    }, 50);
-  }, [entries]);
-
-  return (
-    <>
-      {[
-        { id:"chart-w",  label:"Weight (kg)",    color:"#4facde" },
-        { id:"chart-bf", label:"Body Fat %",     color:"#e94560" },
-        { id:"chart-m",  label:"Muscle Mass (kg)", color:"#22c55e" },
-      ].map(c=>(
-        <Card key={c.id}>
-          <SectionLabel>{c.label}</SectionLabel>
-          <div style={{ overflowX:"hidden" }}>
-            <canvas id={c.id} style={{ display:"block", width:"100%" }} />
-          </div>
-          {entries.length < 2 && <div style={{ fontSize:11, color:"#64748b", textAlign:"center", marginTop:4 }}>Add more check-ins to see your trend</div>}
-        </Card>
-      ))}
-    </>
-  );
-}
-
-// ─── WEEKLY SUMMARY ──────────────────────────────────────────────────────────
-function WeeklySummary({ entries, calLog, stepsLog }) {
-  const now = new Date();
-  const dayOfWeek = now.getDay();
-  const weekStart = new Date(now);
-  weekStart.setDate(now.getDate() - ((dayOfWeek + 6) % 7)); // Mon
-
-  const weekDates = Array.from({length:7}, (_,i) => {
-    const d = new Date(weekStart);
-    d.setDate(weekStart.getDate() + i);
-    return d.toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"});
-  });
-
-  const weekCal = weekDates.map(d => {
-    const entries = calLog[d] || [];
-    return entries.reduce((s,e)=>s+e.kcal, 0);
-  }).filter(v=>v>0);
-
-  const weekProtein = weekDates.map(d => {
-    const entries = calLog[d] || [];
-    return entries.reduce((s,e)=>s+e.protein, 0);
-  }).filter(v=>v>0);
-
-  const weekSteps = weekDates.map(d => stepsLog[d]?.steps).filter(Boolean);
-
-  const avgCal = weekCal.length ? Math.round(weekCal.reduce((a,b)=>a+b,0)/weekCal.length) : null;
-  const avgProtein = weekProtein.length ? Math.round(weekProtein.reduce((a,b)=>a+b,0)/weekProtein.length) : null;
-  const avgSteps = weekSteps.length ? Math.round(weekSteps.reduce((a,b)=>a+b,0)/weekSteps.length) : null;
-  const daysInTarget = weekCal.filter(c=>c>=1900&&c<=2000).length;
-  const proteinDays = weekProtein.filter(p=>p>=140).length;
-
-  return (
-    <Card>
-      <SectionLabel>📊 This Week at a Glance</SectionLabel>
-      {avgCal===null && avgSteps===null ? (
-        <div style={{ fontSize:12, color:"#64748b", textAlign:"center", padding:"12px 0" }}>Log some data this week to see your summary</div>
-      ) : (
-        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-          {avgCal && (
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <div><div style={{ fontSize:13, fontWeight:600, color:"#f8f9fb" }}>Avg calories</div><div style={{ fontSize:11, color:"#64748b" }}>{daysInTarget} of {weekCal.length} days in target</div></div>
-              <div style={{ fontSize:16, fontWeight:800, color:avgCal>=1900&&avgCal<=2000?"#22c55e":"#4facde" }}>{avgCal} kcal</div>
-            </div>
-          )}
-          {avgProtein && (
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <div><div style={{ fontSize:13, fontWeight:600, color:"#f8f9fb" }}>Avg protein</div><div style={{ fontSize:11, color:"#64748b" }}>{proteinDays} of {weekProtein.length} days hit target</div></div>
-              <div style={{ fontSize:16, fontWeight:800, color:avgProtein>=140?"#22c55e":"#e94560" }}>{avgProtein}g</div>
-            </div>
-          )}
-          {avgSteps && (
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <div><div style={{ fontSize:13, fontWeight:600, color:"#f8f9fb" }}>Avg steps</div><div style={{ fontSize:11, color:"#64748b" }}>Target: 8,000–10,000</div></div>
-              <div style={{ fontSize:16, fontWeight:800, color:avgSteps>=8000?"#22c55e":avgSteps>=5000?"#f5a623":"#e94560" }}>{avgSteps.toLocaleString()}</div>
-            </div>
-          )}
-        </div>
-      )}
-    </Card>
-  );
-}
-
-// ─── SAMSUNG HEALTH MODAL ────────────────────────────────────────────────────
-function SamsungHealthModal({ onClose, onUpdate }) {
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState(null);
-  const [imageData, setImageData] = useState(null);
-  const [imagePreview, setImagePreview] = useState(null);
-
-  const handleFile = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const base64 = ev.target.result.split(",")[1];
-      setImageData({ base64, type: file.type });
-      setImagePreview(ev.target.result);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const analyse = async () => {
-    if (!imageData) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const text = await callClaude({
-        system:`You are reading a Samsung Health app screenshot. Extract health metrics and return ONLY a JSON object with no markdown or backticks: {"weight":number_or_null,"bodyFat":number_or_null,"fatMass":number_or_null,"muscle":number_or_null,"bp":"string_or_null","steps":number_or_null,"heartRate":number_or_null,"sleep":"string_or_null","notes":"brief summary of what you found"} Use null for any metric not visible. Weight in kg, bodyFat as percentage number only, fatMass in kg, muscle in kg.`,
-        messages:[{
-          role:"user",
-          content:[
-            { type:"image", source:{ type:"base64", media_type:imageData.type, data:imageData.base64 }},
-            { type:"text", text:"Please extract all health metrics visible in this Samsung Health screenshot." }
-          ]
-        }],
-      });
-      const clean = text.replace(/```json|```/g,"").trim();
-      const parsed = JSON.parse(clean);
-      setResult(parsed);
-    } catch(e) {
-      setError("Couldn't read that screenshot — try a clearer image of your Samsung Health summary.");
-    }
-    setLoading(false);
-  };
-
-  return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:300, display:"flex", alignItems:"flex-end" }}>
-      <div style={{ background:T.card, borderRadius:"20px 20px 0 0", padding:"20px 16px 40px", width:"100%", maxWidth:480, margin:"0 auto", maxHeight:"90vh", overflowY:"auto" }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
-          <div>
-            <div style={{ fontSize:16, fontWeight:700, color:T.text }}>⌚ Samsung Health Update</div>
-            <div style={{ fontSize:12, color:T.muted, marginTop:2 }}>Upload a screenshot to update your stats</div>
-          </div>
-          <button onClick={onClose} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:20, padding:4 }}>✕</button>
-        </div>
-
-        {/* Upload area */}
-        {!imagePreview ? (
-          <label style={{ display:"block", border:`2px dashed ${T.border}`, borderRadius:14, padding:"28px 20px", textAlign:"center", cursor:"pointer", background:T.elevated }}>
-            <div style={{ fontSize:32, marginBottom:8 }}>📱</div>
-            <div style={{ fontSize:13, fontWeight:600, color:T.text, marginBottom:4 }}>Tap to upload screenshot</div>
-            <div style={{ fontSize:11, color:T.muted }}>Take a screenshot of your Samsung Health summary and upload it here</div>
-            <input type="file" accept="image/*" onChange={handleFile} style={{ display:"none" }} />
-          </label>
-        ) : (
-          <div style={{ marginBottom:12 }}>
-            <img src={imagePreview} alt="Samsung Health screenshot" style={{ width:"100%", borderRadius:12, maxHeight:260, objectFit:"contain", background:T.elevated }} />
-            <button onClick={()=>{ setImagePreview(null); setImageData(null); setResult(null); }}
-              style={{ marginTop:8, fontSize:11, color:T.muted, background:"none", border:"none", cursor:"pointer", fontFamily:"inherit" }}>
-              ✕ Remove & choose different image
-            </button>
-          </div>
-        )}
-
-        {imageData && !result && (
-          <button onClick={analyse} disabled={loading}
-            style={{ width:"100%", padding:"11px", borderRadius:10, background:loading?T.elevated:T.blue, color:loading?T.muted:"white", fontWeight:700, fontSize:13, border:"none", cursor:loading?"not-allowed":"pointer", fontFamily:"inherit", marginTop:10 }}>
-            {loading ? "⏳ Reading screenshot…" : "Extract my stats"}
-          </button>
-        )}
-
-        {error && <div style={{ marginTop:10, fontSize:12, color:T.accent, textAlign:"center", padding:10 }}>{error}</div>}
-
-        {result && (
-          <div style={{ marginTop:12 }}>
-            <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:10 }}>Found these stats:</div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:12 }}>
-              {[
-                { label:"Weight",    val:result.weight,   unit:"kg",  key:"weight" },
-                { label:"Body Fat",  val:result.bodyFat,  unit:"%",   key:"bodyFat" },
-                { label:"Fat Mass",  val:result.fatMass,  unit:"kg",  key:"fatMass" },
-                { label:"Muscle",    val:result.muscle,   unit:"kg",  key:"muscle" },
-                { label:"BP",        val:result.bp,       unit:"",    key:"bp" },
-                { label:"Steps",     val:result.steps,    unit:" steps", key:"steps" },
-                { label:"Heart Rate",val:result.heartRate,unit:" bpm", key:"heartRate" },
-                { label:"Sleep",     val:result.sleep,    unit:"",    key:"sleep" },
-              ].filter(f=>f.val!==null&&f.val!==undefined).map(f=>(
-                <div key={f.key} style={{ background:T.elevated, borderRadius:10, padding:"10px 12px", border:`1px solid ${T.border}` }}>
-                  <div style={{ fontSize:10, color:T.muted, marginBottom:2 }}>{f.label}</div>
-                  <div style={{ fontSize:16, fontWeight:700, color:T.blue }}>{f.val}{f.unit}</div>
-                </div>
-              ))}
-            </div>
-            {result.notes && <div style={{ fontSize:11, color:T.muted, fontStyle:"italic", marginBottom:12 }}>{result.notes}</div>}
-            <div style={{ display:"flex", gap:8 }}>
-              <button onClick={()=>onUpdate(result)} style={{ flex:1, padding:"11px", borderRadius:10, background:T.green, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>
-                ✓ Update my stats
-              </button>
-              <button onClick={onClose} style={{ padding:"11px 14px", borderRadius:10, background:T.elevated, color:T.muted, fontWeight:700, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
   const [tab, setTab] = useState("overview");
@@ -1277,18 +1027,7 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
   const [suppChecked, setSuppChecked] = useState({});
   const [form, setForm] = useState({ date:"", weight:"", bodyFat:"", fatMass:"", muscle:"", bp:"" });
 
-  // Meal Planning state
-  const [mealLib, setMealLib] = useState(MEAL_LIBRARY);
-  const [mealFilter, setMealFilter] = useState("all");
-  const [selectedMeals, setSelectedMeals] = useState(new Set());
-  const [mealView, setMealView] = useState("browse"); // browse | shopping | reviews | pantry
-  const [reviewTarget, setReviewTarget] = useState(null);
-  const [shopCustom, setShopCustom] = useState([]);
-  const [shopCustomInput, setShopCustomInput] = useState("");
-  const [pantry, setPantry] = useState(INIT_PANTRY);
-  const [pantryDepletionTarget, setPantryDepletionTarget] = useState(null); // meal id after cooking
-
-  // Calorie tracking state
+    // Calorie tracking state
   const today = new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"});
   // calLog state now managed by LifeApp
     const [calForm, setCalForm] = useState({ name:"", kcal:"", protein:"" });
@@ -1309,59 +1048,6 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
     setCalLog(prev => ({ ...prev, [today]: prev[today].filter(e=>e.id!==id) }));
   };
 
-  // Meal planning helpers
-  const toggleMealSelect = (id) => {
-    setSelectedMeals(prev => {
-      const n = new Set(prev);
-      n.has(id) ? n.delete(id) : n.add(id);
-      return n;
-    });
-  };
-  const toggleFav = (id) => setMealLib(prev => prev.map(m => m.id===id ? {...m, fav:!m.fav} : m));
-  const deleteMeal = (id) => { setMealLib(prev => prev.filter(m=>m.id!==id)); setSelectedMeals(prev=>{ const n=new Set(prev); n.delete(id); return n; }); };
-  const saveMealReview = (id, rating, cookAgain, notes) => {
-    setMealLib(prev => prev.map(m => m.id===id ? {...m, rating, cookAgain, notes, cooked:true, cookedDate:today} : m));
-    setReviewTarget(null);
-    setPantryDepletionTarget(id); // trigger pantry update prompt
-  };
-
-  // Pantry helpers
-  const addPantryItem = (item) => setPantry(prev => [...prev, { ...item, id:Date.now() }]);
-  const removePantryItem = (id) => setPantry(prev => prev.filter(p=>p.id!==id));
-  const updatePantryItem = (id, changes) => setPantry(prev => prev.map(p=>p.id===id?{...p,...changes}:p));
-
-  // Determine depletion type from ingredient category
-  const depletionType = (ing) => {
-    const staples = ["Pantry"]; // herbs, spices, oils — never fully depleted
-    const fresh = ["Produce","Fish","Seafood","Meat","Eggs"];
-    const packaged = ["Dairy","Frozen"];
-    if (staples.includes(ing.cat)) return "staple";
-    if (fresh.includes(ing.cat)) return "fresh";
-    return "packaged";
-  };
-
-  const filteredMeals = mealLib.filter(m => {
-    if (mealFilter==="fav") return m.fav;
-    if (mealFilter==="cooked") return m.cooked;
-    if (mealFilter!=="all") return m.cat===mealFilter;
-    return true;
-  });
-
-  // Shopping list from selected meals
-  const CAT_ORDER_SHOP = ["Produce","Meat","Fish","Seafood","Dairy","Eggs","Frozen","Pantry"];
-  const generateShoppingList = () => {
-    const byKey = {};
-    selectedMeals.forEach(id => {
-      const m = mealLib.find(x=>x.id===id);
-      if (!m) return;
-      m.ingredients.forEach(ing => {
-        const key = ing.cat+"||"+ing.name;
-        if (!byKey[key]) byKey[key] = { cat:ing.cat, name:ing.name, qtys:[] };
-        if (ing.qty && ing.qty!=="—") byKey[key].qtys.push(ing.qty);
-      });
-    });
-    return byKey;
-  };
 
   const toggleSupp = (id) => setSuppChecked(p => ({...p, [id]:!p[id]}));
   const latest = entries[entries.length - 1];
@@ -1729,157 +1415,9 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
 
         {/* MEAL PLANNING */}
         {tab==="meal-planning" && (
-          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-
-            {/* Pantry depletion modal */}
-            {pantryDepletionTarget && (() => {
-              const m = mealLib.find(x=>x.id===pantryDepletionTarget);
-              if (!m) return null;
-              return (
-                <PantryDepletionModal
-                  meal={m}
-                  pantry={pantry}
-                  depletionTypeFn={depletionType}
-                  onConfirm={(ticked, partial, suggestions) => {
-                    suggestions.forEach(s => {
-                      if (!ticked[s.name]) return;
-                      if (partial[s.name]) {
-                        const existing = pantry.find(p=>p.name.toLowerCase().includes(s.name.toLowerCase().split(" ")[0]));
-                        if (existing) updatePantryItem(existing.id, { status:"low" });
-                      } else if (s.type !== "staple") {
-                        const existing = pantry.find(p=>p.name.toLowerCase().includes(s.name.toLowerCase().split(" ")[0]));
-                        if (existing) removePantryItem(existing.id);
-                      }
-                    });
-                    setPantryDepletionTarget(null);
-                  }}
-                  onSkip={() => setPantryDepletionTarget(null)}
-                />
-              );
-            })()}
-
-            {/* Review modal */}
-            {reviewTarget && (() => {
-              const m = mealLib.find(x=>x.id===reviewTarget);
-              if (!m) return null;
-              return (
-                <MealReviewModal
-                  meal={m}
-                  onSave={(r,ca,notes) => saveMealReview(m.id,r,ca,notes)}
-                  onClose={() => setReviewTarget(null)}
-                />
-              );
-            })()}
-
-            <SubTab tabs={[{id:"browse",label:"Browse"},{id:"shopping",label:"Shopping List"},{id:"reviews",label:"My Reviews"},{id:"pantry",label:"My Pantry"}]} active={mealView} onChange={setMealView} />
-
-            {/* PANTRY */}
-            {mealView==="pantry" && (
-              <PantryView
-                pantry={pantry}
-                onAdd={addPantryItem}
-                onRemove={removePantryItem}
-                onUpdate={updatePantryItem}
-              />
-            )}
-
-            {/* BROWSE */}
-            {mealView==="browse" && (<>
-              {/* Filter pills */}
-              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                {["all","fav","Fish","Chicken","Beef","Lamb","Seafood","Eggs","Other","cooked"].map(f=>(
-                  <button key={f} onClick={()=>setMealFilter(f)} style={{ padding:"5px 11px", borderRadius:999, border:"none", cursor:"pointer", fontFamily:"inherit", fontSize:11, fontWeight:600, whiteSpace:"nowrap",
-                    background:mealFilter===f?T.blue:T.elevated, color:mealFilter===f?"white":T.muted, transition:"all 0.15s" }}>
-                    {f==="all"?"All":f==="fav"?"❤️ Favs":f==="cooked"?"✅ Cooked":f}
-                  </button>
-                ))}
-              </div>
-
-              {/* Meal list */}
-              <div style={{ fontSize:11, color:T.muted }}>{selectedMeals.size} selected · tap meals to add to shopping list</div>
-              {filteredMeals.map(m=>(
-                <div key={m.id} style={{ background:selectedMeals.has(m.id)?T.elevated:T.card, borderRadius:14, padding:"13px 14px", border:`2px solid ${selectedMeals.has(m.id)?T.blue:T.border}`, transition:"all 0.15s" }}>
-                  <div style={{ display:"flex", alignItems:"flex-start", gap:10 }}>
-                    {/* Select checkbox */}
-                    <div onClick={()=>toggleMealSelect(m.id)} style={{ width:20, height:20, borderRadius:6, border:`2px solid ${selectedMeals.has(m.id)?T.blue:T.border}`, background:selectedMeals.has(m.id)?T.blue:"transparent", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", flexShrink:0, marginTop:2 }}>
-                      {selectedMeals.has(m.id) && <Icon name="check" size={11} color="white" />}
-                    </div>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontSize:10, color:T.muted, fontWeight:700, marginBottom:2 }}>{m.tag}</div>
-                      <div style={{ fontSize:13, fontWeight:600, color:T.text, lineHeight:1.4, marginBottom:6 }}>{m.name}</div>
-                      <div style={{ display:"flex", gap:14, alignItems:"center" }}>
-                        <span style={{ fontSize:13, fontWeight:700, color:T.blue }}>{m.kcal} kcal</span>
-                        <span style={{ fontSize:13, fontWeight:700, color:T.accent }}>{m.protein}g protein</span>
-                        {m.rating > 0 && <span style={{ fontSize:11, color:T.gold }}>{"★".repeat(m.rating)}</span>}
-                        {m.cooked && <span style={{ fontSize:9, fontWeight:700, color:T.green, background:`${T.green}22`, padding:"2px 6px", borderRadius:999 }}>Cooked</span>}
-                      </div>
-                    </div>
-                  </div>
-                  {/* Actions row */}
-                  <div style={{ display:"flex", gap:8, marginTop:10, paddingTop:8, borderTop:`1px solid ${T.border}` }}>
-                    <button onClick={()=>toggleFav(m.id)} style={{ padding:"5px 10px", borderRadius:8, border:"none", cursor:"pointer", fontFamily:"inherit", fontSize:11, fontWeight:700, background:m.fav?`${T.accent}22`:T.elevated, color:m.fav?T.accent:T.muted }}>
-                      {m.fav?"❤️ Saved":"🤍 Save"}
-                    </button>
-                    <button onClick={()=>setReviewTarget(m.id)} style={{ padding:"5px 10px", borderRadius:8, border:"none", cursor:"pointer", fontFamily:"inherit", fontSize:11, fontWeight:700, background:T.elevated, color:T.muted }}>
-                      ⭐ Review
-                    </button>
-                    <div style={{ flex:1 }} />
-                    <button onClick={()=>{ if(window.confirm("Delete this meal?")) deleteMeal(m.id); }} style={{ padding:"5px 10px", borderRadius:8, border:"none", cursor:"pointer", fontFamily:"inherit", fontSize:11, fontWeight:700, background:`${T.accent}11`, color:T.accent }}>
-                      🗑️ Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-
-              {filteredMeals.length === 0 && <div style={{ textAlign:"center", padding:"32px 0", color:T.muted, fontSize:13 }}>No meals here yet</div>}
-
-              {selectedMeals.size > 0 && (
-                <button onClick={()=>setMealView("shopping")} style={{ width:"100%", padding:"12px", borderRadius:12, background:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>
-                  🛒 Generate Shopping List ({selectedMeals.size} meals)
-                </button>
-              )}
-            </>)}
-
-            {/* SHOPPING LIST */}
-            {mealView==="shopping" && (
-              <MealShoppingList
-                selectedMeals={selectedMeals}
-                mealLib={mealLib}
-                onBack={()=>setMealView("browse")}
-                shopCustom={shopCustom}
-                setShopCustom={setShopCustom}
-                pantry={pantry}
-              />
-            )}
-
-            {/* REVIEWS */}
-            {mealView==="reviews" && (
-              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                {mealLib.filter(m=>m.cooked).length===0 && (
-                  <div style={{ textAlign:"center", padding:"40px 20px", color:T.muted, fontSize:13 }}>
-                    <div style={{ fontSize:32, marginBottom:8 }}>🍽️</div>
-                    No meals reviewed yet.<br/>Cook something and leave a review!
-                  </div>
-                )}
-                {mealLib.filter(m=>m.cooked).map(m=>(
-                  <Card key={m.id}>
-                    <div style={{ fontSize:13, fontWeight:600, color:T.text, marginBottom:4 }}>{m.name}</div>
-                    <div style={{ display:"flex", gap:10, alignItems:"center", marginBottom:6 }}>
-                      <span style={{ fontSize:14, color:T.gold }}>{"★".repeat(m.rating)}{"☆".repeat(5-m.rating)}</span>
-                      {m.cookAgain==="yes" && <span style={{ fontSize:10, fontWeight:700, color:T.green, background:`${T.green}22`, padding:"2px 7px", borderRadius:999 }}>👍 Cook again</span>}
-                      {m.cookAgain==="no"  && <span style={{ fontSize:10, fontWeight:700, color:T.accent, background:`${T.accent}22`, padding:"2px 7px", borderRadius:999 }}>👎 Not again</span>}
-                    </div>
-                    {m.notes && <div style={{ fontSize:12, color:T.muted, fontStyle:"italic" }}>"{m.notes}"</div>}
-                    <div style={{ fontSize:10, color:T.muted, marginTop:4 }}>Cooked {m.cookedDate}</div>
-                  </Card>
-                ))}
-              </div>
-            )}
-
-          </div>
+          <MealPlanScreen calLog={calLog} setCalLog={setCalLog} todayLabel={today} appState={{}} />
         )}
 
-        <div style={{ height:24 }} />
       </div>
     </div>
   );
@@ -2820,6 +2358,13 @@ For flights, hotels, or any event clearly happening somewhere other than Christc
 WEB SEARCH:
 You have a web_search tool for anything current, factual, or outside your own knowledge — opening hours, current events, prices, weather, things to do somewhere, addresses, anything Neil asks you to "google" or "look up" or "search for". When Neil says "google X" he means search the web for it, not literally use the Google product — just search and give him the answer. Use web search whenever the honest answer is "I'm not certain" or "this could have changed" — don't rely on stale training knowledge for anything time-sensitive. Cite what you found briefly and naturally in conversation, not as a formal list of sources.
 
+NEIL'S FOOD PREFERENCES (for meal planning discussions):
+Only cooks when off rotation at home in Christchurch — all meals provided on Man of Steel. Christchurch is Southern Hemisphere so seasons are flipped.
+Loves: beef, chicken, lamb, pork, fish (all rated love), Mediterranean and classic Western cuisine. Mushrooms, all cheeses, cream/butter sauces, coconut milk, fish sauce, olives, capsicum.
+Avoids: offal, eggplant, bitter veg (brussels sprouts/kale/radicchio), kumara, most legumes/beans (green beans and chickpeas in moderation OK).
+Cooking: 20-30 mins active kitchen time max (passive oven time fine). Always makes 2 serves. No overnight marinades. Balanced macros, carbs in moderation.
+Budget: $8-15 NZD per serving as a base. Meal planner generates 10-15 options, Neil selects from them.
+
 VAULT USE — CRITICAL:
 You have a search_vault tool. Use it whenever Neil asks about something that might be in a previously uploaded document — flight times, hotel addresses, check-in times, booking references, certificate expiry dates, leave schedules — and you don't already have the specific detail in front of you. Don't guess from memory of what you said earlier; call the tool and read the real document. You'll be given a vault index showing what's available — match Neil's natural description (e.g. "my Brisbane hotel") against the index by reasoning about name, type, and summary, then retrieve the right one. If nothing in the index looks like a good match, say so plainly rather than guessing.
 
@@ -3486,9 +3031,18 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
         }
       };
 
-      const systemWithVault = buildSystemPrompt() + (vault.length > 0
-        ? `\n\nVAULT INDEX — documents Neil has previously uploaded (use the search_vault tool to retrieve full details for any of these when relevant to his question):\n${vaultIndex}`
-        : "\n\nVault is currently empty — no documents uploaded yet.");
+      const systemWithVault = buildSystemPrompt()
+        + (vault.length > 0
+          ? `\n\nVAULT INDEX — documents Neil has previously uploaded (use the search_vault tool to retrieve full details for any of these when relevant to his question):\n${vaultIndex}`
+          : "\n\nVault is currently empty — no documents uploaded yet.")
+        + (() => {
+          try {
+            const mealLib = JSON.parse(localStorage.getItem("meal_library") || "[]");
+            if (mealLib.length === 0) return "";
+            const mealIndex = mealLib.filter(m=>!m.cooked).map(m=>`"${m.name}" — ${m.kcal} kcal, ${m.protein}g protein per serve`).join("\n");
+            return `\n\nMEAL LIBRARY — meals currently in Neil's planner (use these exact values when he asks to log a meal to his calorie tracker, e.g. "add the salmon to today's calories" — look up the matching meal and use its stored kcal/protein):\n${mealIndex}`;
+          } catch { return ""; }
+        })();
 
       const reply = await callClaudeWithTools({
         system: systemWithVault,
