@@ -115,6 +115,12 @@ async function callClaudeWithTools({ system, messages, tools, toolHandlers, maxR
   return "I tried looking that up but couldn't pin it down — can you be a bit more specific?";
 }
 
+// Anthropic's native server-side web search tool — the API performs the search itself
+// and feeds results back into Claude's reasoning automatically. No custom handler needed
+// (unlike search_vault), and no separate API key — billed through the same Anthropic key.
+// Available to both main TARS chat and Projects.
+const WEB_SEARCH_TOOL = { type: "web_search_20250305", name: "web_search" };
+
 // ─── THEME ────────────────────────────────────────────────────────────────────
 const T = {
   bg:       "#0a0f1e",
@@ -279,6 +285,7 @@ const Icon = ({ name, size=22, color=T.text }) => {
     pill:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M10.5 20H4a2 2 0 01-2-2V6a2 2 0 012-2h16a2 2 0 012 2v7"/><path d="M16 19h6"/><path d="M19 16v6"/></svg>,
     run:      <svg width={size} height={size} viewBox="0 0 24 24" {...p}><circle cx="13" cy="4" r="2"/><path d="M7.7 22l1.3-5L12 14l1-4"/><path d="M9.1 9.1L6 12H2"/><path d="M14.5 9.5L18 8l1 4-4 1"/></svg>,
     meals:    <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M18 8h1a4 4 0 010 8h-1"/><path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>,
+    projects: <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>,
   };
   return icons[name] || <span>{name}</span>;
 };
@@ -494,7 +501,7 @@ function TodoScreen({ tasks, setTasks, onBack }) {
                   {task.due && <span style={{ fontSize:9, color:T.muted }}>{task.due}</span>}
                 </div>
               </div>
-              <button onClick={() => remove(task.id)} style={{ background:"none", border:"none", cursor:"pointer", padding:2, opacity:0.4 }}>
+              <button onClick={() => { if(window.confirm(`Delete task "${task.text}"?`)) remove(task.id); }} style={{ background:"none", border:"none", cursor:"pointer", padding:2, opacity:0.4 }}>
                 <Icon name="trash" size={15} color={T.muted} />
               </button>
             </div>
@@ -1959,6 +1966,7 @@ function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo 
           <ModuleTile icon="calendar" label="Calendar"  sublabel="Flights & rotation"        accent={T.gold}   onClick={()=>onNavigate("calendar")} />
           <ModuleTile icon="finance"  label="Finance"   sublabel="Budget & spending"         accent={T.purple} onClick={()=>onNavigate("finance")} />
           <ModuleTile icon="work"     label="Work"      sublabel="Certs & vessel log"        accent={T.blue}   onClick={()=>onNavigate("work")} />
+          <ModuleTile icon="projects" label="Projects"  sublabel="Plan with TARS"            accent={T.green}  onClick={()=>onNavigate("projects")} />
           <ModuleTile icon="tars"     label="TARS"      sublabel="Your AI coach"             accent={T.blue}   onClick={()=>onNavigate("tars")} />
         </div>
 
@@ -2202,7 +2210,7 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addCalEvent, remove
                 {ev.notes && <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{ev.notes}</div>}
                 {ev.endDate && <div style={{ fontSize:10, color:T.gold }}>Until {ev.endDate}</div>}
               </div>
-              <button onClick={()=>removeCalEvent(ev.id)} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:14, padding:2 }}>✕</button>
+              <button onClick={()=>{ if(window.confirm(`Delete "${ev.title}"?`)) removeCalEvent(ev.id); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:14, padding:2 }}>✕</button>
             </div>
           ))}
           {selectedTasks.map(t=>(
@@ -2266,7 +2274,7 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addCalEvent, remove
                   <div style={{ fontSize:11, color:T.muted }}>{b.start} → {b.end}</div>
                   {b.notes && <div style={{ fontSize:11, color:T.muted }}>{b.notes}</div>}
                 </div>
-                <button onClick={()=>removeRotation(b.id)} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:14 }}>✕</button>
+                <button onClick={()=>{ if(window.confirm(`Delete this rotation block (${b.start} to ${b.end})?`)) removeRotation(b.id); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:14 }}>✕</button>
               </div>
             ))}
             {rotationBlocks.length===0 && <div style={{ fontSize:12, color:T.muted, textAlign:"center", padding:"12px 0" }}>No rotations set yet</div>}
@@ -2406,6 +2414,77 @@ const MODULE_REGISTRY = {
   // certificates: { label: "Work certificates", idField: "id", fields: "id, name, issueDate, expiryDate, notes" },
   // expenses: { label: "Finance / expenses", idField: "id", fields: "id, description, amount, date, category" },
 };
+
+// ─── PROJECTS — TOPIC LIST SCREEN ──────────────────────────────────────────────
+function ProjectsListScreen({ onBack, projects, setProjects, onOpenProject }) {
+  const [newName, setNewName] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  const createProject = () => {
+    const name = newName.trim();
+    if (!name) return;
+    const id = `proj_${Date.now()}`;
+    setProjects(prev => [{ id, name, createdAt: new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}), lastActive: Date.now() }, ...prev]);
+    setNewName("");
+    setCreating(false);
+    onOpenProject(id);
+  };
+
+  const deleteProject = (id, name) => {
+    if (!window.confirm(`Delete project "${name}"? This removes its entire conversation and cannot be undone.`)) return;
+    setProjects(prev => prev.filter(p => p.id !== id));
+    try { localStorage.removeItem(`project_chat_${id}`); } catch {}
+  };
+
+  return (
+    <div>
+      <SectionHeader title="Projects" onBack={onBack} />
+      <div style={{ padding:"16px" }}>
+        <div style={{ fontSize:12, color:T.muted, lineHeight:1.5, marginBottom:16 }}>
+          A focused space to work with TARS on a specific thing — trip planning, research, anything self-contained. Each project keeps its own conversation, separate from main TARS chat, with web search available.
+        </div>
+
+        {!creating ? (
+          <button onClick={()=>setCreating(true)} style={{ width:"100%", padding:"12px", borderRadius:12, background:`${T.green}18`, border:`1px solid ${T.green}44`, color:T.green, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit", marginBottom:20, display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+            <Icon name="plus" size={16} color={T.green} /> New Project
+          </button>
+        ) : (
+          <div style={{ background:T.card, borderRadius:12, padding:14, border:`1px solid ${T.border}`, marginBottom:20 }}>
+            <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:6 }}>Project name</div>
+            <input
+              value={newName}
+              onChange={e=>setNewName(e.target.value)}
+              onKeyDown={e=>{ if(e.key==="Enter") createProject(); }}
+              placeholder="e.g. Dubrovnik Trip"
+              autoFocus
+              style={{ width:"100%", padding:"9px 12px", borderRadius:9, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box", marginBottom:10 }}
+            />
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={createProject} style={{ flex:1, padding:"9px", borderRadius:9, background:T.green, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Create</button>
+              <button onClick={()=>{ setCreating(false); setNewName(""); }} style={{ flex:1, padding:"9px", borderRadius:9, background:T.elevated, color:T.muted, fontWeight:700, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        <SectionLabel>{projects.length > 0 ? `${projects.length} project${projects.length===1?"":"s"}` : "No projects yet"}</SectionLabel>
+        {projects.slice().sort((a,b)=>(b.lastActive||0)-(a.lastActive||0)).map(p => (
+          <div key={p.id} onClick={()=>onOpenProject(p.id)} style={{ background:T.card, borderRadius:12, padding:"12px 14px", border:`1px solid ${T.border}`, marginBottom:8, cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
+            <div style={{ width:36, height:36, borderRadius:10, background:`${T.green}18`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+              <Icon name="projects" size={16} color={T.green} />
+            </div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:13, fontWeight:700, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p.name}</div>
+              <div style={{ fontSize:11, color:T.muted }}>Created {p.createdAt}</div>
+            </div>
+            <button onClick={(e)=>{ e.stopPropagation(); deleteProject(p.id, p.name); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, padding:6, flexShrink:0 }}>
+              <Icon name="trash" size={15} color={T.muted} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function TarsScreen({ onBack, appState }) {
   const { tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks } = appState;
@@ -2810,6 +2889,9 @@ TIMEZONE HANDLING — CRITICAL:
 Neil travels constantly for work and crosses timezones often. His phone's current timezone is always correct — it updates automatically as he travels — and "today" above is already in his current local time, wherever he is.
 Calendar events follow the same convention as Google Calendar and every other calendar app: a time you are given is ALWAYS local to wherever that event takes place, never converted to NZ time or to Neil's current location. If Neil says a flight departs Brisbane at 2100, that means 9pm Brisbane time, full stop — store it exactly as given, do not convert it.
 For flights, hotels, or any event clearly happening somewhere other than Christchurch, always capture the city/location and include it in the event so it displays clearly, e.g. "Flight departs 2100, Brisbane". For ordinary local reminders and appointments in Christchurch, a location is not necessary.
+
+WEB SEARCH:
+You have a web_search tool for anything current, factual, or outside your own knowledge — opening hours, current events, prices, weather, things to do somewhere, addresses, anything Neil asks you to "google" or "look up" or "search for". When Neil says "google X" he means search the web for it, not literally use the Google product — just search and give him the answer. Use web search whenever the honest answer is "I'm not certain" or "this could have changed" — don't rely on stale training knowledge for anything time-sensitive. Cite what you found briefly and naturally in conversation, not as a formal list of sources.
 
 VAULT USE — CRITICAL:
 You have a search_vault tool. Use it whenever Neil asks about something that might be in a previously uploaded document — flight times, hotel addresses, check-in times, booking references, certificate expiry dates, leave schedules — and you don't already have the specific detail in front of you. Don't guess from memory of what you said earlier; call the tool and read the real document. You'll be given a vault index showing what's available — match Neil's natural description (e.g. "my Brisbane hotel") against the index by reasoning about name, type, and summary, then retrieve the right one. If nothing in the index looks like a good match, say so plainly rather than guessing.
@@ -3476,7 +3558,7 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
       const reply = await callClaudeWithTools({
         system: systemWithVault,
         messages: apiMessages,
-        tools: [vaultTool],
+        tools: [vaultTool, WEB_SEARCH_TOOL],
         toolHandlers,
       });
 
@@ -3829,6 +3911,203 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
   );
 }
 
+// ─── PROJECT CHAT SCREEN ────────────────────────────────────────────────────────
+// A focused, self-contained chat space per project topic. Reuses the same underlying
+// engine as TarsScreen (generic actions, module registry, web + vault search) but with
+// its own simpler UI and its own permanent conversation — no separate "memory summary"
+// step needed, given Neil's projects are expected to stay small: the conversation itself
+// IS the memory, persisted directly, read back in full next time the project is opened.
+function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState }) {
+  const { tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, rotationBlocks } = appState;
+  const project = projects.find(p => p.id === projectId);
+
+  const [messages, setMessages] = usePersistentState(`project_chat_${projectId}`, []);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [pendingAction, setPendingAction] = useState(null);
+  const [vault] = usePersistentState("tars_vault", []); // shared vault, read-only here — Projects can reference it but vault management stays in TARS
+
+  // Mark this project as recently active whenever its chat is opened
+  useEffect(() => {
+    setProjects(prev => prev.map(p => p.id === projectId ? { ...p, lastActive: Date.now() } : p));
+  }, []);
+
+  const buildProjectPrompt = () => {
+    const now = new Date();
+    const today = now.toLocaleDateString("en-NZ", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
+    const dateAnchor = [];
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(now); d.setDate(now.getDate() + i);
+      const label = i === 0 ? "Today" : i === 1 ? "Tomorrow" : d.toLocaleDateString("en-NZ", { weekday:"long" });
+      dateAnchor.push(`${label}: ${d.toLocaleDateString("en-CA")} (${d.toLocaleDateString("en-NZ",{weekday:"long",day:"numeric",month:"long"})})`);
+    }
+    const pendingTasks = tasks.filter(t=>!t.done).map(t=>`id:${t.id} "${t.text}"`).join(", ") || "none";
+    const vaultIndex = vault.map(d => `id:${d.id} | ${d.name} | ${d.docType} | ${d.summary?.slice(0,100)||""}`).join("\n") || "empty";
+
+    return `You are TARS, Neil's personal AI, currently working with him inside a focused PROJECT space called "${project?.name || "this project"}". This is a dedicated workspace for this specific topic — keep the conversation focused on it.
+
+VOICE: Same as always — direct, dry, specific, no corporate assistant energy, no markdown formatting since you don't need to (this is a text-only space, but keep it clean and conversational regardless).
+
+You are NOT just an assistant with static knowledge — you have a web_search tool. Use it freely for anything current: opening hours, prices, what's on, addresses, travel times, current events, anything time-sensitive or specific to a place. When Neil says "google" something he means search the web for it. Don't rely on stale training knowledge for anything that could have changed.
+
+You also have full access to the rest of Neil's Life app via the same generic action system used in main TARS chat — you can add tasks, add calendar events, log things, exactly as TARS normally does, all requiring confirmation first via the ACTION protocol below.
+
+MODULE REGISTRY (module name : what it holds : fields):
+${Object.entries(MODULE_REGISTRY).map(([key,m])=>`${key} : ${m.label} : ${m.fields}`).join("\n")}
+
+ACTION PROTOCOL: Same as main TARS — state plainly what you're proposing, ask for confirmation, then include:
+ACTION:{"type":"generic","module":"<module>","op":"create|update|delete","id":"<id if needed>","fields":{...}}
+
+DATE REFERENCE (today and next 13 days):
+${dateAnchor.join("\n")}
+
+LIVE DATA:
+Today is ${today}.
+Pending tasks: ${pendingTasks}
+Vault documents available (use search_vault to read one in full if relevant): ${vaultIndex}
+
+This project's conversation history below IS its memory — there's no separate save step, everything here persists automatically.`;
+  };
+
+  const sendMessage = async (textOverride) => {
+    const text = (textOverride !== undefined ? textOverride : input).trim();
+    if (!text || loading) return;
+    setInput("");
+    if (pendingAction) setPendingAction(null);
+
+    const userMsg = { role:"user", content:text, ts:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) };
+    const newMessages = [...messages, userMsg];
+    setMessages(newMessages);
+    setLoading(true);
+
+    try {
+      const apiMessages = newMessages.filter(m=>typeof m.content==="string").map(m=>({role:m.role, content:m.content}));
+
+      const vaultTool = {
+        name: "search_vault",
+        description: "Search Neil's document vault to retrieve the full content of a specific document (flights, hotels, bookings etc) when relevant to this project.",
+        input_schema: { type:"object", properties:{ documentId:{ type:"string", description:"The id of the document to retrieve" } }, required:["documentId"] }
+      };
+      const toolHandlers = {
+        search_vault: async (input) => {
+          const doc = vault.find(d => String(d.id) === String(input.documentId));
+          if (!doc) return "Document not found in vault.";
+          if (doc.contentKind === "text" && doc.fullContent) return `Full content of "${doc.name}":\n\n${doc.fullContent}`;
+          if (doc.contentKind === "pdf" && doc.fullContent) return [{ type:"document", source:{ type:"base64", media_type:"application/pdf", data:doc.fullContent } }, { type:"text", text:`Full PDF for "${doc.name}".` }];
+          return `Document "${doc.name}": ${doc.summary || "No summary available."}`;
+        }
+      };
+
+      const reply = await callClaudeWithTools({
+        system: buildProjectPrompt(),
+        messages: apiMessages,
+        tools: [vaultTool, WEB_SEARCH_TOOL],
+        toolHandlers,
+      });
+
+      const display = reply.replace(/\nACTION:\{[^\n]+\}/g, "").replace(/ACTION:\{[^\n]+\}/g, "").trim();
+      setMessages(prev => [...prev, { role:"assistant", content:display, ts:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) }]);
+
+      const actionMatch = reply.match(/ACTION:(\{[^\n]+\})/);
+      if (actionMatch) {
+        try {
+          const data = JSON.parse(actionMatch[1]);
+          if (data.type === "generic") {
+            const moduleInfo = MODULE_REGISTRY[data.module];
+            const moduleLabel = moduleInfo?.label || data.module;
+            let desc = data.op === "create" ? `Add to ${moduleLabel}: ${Object.entries(data.fields||{}).map(([k,v])=>`${k}: ${v}`).join(", ")}`
+              : data.op === "update" ? `Update ${moduleLabel} record`
+              : data.op === "delete" ? `Delete from ${moduleLabel}` : `${data.op} on ${moduleLabel}`;
+            setPendingAction({ module:data.module, op:data.op, id:data.id, fields:data.fields||{}, description:desc });
+          }
+        } catch {}
+      }
+    } catch (err) {
+      setMessages(prev => [...prev, { role:"assistant", content: err.message==="NO_KEY" ? "No Anthropic API key set — add one via TARS settings first." : `Error: ${err.message}`, ts:"", isError:true }]);
+    }
+    setLoading(false);
+  };
+
+  // Reuse the same generic executor logic as TarsScreen, scoped to this component's setters
+  const executeProjectAction = (action) => {
+    const { module, op, id, fields } = action;
+    if (module === "tasks") {
+      if (op === "create") setTasks(prev => [...prev, { id:Date.now(), text:fields.text, cat:fields.cat||"Admin", priority:fields.priority||"med", due:fields.due||"", done:false }]);
+      else if (op === "update") setTasks(prev => prev.map(t => String(t.id)===String(id) ? {...t, ...fields} : t));
+      else if (op === "delete") setTasks(prev => prev.filter(t => String(t.id)!==String(id)));
+    } else if (module === "calendar") {
+      if (op === "create") addCalEvent({ type:fields.type||"reminder", date:fields.date, title:fields.title, notes:fields.notes||"", time:fields.time||"", location:fields.location||"" });
+      else if (op === "update") { const target = calEvents.find(e=>String(e.id)===String(id)); if(target){ removeCalEvent(target.id); addCalEvent({...target, ...fields}); } }
+      else if (op === "delete") { if(id) removeCalEvent(id); }
+    } else if (module === "calorieLog") {
+      if (op === "create") { const entry={id:Date.now(),name:fields.name,kcal:fields.kcal||0,protein:fields.protein||0,time:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"})}; setCalLog(prev=>({...prev,[todayLabel]:[...(prev[todayLabel]||[]),entry]})); }
+    } else if (module === "health") {
+      const latest = healthEntries[healthEntries.length-1] || {};
+      setHealthEntries(prev => [...prev, { date:new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}), weight:fields.weight||latest.weight, bodyFat:fields.bodyFat||latest.bodyFat, fatMass:fields.fatMass||latest.fatMass, muscle:fields.muscle||latest.muscle, bp:fields.bp||latest.bp }]);
+    }
+    setPendingAction(null);
+  };
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", height:"100vh" }}>
+      <div style={{ display:"flex", alignItems:"center", gap:10, padding:"14px 16px", borderBottom:`1px solid ${T.border}`, background:T.bg }}>
+        <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", padding:4 }}><Icon name="back" size={20} color={T.text} /></button>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontSize:15, fontWeight:700, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{project?.name || "Project"}</div>
+          <div style={{ fontSize:10, color:T.muted }}>Web search · Full app access</div>
+        </div>
+      </div>
+
+      <div style={{ flex:1, overflowY:"auto", padding:"12px 16px", display:"flex", flexDirection:"column", gap:10 }}>
+        {messages.length === 0 && (
+          <div style={{ textAlign:"center", color:T.muted, fontSize:12, padding:"40px 20px", lineHeight:1.6 }}>
+            New project space for "{project?.name}". Ask TARS anything — he can search the web, check the vault, and update your tasks or calendar as you go.
+          </div>
+        )}
+        {messages.map((msg,i)=>(
+          <div key={i} style={{ display:"flex", justifyContent: msg.role==="user"?"flex-end":"flex-start" }}>
+            <div style={{ maxWidth:"82%", padding:"10px 14px", borderRadius: msg.role==="user"?"18px 18px 4px 18px":"4px 18px 18px 18px", background: msg.role==="user"?T.blue:(msg.isError?`${T.accent}18`:T.card), color: msg.role==="user"?"white":T.text, border: msg.role==="user"?"none":`1px solid ${msg.isError?T.accent+"44":T.border}`, fontSize:13, lineHeight:1.5, whiteSpace:"pre-wrap" }}>
+              {msg.content}
+            </div>
+          </div>
+        ))}
+        {loading && (
+          <div style={{ display:"flex" }}>
+            <div style={{ padding:"10px 16px", borderRadius:"4px 18px 18px 18px", background:T.card, border:`1px solid ${T.border}` }}>
+              <div style={{ display:"flex", gap:5 }}>{[0,1,2].map(i=>(<div key={i} style={{ width:7, height:7, borderRadius:"50%", background:T.blue, animation:"pulse 1.2s ease-in-out infinite", animationDelay:`${i*0.2}s`, opacity:0.7 }}/>))}</div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {pendingAction && (
+        <div style={{ margin:"0 16px 8px", background:`${T.gold}18`, border:`1px solid ${T.gold}44`, borderRadius:12, padding:"10px 14px" }}>
+          <div style={{ fontSize:12, color:T.gold, fontWeight:700, marginBottom:4 }}>⚡ Pending action</div>
+          <div style={{ fontSize:12, color:T.text, marginBottom:10, lineHeight:1.5 }}>{pendingAction.description}</div>
+          <div style={{ display:"flex", gap:8 }}>
+            <button onClick={()=>{ executeProjectAction(pendingAction); setMessages(prev=>[...prev,{role:"assistant",content:"Done.",ts:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"})}]); }} style={{ flex:1, padding:"10px", borderRadius:8, background:T.green, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>✓ Confirm</button>
+            <button onClick={()=>{ setPendingAction(null); setMessages(prev=>[...prev,{role:"assistant",content:"Cancelled.",ts:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"})}]); }} style={{ flex:1, padding:"10px", borderRadius:8, background:T.elevated, color:T.muted, fontWeight:700, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>✕ Cancel</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ borderTop:`1px solid ${T.border}`, padding:"10px 16px 20px", display:"flex", gap:8, alignItems:"center" }}>
+        <input
+          value={input}
+          onChange={e=>setInput(e.target.value)}
+          onKeyDown={e=>{ if(e.key==="Enter") sendMessage(); }}
+          placeholder="Ask TARS about this project..."
+          style={{ flex:1, padding:"11px 14px", borderRadius:999, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none" }}
+        />
+        <button onClick={()=>sendMessage()} disabled={loading} style={{ width:40, height:40, borderRadius:"50%", background:T.blue, border:"none", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, opacity:loading?0.5:1 }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+        </button>
+      </div>
+      <style>{`@keyframes pulse{0%,100%{opacity:0.3;transform:scale(0.8)}50%{opacity:1;transform:scale(1.1)}}`}</style>
+    </div>
+  );
+}
+
 // ─── BOTTOM NAV ───────────────────────────────────────────────────────────────
 function BottomNav({ active, onNavigate }) {
   const items = [
@@ -3897,6 +4176,12 @@ export default function LifeApp() {
   // clears when I'm done for the day" behaviour Neil wanted. ──
   const [tarsMessages, setTarsMessages] = useState([]);
 
+  // ── PROJECTS — each project topic is self-contained: its own permanent conversation
+  // (stored separately in localStorage as `project_chat_<id>`), deletable as a whole
+  // with zero impact elsewhere. This array just holds the lightweight topic list. ──
+  const [projects, setProjects] = usePersistentState("life_projects", []);
+  const [activeProjectId, setActiveProjectId] = useState(null);
+
   // ── CALENDAR STATE (source of truth for whole app) ──────────────────────────
   const [calEvents, setCalEvents] = usePersistentState("life_cal_events", INIT_CAL_EVENTS);
   const [rotationBlocks, setRotationBlocks] = usePersistentState("life_rotation_blocks", INIT_ROTATION);
@@ -3943,6 +4228,8 @@ export default function LifeApp() {
       case "finance":  return <ComingSoon label="Finance" icon="finance" accent={T.purple} onBack={()=>setScreen("home")} />;
       case "work":     return <ComingSoon label="Work" icon="work" accent={T.blue} onBack={()=>setScreen("home")} />;
       case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks }} />;
+      case "projects": return <ProjectsListScreen onBack={()=>setScreen("home")} projects={projects} setProjects={setProjects} onOpenProject={(id)=>{ setActiveProjectId(id); setScreen("projectChat"); }} />;
+      case "projectChat": return <ProjectChatScreen onBack={()=>setScreen("projects")} projectId={activeProjectId} projects={projects} setProjects={setProjects} appState={{ tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, rotationBlocks }} />;
       default:         return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} />;
     }
   };
