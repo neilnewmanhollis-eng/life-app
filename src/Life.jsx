@@ -1967,7 +1967,6 @@ function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo 
           <ModuleTile icon="finance"  label="Finance"   sublabel="Budget & spending"         accent={T.purple} onClick={()=>onNavigate("finance")} />
           <ModuleTile icon="work"     label="Work"      sublabel="Certs & vessel log"        accent={T.blue}   onClick={()=>onNavigate("work")} />
           <ModuleTile icon="projects" label="Projects"  sublabel="Plan with TARS"            accent={T.green}  onClick={()=>onNavigate("projects")} />
-          <ModuleTile icon="tars"     label="TARS"      sublabel="Your AI coach"             accent={T.blue}   onClick={()=>onNavigate("tars")} />
         </div>
 
         {/* TODAY'S TASKS */}
@@ -3129,7 +3128,7 @@ ${memory}` : "No previous session memory yet. This is early days."}`;
       case "add_task":
         return { type:"add_task", payload:{ text:data.text, cat:data.cat||"Admin", priority:data.priority||"med" }, description:`Add task: "${data.text}"` };
       case "add_cal_event":
-        return { type:"add_cal_event", payload:{ title:data.title, date:data.date, time:data.time||"", location:data.location||"", type:data.eventType||"reminder", notes:data.notes||"" }, description:`Add to calendar: "${data.title}" on ${data.date}${data.time?` at ${data.time}`:""}${data.location?` (${data.location} local time)`:""}` };
+        return { type:"add_cal_event", payload:{ title:data.title, date:data.date, time:data.time||"", location:data.location||"", type:data.eventType||"reminder", notes:data.notes||"" }, description:`Add to calendar: "${data.title}" on ${formatDateDDMMYYYY(data.date)}${data.time?` at ${data.time}`:""}${data.location?` (${data.location} local time)`:""}` };
       case "add_cal_events":
         return { type:"add_cal_events", payload:{ events:data.events||[] }, description:`Add ${data.events?.length||0} events to calendar` };
       case "log_health":
@@ -3143,9 +3142,17 @@ ${memory}` : "No previous session memory yet. This is early days."}`;
       case "generic": {
         const moduleInfo = MODULE_REGISTRY[data.module];
         const moduleLabel = moduleInfo?.label || data.module;
+        // Format any field value for safe display — converts YYYY-MM-DD date strings to
+        // DD/MM/YYYY automatically so confirmation cards never show an ambiguous raw ISO
+        // date, regardless of which field or module it came from.
+        const formatFieldValue = (key, val) => {
+          if (typeof val === "string" && /^\d{4}-\d{2}-\d{2}$/.test(val)) return formatDateDDMMYYYY(val);
+          return val;
+        };
+        const fieldsDisplay = Object.entries(data.fields||{}).map(([k,v])=>`${k}: ${formatFieldValue(k,v)}`).join(", ");
         let desc;
-        if (data.op === "create") desc = `Add to ${moduleLabel}: ${Object.entries(data.fields||{}).map(([k,v])=>`${k}: ${v}`).join(", ")}`;
-        else if (data.op === "update") desc = `Update ${moduleLabel} record: ${Object.entries(data.fields||{}).map(([k,v])=>`${k}: ${v}`).join(", ")}`;
+        if (data.op === "create") desc = `Add to ${moduleLabel}: ${fieldsDisplay}`;
+        else if (data.op === "update") desc = `Update ${moduleLabel} record: ${fieldsDisplay}`;
         else if (data.op === "delete") desc = `Delete from ${moduleLabel}`;
         else if (data.op === "move_module") desc = `Move record from ${moduleLabel} to ${MODULE_REGISTRY[data.fields?.toModule]?.label || data.fields?.toModule}`;
         else desc = `${data.op} on ${moduleLabel}`;
@@ -3959,6 +3966,8 @@ ${Object.entries(MODULE_REGISTRY).map(([key,m])=>`${key} : ${m.label} : ${m.fiel
 ACTION PROTOCOL: Same as main TARS — state plainly what you're proposing, ask for confirmation, then include:
 ACTION:{"type":"generic","module":"<module>","op":"create|update|delete","id":"<id if needed>","fields":{...}}
 
+DATE FORMAT — CRITICAL: All dates you speak or write must be day-first. Spell the month out in full (e.g. "4 July 2026") or use DD/MM/YYYY numerically (e.g. "04/07/2026"). NEVER write MM/DD/YYYY American-style. The "date" field inside any ACTION block must always be YYYY-MM-DD internally (that's just data format, not what Neil reads) — but anything you say to Neil in plain text must be day-first.
+
 DATE REFERENCE (today and next 13 days):
 ${dateAnchor.join("\n")}
 
@@ -4016,7 +4025,9 @@ This project's conversation history below IS its memory — there's no separate 
           if (data.type === "generic") {
             const moduleInfo = MODULE_REGISTRY[data.module];
             const moduleLabel = moduleInfo?.label || data.module;
-            let desc = data.op === "create" ? `Add to ${moduleLabel}: ${Object.entries(data.fields||{}).map(([k,v])=>`${k}: ${v}`).join(", ")}`
+            const formatFieldValue = (k,v) => (typeof v==="string" && /^\d{4}-\d{2}-\d{2}$/.test(v)) ? formatDateDDMMYYYY(v) : v;
+            const fieldsDisplay = Object.entries(data.fields||{}).map(([k,v])=>`${k}: ${formatFieldValue(k,v)}`).join(", ");
+            let desc = data.op === "create" ? `Add to ${moduleLabel}: ${fieldsDisplay}`
               : data.op === "update" ? `Update ${moduleLabel} record`
               : data.op === "delete" ? `Delete from ${moduleLabel}` : `${data.op} on ${moduleLabel}`;
             setPendingAction({ module:data.module, op:data.op, id:data.id, fields:data.fields||{}, description:desc });
@@ -4140,31 +4151,6 @@ This project's conversation history below IS its memory — there's no separate 
   );
 }
 
-// ─── BOTTOM NAV ───────────────────────────────────────────────────────────────
-function BottomNav({ active, onNavigate }) {
-  const items = [
-    { id:"home",     icon:"home",     label:"Home" },
-    { id:"health",   icon:"health",   label:"Health" },
-    { id:"tasks",    icon:"tasks",    label:"Tasks" },
-    { id:"calendar", icon:"calendar", label:"Calendar" },
-    { id:"tars",     icon:"tars",     label:"TARS" },
-  ];
-  return (
-    <div style={{ position:"fixed", bottom:0, left:0, right:0, background:T.card, borderTop:`1px solid ${T.border}`, display:"flex", zIndex:100, paddingBottom:"env(safe-area-inset-bottom,0px)" }}>
-      {items.map(item => {
-        const isActive = active===item.id;
-        return (
-          <button key={item.id} onClick={()=>onNavigate(item.id)} style={{ flex:1, padding:"10px 4px 8px", background:"none", border:"none", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
-            <Icon name={item.icon} size={20} color={isActive?T.accent:T.muted} />
-            <span style={{ fontSize:9, fontWeight:600, color:isActive?T.accent:T.muted, letterSpacing:"0.04em" }}>{item.label.toUpperCase()}</span>
-            {isActive && <div style={{ width:16, height:2, borderRadius:1, background:T.accent, marginTop:1 }} />}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 // ─── INITIAL CALENDAR DATA ────────────────────────────────────────────────────
 const INIT_ROTATION = [
   // 2026 — confirmed
@@ -4267,15 +4253,14 @@ export default function LifeApp() {
   };
 
   return (
-    <div style={{ background:T.bg, minHeight:"100vh", fontFamily:"'Inter', system-ui, -apple-system, sans-serif", color:T.text, maxWidth:480, margin:"0 auto", position:"relative" }}>
+    <div style={{ background:T.bg, minHeight:"100vh", fontFamily:"'Inter', system-ui, -apple-system, sans-serif", color:T.text, width:"100%", position:"relative" }}>
       <div style={{ position:"sticky", top:0, zIndex:50, background:`${T.bg}ee`, backdropFilter:"blur(12px)", borderBottom:`1px solid ${T.border}`, padding:"12px 20px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-        <div style={{ fontSize:18, fontWeight:800, letterSpacing:"-0.02em", color:T.text }}>LIFE<span style={{ color:T.accent }}>.</span></div>
+        <button onClick={()=>setScreen("home")} style={{ background:"none", border:"none", padding:0, cursor:"pointer", fontSize:18, fontWeight:800, letterSpacing:"-0.02em", color:T.text, fontFamily:"inherit" }}>LIFE<span style={{ color:T.accent }}>.</span></button>
         <button onClick={()=>setScreen("tars")} style={{ background:T.elevated, border:`1px solid ${T.border}`, borderRadius:999, padding:"6px 12px", display:"flex", alignItems:"center", gap:6, cursor:"pointer", color:T.blue, fontSize:11, fontWeight:700 }}>
           <Icon name="mic" size={12} color={T.blue} /> TARS
         </button>
       </div>
-      <div style={{ paddingBottom:80 }}>{renderScreen()}</div>
-      <BottomNav active={["home","health","tasks","calendar","tars"].includes(screen)?screen:"home"} onNavigate={setScreen} />
+      <div>{renderScreen()}</div>
     </div>
   );
 }
