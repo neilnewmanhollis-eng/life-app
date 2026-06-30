@@ -1380,7 +1380,6 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
     setForm({ date:"", weight:"", bodyFat:"", fatMass:"", muscle:"", bp:"" });
   };
 
-  const [samsungModal, setSamsungModal] = useState(false);
 
   // Steps & sleep state
   const [stepsLog, setStepsLog] = useState({});
@@ -1467,44 +1466,6 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
               </div>
             </Card>
 
-            {/* Samsung Health update button */}
-            <button onClick={()=>setSamsungModal(true)} style={{
-              width:"100%", padding:"13px", borderRadius:14,
-              background:`linear-gradient(135deg, ${T.elevated}, #1a2744)`,
-              border:`1px solid ${T.blue}44`, cursor:"pointer", fontFamily:"inherit",
-              display:"flex", alignItems:"center", justifyContent:"center", gap:10,
-            }}>
-              <span style={{ fontSize:20 }}>⌚</span>
-              <div style={{ textAlign:"left" }}>
-                <div style={{ fontSize:13, fontWeight:700, color:T.blue }}>Update from Samsung Health</div>
-                <div style={{ fontSize:11, color:T.muted }}>Upload a screenshot to update your stats</div>
-              </div>
-            </button>
-
-            {/* Samsung Health modal */}
-            {samsungModal && (
-              <SamsungHealthModal
-                onClose={()=>setSamsungModal(false)}
-                onUpdate={(data)=>{
-                  const d = new Date();
-                  const label = d.toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"});
-                  const l = entries[entries.length-1];
-                  setEntries(prev=>[...prev,{
-                    date: label,
-                    weight:  data.weight  || l.weight,
-                    bodyFat: data.bodyFat || l.bodyFat,
-                    fatMass: data.fatMass || l.fatMass,
-                    muscle:  data.muscle  || l.muscle,
-                    bp:      data.bp      || l.bp,
-                  }]);
-                  if (data.steps || data.sleep) {
-                    setStepsLog(prev=>({...prev,[label]:{ steps:data.steps||0, sleep:data.sleep||"" }}));
-                  }
-                  setSamsungModal(false);
-                  setTab("history");
-                }}
-              />
-            )}
           </div>
         )}
 
@@ -1512,7 +1473,7 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
         {tab==="history" && (
           <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
             <div style={{ background:`${T.blue}18`, borderRadius:12, padding:12, fontSize:12, color:T.blue, border:`1px solid ${T.blue}33` }}>
-              ⌚ Upload a Samsung Health screenshot on the Overview tab to auto-update your stats.
+              ⌚ Upload a Samsung Health screenshot via TARS (top bar) to auto-update your stats.
             </div>
             <Card>
               <div style={{ fontSize:13, fontWeight:700, color:T.text, marginBottom:12 }}>Check-in History</div>
@@ -1590,7 +1551,7 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
                     style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
                 </div>
               </div>
-              <div style={{ fontSize:11, color:T.muted, marginBottom:8 }}>💡 Or upload a Samsung Health screenshot on Overview to auto-fill</div>
+              <div style={{ fontSize:11, color:T.muted, marginBottom:8 }}>💡 Or send a Samsung Health screenshot to TARS via the top bar to auto-fill</div>
               <button onClick={saveActivity} style={{ width:"100%", padding:"10px", borderRadius:10, background:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Save</button>
             </Card>
 
@@ -2023,7 +1984,7 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addCalEvent, remove
   const [viewMonth, setViewMonth] = useState(now.getMonth());
   const [viewYear,  setViewYear]  = useState(now.getFullYear());
   const [selectedDay, setSelectedDay] = useState(null);
-  const [calTab, setCalTab] = useState("month"); // month | add | rotation | upload
+  const [calTab, setCalTab] = useState("month"); // month | add | rotation
   const [addForm, setAddForm] = useState({ type:"reminder", date:"", title:"", notes:"", time:"", endDate:"", location:"" });
   const [uploadLoading, setUploadLoading] = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
@@ -2223,7 +2184,7 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addCalEvent, remove
 
       {/* Action tabs */}
       <div style={{ padding:"0 10px 16px" }}>
-        <SubTab tabs={[{id:"add",label:"+ Event"},{id:"rotation",label:"⚓ Rotation"},{id:"upload",label:"📎 Upload"}]} active={calTab==="month"?null:calTab} onChange={v=>setCalTab(calTab===v?"month":v)} />
+        <SubTab tabs={[{id:"add",label:"+ Event"},{id:"rotation",label:"⚓ Rotation"}]} active={calTab==="month"?null:calTab} onChange={v=>setCalTab(calTab===v?"month":v)} />
 
         {/* ADD EVENT */}
         {calTab==="add" && (
@@ -2281,40 +2242,7 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addCalEvent, remove
         )}
 
         {/* UPLOAD */}
-        {calTab==="upload" && (
-          <Card>
-            <SectionLabel>Upload Document</SectionLabel>
-            <div style={{ fontSize:12, color:T.muted, marginBottom:12 }}>Upload a flight itinerary, hotel booking or work schedule. I'll read it and add the events automatically.</div>
-            <label style={{ display:"block", border:`2px dashed ${T.border}`, borderRadius:12, padding:"24px 16px", textAlign:"center", cursor:"pointer", background:T.elevated, marginBottom:10 }}>
-              <div style={{ fontSize:28, marginBottom:6 }}>📎</div>
-              <div style={{ fontSize:13, fontWeight:600, color:T.text, marginBottom:4 }}>Tap to upload</div>
-              <div style={{ fontSize:11, color:T.muted }}>PDF, image, Word or Excel</div>
-              <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" onChange={handleFileUpload} style={{ display:"none" }} />
-            </label>
-            {uploadLoading && <div style={{ textAlign:"center", padding:"16px 0", fontSize:13, color:T.blue }}>⏳ Reading your document…</div>}
-            {uploadError && <div style={{ fontSize:12, color:T.accent, textAlign:"center", padding:"10px 0" }}>{uploadError}</div>}
-            {uploadResult && (
-              <div>
-                <div style={{ fontSize:12, color:T.muted, fontStyle:"italic", marginBottom:10 }}>{uploadResult.summary}</div>
-                {uploadResult.events?.map((ev,i)=>(
-                  <div key={i} style={{ background:T.elevated, borderRadius:10, padding:"10px 12px", marginBottom:8, border:`1px solid ${T.border}` }}>
-                    <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4 }}>
-                      <div style={{ width:8, height:8, borderRadius:"50%", background:EVENT_COLORS[ev.type]?.bg||T.muted }} />
-                      <span style={{ fontSize:12, fontWeight:700, color:T.text }}>{ev.title}</span>
-                      <span style={{ fontSize:10, color:T.muted }}>{EVENT_COLORS[ev.type]?.label}</span>
-                    </div>
-                    <div style={{ fontSize:11, color:T.muted }}>{ev.date}{ev.endDate?" → "+ev.endDate:""}{ev.time?" · "+ev.time:""}</div>
-                    {ev.notes && <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{ev.notes}</div>}
-                  </div>
-                ))}
-                <div style={{ display:"flex", gap:8, marginTop:4 }}>
-                  <button onClick={confirmUpload} style={{ flex:1, padding:"10px", borderRadius:10, background:T.green, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>✓ Add all to calendar</button>
-                  <button onClick={()=>setUploadResult(null)} style={{ padding:"10px 14px", borderRadius:10, background:T.elevated, color:T.muted, fontWeight:700, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>Redo</button>
-                </div>
-              </div>
-            )}
-          </Card>
-        )}
+
       </div>
     </div>
   );
@@ -4040,7 +3968,69 @@ This project's conversation history below IS its memory — there's no separate 
     setLoading(false);
   };
 
-  // ── Voice input — same pattern as main TARS chat: auto-send once speech ends ──
+  const [pendingFile, setPendingFile] = useState(null);
+  const [fileComment, setFileComment] = useState("");
+
+  // ── File pre-processor for Projects — same pattern as main TARS ──
+  const toBase64Project = (file) => new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result.split(",")[1]);
+    r.onerror = () => rej(new Error("Read failed"));
+    r.readAsDataURL(file);
+  });
+
+  const handleProjectFile = async (e, isCamera) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const base64 = await toBase64Project(file);
+      const isImage = file.type.startsWith("image/");
+      if (isImage) {
+        // Images go straight to pending with a comment box
+        setPendingFile({ file, base64, isImage: true, preview: URL.createObjectURL(file) });
+        setFileComment("");
+      } else {
+        // Non-images — stage for comment then send
+        setPendingFile({ file, base64, isImage: false });
+        setFileComment("");
+      }
+    } catch(err) {
+      setMessages(prev => [...prev, { role:"assistant", content:`Could not read that file — ${err.message}`, ts:"", isError:true }]);
+    }
+    e.target.value = "";
+  };
+
+  const sendPendingProjectFile = async () => {
+    if (!pendingFile || loading) return;
+    setLoading(true);
+    const { file, base64, isImage } = pendingFile;
+    const ts = new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"});
+    const userLabel = isImage ? (pendingFile.preview ? "[Photo]" : `[${file.name}]`) : `[${file.name}]`;
+    setMessages(prev => [...prev, {
+      role:"user", content:`${userLabel}${fileComment ? ` — "${fileComment}"` : ""}`, ts,
+      ...(isImage && pendingFile.preview ? { isPhoto:true, photoUrl:pendingFile.preview } : {})
+    }]);
+    setPendingFile(null);
+    setFileComment("");
+    try {
+      const msgContent = isImage
+        ? [{ type:"image", source:{ type:"base64", media_type:file.type, data:base64 }}, { type:"text", text: fileComment || "What is this? Help me use it in this project." }]
+        : [{ type:"text", text:`File: ${file.name}\n\nInstruction: ${fileComment || "Read this and help me use it in this project."}` }];
+      const reply = await callClaudeWithTools({
+        system: buildProjectPrompt(),
+        messages: [{ role:"user", content: msgContent }],
+        tools: [{ name:"search_vault", description:"Search Neil's document vault.", input_schema:{ type:"object", properties:{ documentId:{ type:"string" } }, required:["documentId"] } }, WEB_SEARCH_TOOL],
+        toolHandlers: { search_vault: async (input) => { const doc = vault.find(d=>String(d.id)===String(input.documentId)); return doc ? (doc.contentKind==="text"&&doc.fullContent ? `Full content of "${doc.name}":\n\n${doc.fullContent}` : doc.summary||"No summary.") : "Document not found."; } },
+      });
+      const display = reply.replace(/\nACTION:\{[^\n]+\}/g,"").replace(/ACTION:\{[^\n]+\}/g,"").trim();
+      setMessages(prev => [...prev, { role:"assistant", content:display, ts }]);
+      const actionMatch = reply.match(/ACTION:(\{[^\n]+\})/);
+      if (actionMatch) { try { const data=JSON.parse(actionMatch[1]); if(data.type==="generic"){ const ml=MODULE_REGISTRY[data.module]?.label||data.module; const fv=(k,v)=>(typeof v==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(v))?formatDateDDMMYYYY(v):v; const fd=Object.entries(data.fields||{}).map(([k,v])=>`${k}: ${fv(k,v)}`).join(", "); setPendingAction({module:data.module,op:data.op,id:data.id,fields:data.fields||{},description:data.op==="create"?`Add to ${ml}: ${fd}`:data.op==="update"?`Update ${ml} record`:data.op==="delete"?`Delete from ${ml}`:data.op}); } } catch {} }
+    } catch(err) {
+      setMessages(prev => [...prev, { role:"assistant", content:`Error: ${err.message}`, ts:"", isError:true }]);
+    }
+    setLoading(false);
+  };
   const startListening = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) { alert("Speech recognition not supported. Use Chrome."); return; }
@@ -4131,7 +4121,42 @@ This project's conversation history below IS its memory — there's no separate 
         </div>
       )}
 
-      <div style={{ borderTop:`1px solid ${T.border}`, padding:"10px 16px 20px", display:"flex", gap:8, alignItems:"center" }}>
+      {/* Staged file — comment input */}
+      {pendingFile && (
+        <div style={{ margin:"0 16px 8px", background:T.elevated, border:`1px solid ${T.blue}44`, borderRadius:12, padding:"10px 14px" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+            {pendingFile.preview && <img src={pendingFile.preview} alt="" style={{ width:48, height:48, borderRadius:8, objectFit:"cover" }} />}
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{pendingFile.file.name || "Photo"}</div>
+              <div style={{ fontSize:10, color:T.muted }}>{pendingFile.isImage ? "Image" : "Document"}</div>
+            </div>
+            <button onClick={()=>{ setPendingFile(null); setFileComment(""); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:16, padding:"2px 6px" }}>✕</button>
+          </div>
+          <input value={fileComment} onChange={e=>setFileComment(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); sendPendingProjectFile(); }}}
+            placeholder="What do you need? e.g. add dates to calendar, summarise this..."
+            style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.bg, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box", marginBottom:8 }} autoFocus />
+          <button onClick={sendPendingProjectFile} disabled={loading} style={{ width:"100%", padding:"9px", borderRadius:9, background:loading?T.elevated:T.blue, color:loading?T.muted:"white", fontWeight:700, fontSize:13, border:"none", cursor:loading?"not-allowed":"pointer", fontFamily:"inherit" }}>
+            {loading ? "Processing…" : "Send to TARS"}
+          </button>
+        </div>
+      )}
+
+      <div style={{ borderTop:`1px solid ${T.border}`, padding:"10px 16px 20px" }}>
+        {/* Top row — camera and file */}
+        <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+          <label style={{ flex:1, padding:"7px 0", borderRadius:10, border:`1px solid ${T.border}`, background:T.elevated, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+            <span style={{ fontSize:15 }}>📷</span>
+            <span style={{ fontSize:11, fontWeight:600, color:T.muted }}>Camera</span>
+            <input type="file" accept="image/*" capture="environment" onChange={e=>handleProjectFile(e,true)} style={{ display:"none" }} />
+          </label>
+          <label style={{ flex:1, padding:"7px 0", borderRadius:10, border:`1px solid ${T.border}`, background:T.elevated, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+            <span style={{ fontSize:15 }}>📎</span>
+            <span style={{ fontSize:11, fontWeight:600, color:T.muted }}>File</span>
+            <input type="file" accept=".pdf,.txt,.md,.csv,.xlsx,.xls,.docx,.doc,image/*" onChange={e=>handleProjectFile(e,false)} style={{ display:"none" }} />
+          </label>
+        </div>
+        {/* Bottom row — mic, text input, send */}
+        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
         <button onClick={startListening} disabled={listening} style={{ width:40, height:40, borderRadius:"50%", background:listening?`${T.accent}22`:T.elevated, border:`1px solid ${listening?T.accent:T.border}`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
           <Icon name="mic" size={16} color={listening?T.accent:T.muted} />
         </button>
@@ -4145,6 +4170,7 @@ This project's conversation history below IS its memory — there's no separate 
         <button onClick={()=>sendMessage()} disabled={loading} style={{ width:40, height:40, borderRadius:"50%", background:T.blue, border:"none", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, opacity:loading?0.5:1 }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
         </button>
+        </div>
       </div>
       <style>{`@keyframes pulse{0%,100%{opacity:0.3;transform:scale(0.8)}50%{opacity:1;transform:scale(1.1)}}`}</style>
     </div>
