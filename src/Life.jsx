@@ -3891,7 +3891,7 @@ You also have full access to the rest of Neil's Life app via the same generic ac
 MODULE REGISTRY (module name : what it holds : fields):
 ${Object.entries(MODULE_REGISTRY).map(([key,m])=>`${key} : ${m.label} : ${m.fields}`).join("\n")}
 
-ACTION PROTOCOL: Same as main TARS — state plainly what you're proposing, ask for confirmation, then include:
+ACTION PROTOCOL — CRITICAL: When proposing any action (add, update, delete, move), you MUST include the ACTION block in the SAME message as your confirmation request — not in a later message after Neil says "yes". The confirmation card appears when you output the ACTION block, so if you ask "confirm?" without including an ACTION block in that same reply, the card never appears and Neil has to say yes twice. Always: state what you're doing, ask confirm, include ACTION block — all in one single reply.
 ACTION:{"type":"generic","module":"<module>","op":"create|update|delete","id":"<id if needed>","fields":{...}}
 
 DATE FORMAT — CRITICAL: All dates you speak or write must be day-first. Spell the month out in full (e.g. "4 July 2026") or use DD/MM/YYYY numerically (e.g. "04/07/2026"). NEVER write MM/DD/YYYY American-style. The "date" field inside any ACTION block must always be YYYY-MM-DD internally (that's just data format, not what Neil reads) — but anything you say to Neil in plain text must be day-first.
@@ -4025,7 +4025,25 @@ This project's conversation history below IS its memory — there's no separate 
       const display = reply.replace(/\nACTION:\{[^\n]+\}/g,"").replace(/ACTION:\{[^\n]+\}/g,"").trim();
       setMessages(prev => [...prev, { role:"assistant", content:display, ts }]);
       const actionMatch = reply.match(/ACTION:(\{[^\n]+\})/);
-      if (actionMatch) { try { const data=JSON.parse(actionMatch[1]); if(data.type==="generic"){ const ml=MODULE_REGISTRY[data.module]?.label||data.module; const fv=(k,v)=>(typeof v==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(v))?formatDateDDMMYYYY(v):v; const fd=Object.entries(data.fields||{}).map(([k,v])=>`${k}: ${fv(k,v)}`).join(", "); setPendingAction({module:data.module,op:data.op,id:data.id,fields:data.fields||{},description:data.op==="create"?`Add to ${ml}: ${fd}`:data.op==="update"?`Update ${ml} record`:data.op==="delete"?`Delete from ${ml}`:data.op}); } } catch {} }
+      if (actionMatch) {
+        try {
+          const data = JSON.parse(actionMatch[1]);
+          if (data.type === "generic") {
+            const ml = MODULE_REGISTRY[data.module]?.label || data.module;
+            const fv = (k,v) => (typeof v==="string" && /^\d{4}-\d{2}-\d{2}$/.test(v)) ? formatDateDDMMYYYY(v) : v;
+            const fd = Object.entries(data.fields||{}).map(([k,v])=>`${k}: ${fv(k,v)}`).join(", ");
+            // Build a human-readable description that includes the title/name wherever possible
+            const titleHint = data.fields?.title || data.fields?.text || data.fields?.name || "";
+            const dateHint = data.fields?.date ? ` on ${formatDateDDMMYYYY(data.fields.date)}` : "";
+            let desc;
+            if (data.op === "create") desc = `Add to ${ml}: ${fd}`;
+            else if (data.op === "update") desc = `Update${titleHint ? ` "${titleHint}"` : ""} in ${ml}${dateHint}: ${fd}`;
+            else if (data.op === "delete") desc = `Delete${titleHint ? ` "${titleHint}"` : ""}${dateHint} from ${ml}`;
+            else desc = `${data.op} on ${ml}`;
+            setPendingAction({ module:data.module, op:data.op, id:data.id, fields:data.fields||{}, description:desc });
+          }
+        } catch {}
+      }
     } catch(err) {
       setMessages(prev => [...prev, { role:"assistant", content:`Error: ${err.message}`, ts:"", isError:true }]);
     }
