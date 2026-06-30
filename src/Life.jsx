@@ -294,7 +294,7 @@ function MealPlanScreen({ calLog, setCalLog, todayLabel, appState }) {
         headers:{ "Content-Type":"application/json", "x-api-key":apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
         body: JSON.stringify({
           model: "claude-sonnet-4-6",
-          max_tokens: 4000,
+          max_tokens: 8000,
           system: `You are a professional meal planner generating personalised dinner suggestions. Return ONLY a valid JSON array, no markdown, no backticks, no preamble.`,
           messages:[{ role:"user", content:`Generate ${generateCount} dinner meal suggestions for Neil based on his food profile. Budget: ${generateBudget} NZD per serving. Season: ${currentSeason} in Christchurch NZ (Southern Hemisphere). Current pantry staples: ${pantryList}.
 
@@ -332,8 +332,31 @@ Return a JSON array of exactly ${generateCount} meals in this format:
       });
       const data = await response.json();
       const text = data.content?.map(b=>b.text||"").join("") || "";
-      const clean = text.replace(/```json|```/g, "").trim();
-      const meals = JSON.parse(clean);
+      let clean = text.replace(/```json|```/g, "").trim();
+
+      // If JSON was truncated mid-response (hit token limit), try to salvage
+      // complete meal objects by closing the array at the last complete entry
+      let meals;
+      try {
+        meals = JSON.parse(clean);
+      } catch {
+        // Find the last complete object in the array (ends with }) and close the array there
+        const lastComplete = clean.lastIndexOf("},");
+        const lastCompleteFinal = clean.lastIndexOf("}]");
+        const salvageAt = Math.max(lastComplete, lastCompleteFinal);
+        if (salvageAt > 0) {
+          const salvaged = clean.slice(0, lastComplete + 1) + "]";
+          try {
+            meals = JSON.parse(salvaged);
+            console.log(`Salvaged ${meals.length} meals from truncated response`);
+          } catch {
+            throw new Error("Response was too large and couldn't be salvaged — try generating fewer meals (e.g. 8 instead of 12)");
+          }
+        } else {
+          throw new Error("Response was too large and couldn't be salvaged — try generating fewer meals (e.g. 8 instead of 12)");
+        }
+      }
+
       setMealLibrary(prev => {
         // Keep existing meals that have been cooked or rated, replace uncooked/unrated ones
         const keep = prev.filter(m => m.cooked || m.rating > 0);
