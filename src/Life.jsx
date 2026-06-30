@@ -1,6 +1,29 @@
 import { useState, useEffect, useRef } from "react";
 
 // ─── ANTHROPIC API HELPER ────────────────────────────────────────────────────
+// ─── PERSISTENT STATE HELPER ──────────────────────────────────────────────────
+// A useState that automatically reads from and writes to localStorage,
+// so app data (tasks, calendar, calorie log, health entries, vault) survives
+// closing the app or refreshing the page.
+function usePersistentState(key, defaultValue) {
+  const [value, setValue] = useState(() => {
+    try {
+      const saved = localStorage.getItem(key);
+      return saved !== null ? JSON.parse(saved) : defaultValue;
+    } catch {
+      return defaultValue;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch {} // storage full or unavailable — fail silently rather than crash the app
+  }, [key, value]);
+
+  return [value, setValue];
+}
+
 function getAnthropicKey() {
   return localStorage.getItem("tars_anthropic_key") || "";
 }
@@ -2328,7 +2351,7 @@ function TarsScreen({ onBack, appState }) {
   const [pendingAction, setPendingAction] = useState(null); // { type, payload, description }
   const [pendingFile, setPendingFile] = useState(null); // { file, base64, fileType, preview }
   const [fileComment, setFileComment] = useState("");
-  const [vault, setVault] = useState([]);
+  const [vault, setVault] = usePersistentState("tars_vault", []);
   const [vaultLoading, setVaultLoading] = useState(false);
   const [vaultError, setVaultError] = useState(null);
   const [selectedDoc, setSelectedDoc] = useState(null);
@@ -3449,7 +3472,7 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
             </div>
           )}
           <div style={{ background:`${T.blue}11`, borderRadius:12, padding:"10px 14px", border:`1px solid ${T.blue}22` }}>
-            <div style={{ fontSize:11, color:T.blue, lineHeight:1.5 }}>📡 Documents stored this session only. Puter cloud sync coming soon.</div>
+            <div style={{ fontSize:11, color:T.blue, lineHeight:1.5 }}>📡 Documents saved to this device. They'll still be here next time you open the app.</div>
           </div>
         </div>
       )}
@@ -3511,19 +3534,19 @@ const INIT_CAL_EVENTS = [];
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
 export default function LifeApp() {
   const [screen, setScreen] = useState("home");
-  const [tasks, setTasks] = useState(INIT_TASKS);
+  const [tasks, setTasks] = usePersistentState("life_tasks", INIT_TASKS);
 
   // ── HEALTH STATE (source of truth — TARS can write here) ───────────────────
-  const [healthEntries, setHealthEntries] = useState([{
+  const [healthEntries, setHealthEntries] = usePersistentState("life_health_entries", [{
     date:"26 Jun 2026", weight:USER.health.weight, bodyFat:USER.health.bodyFat,
     fatMass:USER.health.fatMass, muscle:USER.health.muscle, bp:USER.health.bp,
   }]);
   const todayLabel = new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"});
-  const [calLog, setCalLog] = useState({});
+  const [calLog, setCalLog] = usePersistentState("life_cal_log", {});
 
   // ── CALENDAR STATE (source of truth for whole app) ──────────────────────────
-  const [calEvents, setCalEvents] = useState(INIT_CAL_EVENTS);
-  const [rotationBlocks, setRotationBlocks] = useState(INIT_ROTATION);
+  const [calEvents, setCalEvents] = usePersistentState("life_cal_events", INIT_CAL_EVENTS);
+  const [rotationBlocks, setRotationBlocks] = usePersistentState("life_rotation_blocks", INIT_ROTATION);
 
   const addCalEvent    = (ev)  => setCalEvents(prev=>[...prev, {...ev, id:Date.now()}]);
   const removeCalEvent = (id)  => setCalEvents(prev=>prev.filter(e=>e.id!==id));
