@@ -2318,23 +2318,70 @@ function TarsScreen({ onBack, appState }) {
     setMemoryJustSaved(true);
     setTimeout(() => setMemoryJustSaved(false), 2000);
   };
-  const [messages, setMessages] = useState([{
-    role: "assistant",
-    content: "TARS online. Honesty setting: 90%. What do you need?",
-    ts: new Date().toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit" }),
-  }]);
+  const [messages, setMessages] = useState([]);
+  const [nudgeLoading, setNudgeLoading] = useState(true);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [pendingAction, setPendingAction] = useState(null); // { type, payload, description }
+  const [pendingFile, setPendingFile] = useState(null); // { file, base64, fileType, preview }
+  const [fileComment, setFileComment] = useState("");
   const [vault, setVault] = useState([]);
   const [vaultLoading, setVaultLoading] = useState(false);
   const [vaultError, setVaultError] = useState(null);
   const [selectedDoc, setSelectedDoc] = useState(null);
   const audioRef = { current: null };
   const messagesEndRef = { current: null };
+
+  // ── Proactive opening nudge ──
+  useEffect(() => {
+    const generateNudge = async () => {
+      const now = new Date();
+      const hour = now.getHours();
+      const timeOfDay = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
+      const todayEntries = calLog[todayLabel] || [];
+      const todayKcal = todayEntries.reduce((s,e)=>s+e.kcal,0);
+      const todayProtein = todayEntries.reduce((s,e)=>s+e.protein,0);
+      const latestHealth = healthEntries[healthEntries.length-1] || {};
+      const pendingTasks = tasks.filter(t=>!t.done);
+      const highPriorityTasks = pendingTasks.filter(t=>t.priority==="high").map(t=>t.text).join(", ");
+
+      // Build a context string for the nudge
+      const nudgeContext = `Time: ${timeOfDay} (${hour}:${String(now.getMinutes()).padStart(2,'0')}).
+Calories logged today: ${todayKcal} of 1900-2000 target.
+Protein logged today: ${todayProtein}g of 140-160g target.
+Current weight: ${latestHealth.weight || 89.0} kg, target 79-81 kg.
+High priority pending tasks: ${highPriorityTasks || "none"}.`;
+
+      if (!getAnthropicKey()) {
+        setMessages([{ role:"assistant", content:"TARS online. No API key set — tap ⚙️ to add your Anthropic key.", ts: now.toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) }]);
+        setNudgeLoading(false);
+        return;
+      }
+
+      try {
+        const reply = await callClaude({
+          system: `You are TARS, Neil's personal AI. Generate a single short opening message — one to three sentences max. 
+Check the live data and say something genuinely useful or observational if the data warrants it. 
+If calories are low for the time of day, mention it. If protein is behind, flag it. If there are high priority tasks, note one. If it's evening and targets are nearly met, acknowledge it briefly.
+If nothing is notably off, just come online with a short dry greeting — no need to force an observation.
+Never be generic. Never say "Great to see you" or "How can I help". Be TARS. Plain spoken English, no markdown.`,
+          messages: [{ role:"user", content:`Live data:
+${nudgeContext}
+
+Generate your opening message.` }]
+        });
+        setMessages([{ role:"assistant", content:reply, ts: now.toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) }]);
+        if (voiceEnabled) setTimeout(() => speak(reply), 300);
+      } catch {
+        setMessages([{ role:"assistant", content:"TARS online. Honesty setting: 90%. What do you need?", ts: now.toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) }]);
+      }
+      setNudgeLoading(false);
+    };
+    generateNudge();
+  }, []);
 
   // ── ElevenLabs TTS ──
   const getElevenLabsKey = () => localStorage.getItem("tars_elevenlabs_key") || "";
@@ -2750,82 +2797,72 @@ ${memory}` : "No previous session memory yet. This is early days."}`;
     recognition.start();
   };
 
-  // ── Camera / photo input ──
-  const handleCameraInput = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // ── Shared image-to-base64 helper ──
+  const toBase64 = (file) => new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result.split(",")[1]);
+    r.onerror = () => rej(new Error("Read failed"));
+    r.readAsDataURL(file);
+  });
+
+  // ── Smart image routing — detects food / health screenshot / document ──
+  const handleImageSmart = async (file, isCamera) => {
     setLoading(true);
     try {
-      const base64 = await new Promise((res, rej) => {
-        const r = new FileReader();
-        r.onload = () => res(r.result.split(",")[1]);
-        r.onerror = () => rej(new Error("Read failed"));
-        r.readAsDataURL(file);
-      });
+      const base64 = await toBase64(file);
+      const photoUrl = URL.createObjectURL(file);
 
       const userMsg = {
         role: "user",
-        content: `[Photo uploaded: ${file.name}]`,
+        content: isCamera ? "[Camera photo]" : `[Photo: ${file.name}]`,
         ts: new Date().toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit" }),
         isPhoto: true,
-        photoUrl: URL.createObjectURL(file),
+        photoUrl,
       };
       setMessages(prev => [...prev, userMsg]);
 
-      const reply = await callClaude({
-        system: buildSystemPrompt() + "\n\nThe user has uploaded a photo. If it looks like food, estimate the calories and protein and ask to log it. If it is a document, summarise it. If it is a Samsung Health screenshot, extract the health metrics and ask to log them.",
+      // Step 1 — classify what the image is
+      const classifyReply = await callClaude({
+        system: `You are an image classifier. Look at this image and respond with exactly one word only:
+FOOD — if it shows food, a meal, a drink, a snack, or anything edible
+HEALTH — if it shows a Samsung Health screenshot, fitness app data, steps, sleep, weight, heart rate, or any health metrics
+DOCUMENT — if it shows a document, certificate, letter, form, or text-heavy page
+OTHER — anything else`,
         messages: [{ role:"user", content:[
           { type:"image", source:{ type:"base64", media_type:file.type, data:base64 }},
-          { type:"text", text:"What is this? Help me log or use it in the app." }
-        ]}],
+          { type:"text", text:"Classify this image." }
+        ]}]
       });
 
-      const assistantMsg = {
-        role: "assistant",
-        content: reply,
-        ts: new Date().toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit" }),
-      };
-      setMessages(prev => [...prev, assistantMsg]);
-      speak(reply);
-      const action = parseActionFromReply(reply, "photo upload");
-      if (action) setPendingAction(action);
-    } catch(err) {
-      setMessages(prev => [...prev, { role:"assistant", content:"Could not read that image.", ts:"", isError:true }]);
-    }
-    setLoading(false);
-    e.target.value = "";
-  };
+      const imageType = classifyReply.trim().toUpperCase().includes("FOOD") ? "FOOD"
+        : classifyReply.trim().toUpperCase().includes("HEALTH") ? "HEALTH"
+        : classifyReply.trim().toUpperCase().includes("DOCUMENT") ? "DOCUMENT"
+        : "OTHER";
 
-  // ── File upload (documents) ──
-  const handleFileUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setLoading(true);
-    try {
-      const isImage = file.type.startsWith("image/");
-      const base64 = await new Promise((res, rej) => {
-        const r = new FileReader();
-        r.onload = () => res(r.result.split(",")[1]);
-        r.onerror = () => rej(new Error("Read failed"));
-        r.readAsDataURL(file);
-      });
+      // Step 2 — handle based on type
+      let systemAddendum = "";
+      let userPrompt = "";
 
-      const userMsg = {
-        role: "user",
-        content: `[File uploaded: ${file.name}]`,
-        ts: new Date().toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit" }),
-      };
-      setMessages(prev => [...prev, userMsg]);
-
-      const msgContent = isImage
-        ? [{ type:"image", source:{ type:"base64", media_type:file.type, data:base64 }}, { type:"text", text:"Summarise this and tell me if there is anything I should add to my app." }]
-        : [{ type:"text", text:`File: ${file.name}
-
-Summarise this document and tell me if there is anything I should add to my app.` }];
+      if (imageType === "FOOD") {
+        systemAddendum = `The user has sent a photo of food. Your job is to estimate calories and protein as accurately as possible using the crockery reference (28cm dinner plate, 22cm side plate, 20cm bowl) for portion sizing if a plate or bowl is visible. Give your best estimate — state the food, estimated calories, estimated protein, then ask to log it. Format: "That looks like [description], approximately [X] calories and [Y]g protein. Shall I log it?"`;
+        userPrompt = "What food is this and what are the estimated calories and protein?";
+      } else if (imageType === "HEALTH") {
+        systemAddendum = `The user has sent a Samsung Health screenshot or fitness data. Extract all visible health metrics — steps, distance, active time, sleep duration, sleep score, weight, heart rate, calories burned, or any other metrics shown. Present what you found clearly then ask which metrics to log to the health module.`;
+        userPrompt = "Extract all health metrics from this screenshot.";
+      } else if (imageType === "DOCUMENT") {
+        systemAddendum = `The user has sent a document image. Summarise the key information. If it contains dates, events, flights, or appointments, identify them and offer to add to the calendar. If it is a certificate or qualification, note the expiry date if visible and suggest adding to the Work module when built.`;
+        userPrompt = "Summarise this document and identify anything worth adding to the app.";
+      } else {
+        systemAddendum = `The user has sent an image. Describe what you see and suggest how it might be useful in the Life app if relevant.`;
+        userPrompt = "What is this image?";
+      }
 
       const reply = await callClaude({
-        system: buildSystemPrompt(),
-        messages: [{ role:"user", content: msgContent }],
+        system: buildSystemPrompt() + "\n\n" + systemAddendum,
+        messages: [{ role:"user", content:[
+          { type:"image", source:{ type:"base64", media_type:file.type, data:base64 }},
+          { type:"text", text:userPrompt }
+        ]}]
       });
 
       setMessages(prev => [...prev, {
@@ -2833,11 +2870,203 @@ Summarise this document and tell me if there is anything I should add to my app.
         ts: new Date().toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit" }),
       }]);
       speak(reply);
+
+      // Parse for action — food logs, health logs etc
+      const action = parseActionFromReply(reply, imageType === "FOOD" ? "photo food log" : "photo upload");
+      if (action) setPendingAction(action);
+
+      // Auto-add to vault if it's a document
+      if (imageType === "DOCUMENT") {
+        setVault(prev => [{
+          id: Date.now(), name: file.name || "Photo document", type: file.type,
+          size: file.size, uploadedAt: new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}),
+          docType: "Document", summary: reply, keyPoints: [], base64,
+        }, ...prev]);
+      }
+
     } catch(err) {
-      setMessages(prev => [...prev, { role:"assistant", content:"Could not read that file.", ts:"", isError:true }]);
+      setMessages(prev => [...prev, { role:"assistant", content:"Could not read that image.", ts:"", isError:true }]);
     }
     setLoading(false);
+  };
+
+  // ── Camera input ──
+  const handleCameraInput = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await handleImageSmart(file, true);
     e.target.value = "";
+  };
+
+  // ── File pre-processor — read file content based on type ──
+  const extractFileContent = async (file) => {
+    const name = file.name.toLowerCase();
+    const type = file.type;
+
+    // Images — return base64
+    if (type.startsWith("image/")) {
+      const base64 = await toBase64(file);
+      return { kind: "image", base64, mediaType: type };
+    }
+
+    // CSV / plain text — read as text directly
+    if (type === "text/csv" || type === "text/plain" || name.endsWith(".csv") || name.endsWith(".txt") || name.endsWith(".md")) {
+      const text = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result);
+        r.onerror = () => rej(new Error("Read failed"));
+        r.readAsText(file);
+      });
+      return { kind: "text", text: text.slice(0, 8000) }; // cap at 8k chars
+    }
+
+    // Excel — read as ArrayBuffer, convert to CSV-like text using basic parsing
+    if (name.endsWith(".xlsx") || name.endsWith(".xls") || type.includes("spreadsheet") || type.includes("excel")) {
+      const buffer = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result);
+        r.onerror = () => rej(new Error("Read failed"));
+        r.readAsArrayBuffer(file);
+      });
+      // Load SheetJS dynamically
+      try {
+        if (!window.XLSX) {
+          await new Promise((res, rej) => {
+            const s = document.createElement("script");
+            s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+            s.onload = res; s.onerror = rej;
+            document.head.appendChild(s);
+          });
+        }
+        const wb = window.XLSX.read(buffer, { type: "array" });
+        let output = "";
+        wb.SheetNames.forEach(sheetName => {
+          const ws = wb.Sheets[sheetName];
+          const csv = window.XLSX.utils.sheet_to_csv(ws);
+          output += `Sheet: ${sheetName}\n${csv}\n\n`;
+        });
+        return { kind: "text", text: output.slice(0, 8000), sheetName: wb.SheetNames[0] };
+      } catch(err) {
+        return { kind: "text", text: `Excel file: ${file.name}. Could not parse contents — ${err.message}` };
+      }
+    }
+
+    // PDF — extract text via base64 + Claude vision
+    if (type === "application/pdf" || name.endsWith(".pdf")) {
+      const base64 = await toBase64(file);
+      return { kind: "pdf", base64 };
+    }
+
+    // Word doc — extract text via base64
+    if (name.endsWith(".docx") || name.endsWith(".doc") || type.includes("word")) {
+      const base64 = await toBase64(file);
+      return { kind: "pdf", base64 }; // treat same as PDF — send as document
+    }
+
+    // Fallback — try reading as text
+    try {
+      const text = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result);
+        r.onerror = () => rej(new Error("Read failed"));
+        r.readAsText(file);
+      });
+      return { kind: "text", text: text.slice(0, 8000) };
+    } catch {
+      return { kind: "unknown", name: file.name };
+    }
+  };
+
+  // ── Send file to Claude with user comment ──
+  const sendFileToClaude = async (file, extracted, comment) => {
+    const ts = new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"});
+    const userContent = `[${file.name}]${comment ? ` — "${comment}"` : ""}`;
+    setMessages(prev => [...prev, { role:"user", content:userContent, ts,
+      ...(extracted.kind==="image" ? { isPhoto:true, photoUrl:URL.createObjectURL(file) } : {})
+    }]);
+
+    const systemAddendum = `The user has uploaded a file: ${file.name}.${comment ? ` Their instruction: "${comment}"` : " No specific instruction given — use your judgement."}
+Your job: understand the full content, then act on it. 
+If it contains dates, events, flights, hotel bookings, appointments or a leave schedule → extract them all and offer to add to the calendar one by one or all at once.
+If it contains health data, weight, steps, or fitness metrics → extract and offer to log to the health module.
+If it contains food or nutrition information → extract and offer to log calories and protein.
+If it is a certificate, qualification or work document → summarise key details including any expiry dates.
+If no specific action applies → summarise the key information clearly and ask what Neil wants to do with it.
+Be thorough. Read everything. Do not skip rows or entries. If it is a schedule or planner, list every entry you find.`;
+
+    let apiMessages;
+
+    if (extracted.kind === "image") {
+      apiMessages = [{ role:"user", content:[
+        { type:"image", source:{ type:"base64", media_type:file.type, data:extracted.base64 }},
+        { type:"text", text:comment || "Read this and help me use it in the app." }
+      ]}];
+    } else if (extracted.kind === "pdf") {
+      apiMessages = [{ role:"user", content:[
+        { type:"document", source:{ type:"base64", media_type:"application/pdf", data:extracted.base64 }},
+        { type:"text", text:comment || "Read this and help me use it in the app." }
+      ]}];
+    } else if (extracted.kind === "text") {
+      apiMessages = [{ role:"user", content:`File: ${file.name}\n\nContents:\n${extracted.text}\n\nInstruction: ${comment || "Read this and help me use it in the app."}`}];
+    } else {
+      apiMessages = [{ role:"user", content:`File uploaded: ${file.name}. I could not read the contents. Can you advise?`}];
+    }
+
+    const reply = await callClaude({ system: buildSystemPrompt() + "\n\n" + systemAddendum, messages: apiMessages });
+
+    setMessages(prev => [...prev, { role:"assistant", content:reply, ts }]);
+    speak(reply);
+
+    const action = parseActionFromReply(reply, comment || "file upload");
+    if (action) setPendingAction(action);
+
+    // Auto-vault documents
+    if (extracted.kind !== "image") {
+      setVault(prev => [{
+        id:Date.now(), name:file.name, type:file.type, size:file.size,
+        uploadedAt:new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}),
+        docType:"Document", summary:reply.slice(0,300), keyPoints:[],
+      }, ...prev]);
+    }
+  };
+
+  // ── File upload handler — stage file, show comment input ──
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const isImage = file.type.startsWith("image/");
+
+    // Images with no comment — go straight to smart routing
+    if (isImage) {
+      await handleImageSmart(file, false);
+      e.target.value = "";
+      return;
+    }
+
+    // Non-image — stage it, show comment input
+    try {
+      const extracted = await extractFileContent(file);
+      setPendingFile({ file, extracted });
+      setFileComment("");
+    } catch(err) {
+      setMessages(prev => [...prev, { role:"assistant", content:`Could not read ${file.name} — ${err.message}`, ts:"", isError:true }]);
+    }
+    e.target.value = "";
+  };
+
+  // ── Send staged file ──
+  const sendPendingFile = async () => {
+    if (!pendingFile || loading) return;
+    setLoading(true);
+    try {
+      await sendFileToClaude(pendingFile.file, pendingFile.extracted, fileComment);
+    } catch(err) {
+      setMessages(prev => [...prev, { role:"assistant", content:`Error processing file — ${err.message}`, ts:"", isError:true }]);
+    }
+    setPendingFile(null);
+    setFileComment("");
+    setLoading(false);
   };
 
   // ── Send message ──
@@ -3007,6 +3236,17 @@ Summarise this document and tell me if there is anything I should add to my app.
         <div style={{ display:"flex", flexDirection:"column", flex:1 }}>
           {/* Messages */}
           <div style={{ flex:1, overflowY:"auto", padding:"8px 16px 8px", display:"flex", flexDirection:"column", gap:10, minHeight:300, maxHeight:"55vh" }}>
+            {nudgeLoading && (
+              <div style={{ display:"flex", alignItems:"flex-start" }}>
+                <div style={{ padding:"10px 16px", borderRadius:"4px 18px 18px 18px", background:T.card, border:`1px solid ${T.border}` }}>
+                  <div style={{ display:"flex", gap:5, alignItems:"center" }}>
+                    {[0,1,2].map(i=>(
+                      <div key={i} style={{ width:7, height:7, borderRadius:"50%", background:T.blue, animation:"pulse 1.2s ease-in-out infinite", animationDelay:`${i*0.2}s`, opacity:0.7 }}/>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
             {messages.map((msg, i) => {
               const isUser = msg.role === "user";
               return (
@@ -3060,6 +3300,31 @@ Summarise this document and tell me if there is anything I should add to my app.
 
 
 
+          {/* Staged file — comment input */}
+          {pendingFile && (
+            <div style={{ margin:"0 16px 8px", background:T.elevated, border:`1px solid ${T.blue}44`, borderRadius:12, padding:"10px 14px" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                <span style={{ fontSize:18 }}>📎</span>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{pendingFile.file.name}</div>
+                  <div style={{ fontSize:10, color:T.muted }}>{pendingFile.extracted.kind === "text" ? "Ready to send" : pendingFile.extracted.kind === "image" ? "Image" : pendingFile.extracted.kind === "pdf" ? "PDF" : "File"}</div>
+                </div>
+                <button onClick={()=>{ setPendingFile(null); setFileComment(""); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:16, padding:"2px 6px" }}>✕</button>
+              </div>
+              <input
+                value={fileComment}
+                onChange={e=>setFileComment(e.target.value)}
+                onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); sendPendingFile(); }}}
+                placeholder="What do you need? e.g. add dates to calendar, what are my leave days..."
+                style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.bg, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box", marginBottom:8 }}
+                autoFocus
+              />
+              <button onClick={sendPendingFile} disabled={loading} style={{ width:"100%", padding:"9px", borderRadius:9, background:loading?T.elevated:T.blue, color:loading?T.muted:"white", fontWeight:700, fontSize:13, border:"none", cursor:loading?"not-allowed":"pointer", fontFamily:"inherit" }}>
+                {loading ? "Processing…" : "Send to TARS"}
+              </button>
+            </div>
+          )}
+
           {/* Input bar */}
           <div style={{ borderTop:`1px solid ${T.border}`, background:T.bg, padding:"8px 16px 20px" }}>
             {/* Top row — camera and file upload */}
@@ -3072,7 +3337,7 @@ Summarise this document and tell me if there is anything I should add to my app.
               <label style={{ flex:1, padding:"7px 0", borderRadius:10, border:`1px solid ${T.border}`, background:T.elevated, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
                 <span style={{ fontSize:15 }}>📎</span>
                 <span style={{ fontSize:11, fontWeight:600, color:T.muted }}>File</span>
-                <input type="file" accept=".pdf,.txt,.md,image/*" onChange={handleFileUpload} style={{ display:"none" }} />
+                <input type="file" accept=".pdf,.txt,.md,.csv,.xlsx,.xls,.docx,.doc,image/*" onChange={handleFileUpload} style={{ display:"none" }} />
               </label>
             </div>
             {/* Bottom row — mic, text input, send */}
