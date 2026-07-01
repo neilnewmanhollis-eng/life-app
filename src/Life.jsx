@@ -3523,7 +3523,25 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
     const text = (textOverride !== undefined ? textOverride : input).trim();
     if (!text || loading) return;
     setInput("");
-    if (pendingAction) setPendingAction(null); // new message supersedes any unconfirmed action — use the card buttons to confirm/cancel instead
+    if (pendingAction) setPendingAction(null);
+
+    // ── Audio context unlock — Android Chrome blocks audio.play() unless it's
+    // called directly from a user gesture. By the time TARS's response arrives
+    // (two async hops later), Chrome considers us too far from the original tap
+    // and silently blocks playback. Playing a tiny silent sound here, directly
+    // inside the tap handler before any async work, unlocks the audio context
+    // for this session so the real voice response can play when it arrives. ──
+    if (voiceEnabled) {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const buf = ctx.createBuffer(1, 1, 22050);
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(ctx.destination);
+        src.start(0);
+        setTimeout(() => ctx.close(), 100);
+      } catch {}
+    }
 
     const userMsg = { role:"user", content:text, ts: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) };
     const newMessages = [...messages, userMsg];
@@ -4105,6 +4123,19 @@ This project's conversation history below IS its memory — there's no separate 
     if (!text || loading) return;
     setInput("");
     if (pendingAction) setPendingAction(null);
+
+    // Audio context unlock — same as main TARS, needed for Android Chrome autoplay policy
+    if (voiceEnabled) {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const buf = ctx.createBuffer(1, 1, 22050);
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(ctx.destination);
+        src.start(0);
+        setTimeout(() => ctx.close(), 100);
+      } catch {}
+    }
 
     const userMsg = { role:"user", content:text, ts:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) };
     const newMessages = [...messages, userMsg];
