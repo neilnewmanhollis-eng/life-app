@@ -2475,68 +2475,28 @@ function TarsScreen({ onBack, appState }) {
     setNudgeLoading(false);
   }, []);
 
-  // ── OpenAI TTS — Streaming ──
-  const TARS_VOICE = "onyx";   // Options: alloy, echo, fable, onyx, nova, shimmer, ash, coral
-  const TARS_SPEED = 1.3;      // 0.25–4.0. 1.0 = normal. 1.3 = 30% faster.
+  // ── Web Speech API TTS — free, instant, no external API calls ──
+  // Uses whatever voice is set in Android Settings → General Management → Text-to-Speech
+  // Change the system voice any time — TARS picks it up immediately, no code change needed.
+  const TARS_SPEED = 1.1; // Speech rate: 1.0 = normal, 1.1 = slightly faster
 
-  const speak = async (text) => {
+  const speak = (text) => {
     if (!voiceEnabled) return;
-    const key = localStorage.getItem("tars_openai_tts_key") || "";
-    if (!key) {
-      setMessages(prev => [...prev, { role:"assistant", content:`[Voice debug: No OpenAI TTS key found in storage — re-enter it in settings]`, ts:"", isError:true }]);
-      return;
-    }
-    // Show first 8 chars of key so we can confirm it's the right one
-    setMessages(prev => [...prev, { role:"assistant", content:`[Voice debug: key found — starts with "${key.slice(0,8)}..." — calling OpenAI...]`, ts:"", isError:true }]);
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = "";
-      audioRef.current = null;
-    }
-    const myRequestId = speakRequestId.current;
+    if (!window.speechSynthesis) { console.error("TARS Voice: Web Speech API not supported"); return; }
+    // Cancel any current speech
+    window.speechSynthesis.cancel();
     setSpeaking(true);
-    try {
-      const res = await fetch("https://api.openai.com/v1/audio/speech", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
-        body: JSON.stringify({
-          model: "tts-1",
-          voice: TARS_VOICE,
-          input: text,
-          speed: TARS_SPEED,
-          response_format: "mp3",
-        }),
-      });
-      if (!res.ok) {
-        const errText = await res.text();
-        setMessages(prev => [...prev, { role:"assistant", content:`[Voice debug: OpenAI returned ${res.status} — ${errText.slice(0,150)}]`, ts:"", isError:true }]);
-        setSpeaking(false); return;
-      }
-      if (myRequestId !== speakRequestId.current || !voiceEnabled) { setSpeaking(false); return; }
-      const blob = await res.blob();
-      if (blob.size === 0) {
-        setMessages(prev => [...prev, { role:"assistant", content:`[Voice debug: empty audio response — key may be invalid or billing not active]`, ts:"", isError:true }]);
-        setSpeaking(false); return;
-      }
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio();
-      audio.src = url;
-      audioRef.current = audio;
-      audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(url); audioRef.current = null; };
-      audio.onerror = (e) => { setMessages(prev => [...prev, { role:"assistant", content:`[Voice debug: audio.onerror — ${audio.error?.message||"unknown"}]`, ts:"", isError:true }]); setSpeaking(false); URL.revokeObjectURL(url); audioRef.current = null; };
-      const p = audio.play();
-      if (p !== undefined) p.catch(err => { setMessages(prev => [...prev, { role:"assistant", content:`[Voice debug: play() blocked — ${err.message}]`, ts:"", isError:true }]); setSpeaking(false); });
-    } catch(err) { setMessages(prev => [...prev, { role:"assistant", content:`[Voice debug: exception — ${err.message}]`, ts:"", isError:true }]); setSpeaking(false); }
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = TARS_SPEED;
+    utterance.pitch = 0.85;   // Slightly lower pitch — closer to TARS character
+    utterance.volume = 1.0;
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    window.speechSynthesis.speak(utterance);
   };
 
   const stopSpeaking = () => {
-    speakRequestId.current++; // invalidate any in-flight speak() calls so they don't start playing after this
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-      try { audioRef.current.src = ""; } catch {}
-      audioRef.current = null;
-    }
+    window.speechSynthesis?.cancel();
     setSpeaking(false);
   };
 
@@ -4045,35 +4005,19 @@ function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState 
   const audioRef = useRef(null);
   const speakReqId = useRef(0);
 
-  const speakProject = async (text) => {
+  const speakProject = (text) => {
     if (!voiceEnabled) return;
-    const key = localStorage.getItem("tars_openai_tts_key") || "";
-    if (!key) return;
-    const myId = speakReqId.current;
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; audioRef.current = null; }
-    try {
-      const res = await fetch("https://api.openai.com/v1/audio/speech", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
-        body: JSON.stringify({ model:"tts-1", voice:"onyx", input:text, speed:1.3 })
-      });
-      if (!res.ok || myId !== speakReqId.current || !voiceEnabled) return;
-      const blob = await res.blob();
-      if (myId !== speakReqId.current || !voiceEnabled) return;
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio();
-      audio.src = url;
-      audioRef.current = audio;
-      audio.onended = () => { URL.revokeObjectURL(url); audioRef.current = null; };
-      audio.onerror = () => { URL.revokeObjectURL(url); audioRef.current = null; };
-      const p = audio.play();
-      if (p !== undefined) p.catch(() => {});
-    } catch {}
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1.1;
+    utterance.pitch = 0.85;
+    utterance.volume = 1.0;
+    window.speechSynthesis.speak(utterance);
   };
 
   const stopProjectSpeaking = () => {
-    speakReqId.current++;
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    window.speechSynthesis?.cancel();
   };
 
   const toggleProjectVoice = () => {
