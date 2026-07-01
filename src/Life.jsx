@@ -557,12 +557,12 @@ function getAnthropicKey() {
   return localStorage.getItem("tars_anthropic_key") || "";
 }
 
-async function callClaudeRaw({ system, messages, tools }) {
+async function callClaudeRaw({ system, messages, tools, model }) {
   const apiKey = getAnthropicKey();
   if (!apiKey) throw new Error("NO_KEY");
 
   const body = {
-    model: "claude-sonnet-4-6",
+    model: model || "claude-haiku-4-5-20251001",
     max_tokens: 1024,
     system: system || "",
     messages,
@@ -587,20 +587,51 @@ async function callClaudeRaw({ system, messages, tools }) {
   return response.json();
 }
 
-// Simple version — no tools, just text in, text out (used by memory summarisation etc)
-async function callClaude({ system, messages }) {
-  const data = await callClaudeRaw({ system, messages: messages.map(m => ({ role: m.role, content: m.content })) });
+// ── HYBRID MODEL ROUTING ─────────────────────────────────────────────────────
+// Haiku (~12x cheaper) handles everyday queries — tasks, quick questions,
+// calorie logging, simple reminders. Sonnet handles complex reasoning, web
+// search, vault retrieval, multi-source planning, and anything requiring
+// genuine intelligence across multiple data sources. Completely invisible to Neil.
+const SONNET = "claude-sonnet-4-6";
+const HAIKU  = "claude-haiku-4-5-20251001";
+
+function selectModel(userMessage, hasTools) {
+  // Always use Sonnet when tools are active (web search, vault retrieval)
+  if (hasTools) return SONNET;
+
+  const msg = (userMessage || "").toLowerCase();
+
+  // Sonnet triggers — complex reasoning, planning, analysis
+  const sonnetPatterns = [
+    /google|search|look up|find out|what's (on|happening|the)/,
+    /plan|planning|itinerary|organise|schedule.*week/,
+    /how many days|when (is|does|do|should|can)|work out|calculate/,
+    /vault|document|pdf|flight|hotel|booking|certificate/,
+    /recipe|generate|suggest|recommend|what (should|can|could) i/,
+    /analyse|compare|summarise|explain why|help me (decide|choose|think)/,
+    /meal.*week|shopping list|what.*eat/,
+    /rotation|join.*ship|man of steel|leave/,
+    /chief officer|cv|job|application/,
+  ];
+
+  if (sonnetPatterns.some(p => p.test(msg))) return SONNET;
+
+  // Haiku handles everything else — simple, fast, cheap
+  return HAIKU;
+}
+
+// Simple version — no tools, just text in, text out
+async function callClaude({ system, messages, model }) {
+  const data = await callClaudeRaw({ system, messages: messages.map(m => ({ role: m.role, content: m.content })), model });
   return data.content?.map(b => b.text || "").join("") || "";
 }
 
-// Tool-use version — lets Claude call search_vault to look up real documents from the
-// vault by itself, the same way Claude (in this chat, talking to Neil) can search files
-// rather than guessing. toolHandlers maps tool name -> function that returns a result string.
+// Tool-use version — always uses Sonnet since tool use requires the more capable model
 async function callClaudeWithTools({ system, messages, tools, toolHandlers, maxRounds = 4 }) {
   let convo = messages.map(m => ({ role: m.role, content: m.content }));
 
   for (let round = 0; round < maxRounds; round++) {
-    const data = await callClaudeRaw({ system, messages: convo, tools });
+    const data = await callClaudeRaw({ system, messages: convo, tools, model: SONNET });
     const stopReason = data.stop_reason;
     const blocks = data.content || [];
 
@@ -2395,7 +2426,7 @@ A React PWA deployed on GitHub Pages at: https://neilnewmanhollis-eng.github.io/
     // Build a hard date-anchor table for the next 30 days so TARS never has to calculate
     // "this Friday" or "next Tuesday" itself — it just looks up the exact date.
     const dateAnchor = [];
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 14; i++) {
       const d = new Date(now);
       d.setDate(now.getDate() + i);
       const label = i === 0 ? "Today" : i === 1 ? "Tomorrow" : d.toLocaleDateString("en-NZ", { weekday:"long" });
@@ -2407,7 +2438,7 @@ A React PWA deployed on GitHub Pages at: https://neilnewmanhollis-eng.github.io/
     // date far in the future for rotation planning, flights, or certificate expiries,
     // without needing a full day-by-day table that far out (which would be huge and costly).
     const monthAnchor = [];
-    for (let i = 0; i < 24; i++) {
+    for (let i = 0; i < 12; i++) {
       const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
       monthAnchor.push(`${d.toLocaleDateString("en-NZ",{month:"long",year:"numeric"})}: 1st is a ${d.toLocaleDateString("en-NZ",{weekday:"long"})}`);
     }
@@ -2539,21 +2570,11 @@ Mark a task done: ACTION:{"type":"generic","module":"tasks","op":"update","id":"
 Delete a calendar event: ACTION:{"type":"generic","module":"calendar","op":"delete","id":"1719820800001"}
 Log a calorie entry: ACTION:{"type":"generic","module":"calorieLog","op":"create","fields":{"name":"Chicken salad","kcal":450,"protein":38}}
 
-MOVE / RESCHEDULE — there is no separate "move" action. Moving something is just an update with a new value for whatever changed. Examples:
-Move a calendar event to a new date: ACTION:{"type":"generic","module":"calendar","op":"update","id":"1719820800001","fields":{"date":"2026-07-10"}}
-Reschedule and change the time: ACTION:{"type":"generic","module":"calendar","op":"update","id":"1719820800001","fields":{"date":"2026-07-10","time":"14:00"}}
-Change a task's due date or priority: ACTION:{"type":"generic","module":"tasks","op":"update","id":"1719820800000","fields":{"due":"2026-07-20","priority":"low"}}
+MOVE / RESCHEDULE — moving is just update with new field values. No separate move action.
+SWAP — two update actions in one confirmation card, each on its own ACTION line.
+CROSS-MODULE MOVE — use op "move_module" with fields.toModule when a record genuinely relocates between modules.
 
-SWAP — there is no separate "swap" action either. A swap between two records is just two update actions confirmed together. State both changes clearly in your message, then include both ACTION lines, each on its own line:
-"Swapping priorities — the GP appointment becomes high priority, the gym session becomes low. Confirm?"
-ACTION:{"type":"generic","module":"tasks","op":"update","id":"1719820800000","fields":{"priority":"high"}}
-ACTION:{"type":"generic","module":"tasks","op":"update","id":"1719820800002","fields":{"priority":"low"}}
-
-CROSS-MODULE MOVE — the one case update can't cover is when a record needs to change which module it lives in entirely, not just change its fields — e.g. turning a vault document into a real calendar event, or promoting something from one tracked area to another as new modules get built. For this, use move_module:
-ACTION:{"type":"generic","module":"<source module>","op":"move_module","id":"<record id>","fields":{"toModule":"<destination module>", ...any new fields needed in the destination}}
-Only use move_module when the record is genuinely relocating, not for ordinary edits — that's still a plain update.
-
-Always state plainly in your own words what you're about to do and ask for confirmation before including the ACTION line — same as always. Prefer the generic format for anything new; the older specific action types below still work and you can use either, but generic is the long-term standard, especially once new modules (work certificates, finance, etc) get added — they'll only be reachable via the generic format since they won't have bespoke actions written for them.
+Always state what you're about to do and ask for confirmation before including the ACTION line. Prefer generic format for everything new.
 
 If Neil asks about something in a module you have full visibility of, answer directly from the live data given to you — never say you "don't have access" to a part of the app. The only things you don't have direct live visibility of are: full historical detail beyond what's summarised below (use search_vault for documents), and anything genuinely not yet built into the app (be honest if a module like Work or Finance doesn't have real data yet — it's a placeholder).
 
@@ -3252,21 +3273,19 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
       const systemWithVault = buildSystemPrompt()
         + (vault.length > 0
           ? `\n\nVAULT INDEX — documents Neil has previously uploaded (use the search_vault tool to retrieve full details for any of these when relevant to his question):\n${vaultIndex}`
-          : "\n\nVault is currently empty — no documents uploaded yet.")
-        + (() => {
-          try {
-            const mealLib = JSON.parse(localStorage.getItem("meal_library") || "[]");
-            if (mealLib.length === 0) return "";
-            const mealIndex = mealLib.filter(m=>!m.cooked).map(m=>`"${m.name}" — ${m.kcal} kcal, ${m.protein}g protein per serve`).join("\n");
-            return `\n\nMEAL LIBRARY — meals currently in Neil's planner (use these exact values when he asks to log a meal to his calorie tracker, e.g. "add the salmon to today's calories" — look up the matching meal and use its stored kcal/protein):\n${mealIndex}`;
-          } catch { return ""; }
-        })();
+          : "\n\nVault is currently empty — no documents uploaded yet.");
+
+      // ── Smart model routing — Haiku for simple everyday queries (~12x cheaper),
+      // Sonnet+tools only when the message genuinely needs complex reasoning, web
+      // search, vault retrieval, or multi-source planning. Invisible to Neil. ──
+      const chosenModel = selectModel(text, false);
+      const needsTools = chosenModel === SONNET;
 
       const reply = await callClaudeWithTools({
         system: systemWithVault,
         messages: apiMessages,
-        tools: [vaultTool, WEB_SEARCH_TOOL],
-        toolHandlers,
+        tools: needsTools ? [vaultTool, WEB_SEARCH_TOOL] : [],
+        toolHandlers: needsTools ? toolHandlers : {},
       });
 
       const displayReply = stripAction(reply);
