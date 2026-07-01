@@ -2177,7 +2177,7 @@ const GistSync = {
     "meal_shopping", "meal_regulars", "meal_pantry",
     "tars_vault",
     "tars_memory_profile", "tars_memory_sessions",
-    "life_projects", "tars_openai_tts_key",
+    "life_projects",
   ],
 
   // Build the full data snapshot from localStorage
@@ -2396,7 +2396,7 @@ function TarsScreen({ onBack, appState }) {
   const [syncStatus, setSyncStatus] = useState(""); // "syncing" | "ok" | "error" | ""
 
   const hasAnthropicKey = () => !!localStorage.getItem("tars_anthropic_key");
-  const hasElevenLabsKey = () => !!localStorage.getItem("tars_elevenlabs_key");
+  const hasOpenAITTSKey = () => !!localStorage.getItem("tars_openai_tts_key");
   const hasGistSync = () => GistSync.isConfigured();
 
   const saveKeys = () => {
