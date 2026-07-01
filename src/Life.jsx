@@ -2448,7 +2448,11 @@ function TarsScreen({ onBack, appState }) {
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  // Persist mute preference to localStorage so it survives navigating away and back
+  const [voiceEnabled, setVoiceEnabled] = useState(() => {
+    try { return localStorage.getItem("tars_voice_enabled") !== "false"; }
+    catch { return true; }
+  });
   const [pendingAction, setPendingAction] = useState(null); // { type, payload, description }
   const [pendingFile, setPendingFile] = useState(null); // { file, base64, fileType, preview }
   const [fileComment, setFileComment] = useState("");
@@ -3870,16 +3874,15 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
                 <span style={{ fontSize:11, fontWeight:600, color:T.muted }}>File</span>
                 <input type="file" accept=".pdf,.txt,.md,.csv,.xlsx,.xls,.docx,.doc,image/*" onChange={handleFileUpload} style={{ display:"none" }} />
               </label>
-              <button onClick={()=>{ setVoiceEnabled(v=>!v); if(voiceEnabled) stopSpeaking(); }} style={{ flex:1, padding:"7px 0", borderRadius:10, border:`1px solid ${voiceEnabled?T.blue+"44":T.border}`, background:voiceEnabled?`${T.blue}18`:T.elevated, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+              <button onClick={()=>{
+                const next = !voiceEnabled;
+                setVoiceEnabled(next);
+                try { localStorage.setItem("tars_voice_enabled", String(next)); } catch {}
+                if (!next) stopSpeaking(); // muting immediately cuts current audio mid-sentence
+              }} style={{ flex:1, padding:"7px 0", borderRadius:10, border:`1px solid ${voiceEnabled?T.blue+"44":T.border}`, background:voiceEnabled?`${T.blue}18`:T.elevated, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
                 <span style={{ fontSize:15 }}>{voiceEnabled?"🔊":"🔇"}</span>
                 <span style={{ fontSize:11, fontWeight:600, color:voiceEnabled?T.blue:T.muted }}>{voiceEnabled?"Voice on":"Muted"}</span>
               </button>
-              {speaking && (
-                <button onClick={stopSpeaking} style={{ flex:1, padding:"7px 0", borderRadius:10, border:`1px solid ${T.accent}44`, background:`${T.accent}18`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
-                  <span style={{ fontSize:15 }}>⏹</span>
-                  <span style={{ fontSize:11, fontWeight:600, color:T.accent }}>Stop</span>
-                </button>
-              )}
             </div>
             {/* Bottom row — mic, text input, send */}
             <div style={{ display:"flex", gap:8, alignItems:"center" }}>
@@ -3993,7 +3996,48 @@ function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState 
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
-  const [vault] = usePersistentState("tars_vault", []); // shared vault, read-only here — Projects can reference it but vault management stays in TARS
+  const [vault] = usePersistentState("tars_vault", []);
+
+  // Shared voice preference — same localStorage key as main TARS so mute is consistent everywhere
+  const [voiceEnabled, setVoiceEnabled] = useState(() => {
+    try { return localStorage.getItem("tars_voice_enabled") !== "false"; }
+    catch { return true; }
+  });
+  const audioRef = useRef(null);
+  const speakReqId = useRef(0);
+
+  const speakProject = async (text) => {
+    if (!voiceEnabled) return;
+    const key = localStorage.getItem("tars_elevenlabs_key") || "";
+    if (!key) return;
+    const myId = speakReqId.current;
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    try {
+      const res = await fetch("https://api.elevenlabs.io/v1/text-to-speech/JBFqnCBsd6RMkjVDRZzb", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", "xi-api-key": key },
+        body: JSON.stringify({ text, model_id:"eleven_turbo_v2", voice_settings:{ stability:0.85, similarity_boost:0.75, style:0.0, use_speaker_boost:false }, speed:1.3 })
+      });
+      if (!res.ok || myId !== speakReqId.current || !voiceEnabled) return;
+      const url = URL.createObjectURL(await res.blob());
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => URL.revokeObjectURL(url);
+      audio.play();
+    } catch {}
+  };
+
+  const stopProjectSpeaking = () => {
+    speakReqId.current++;
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+  };
+
+  const toggleProjectVoice = () => {
+    const next = !voiceEnabled;
+    setVoiceEnabled(next);
+    try { localStorage.setItem("tars_voice_enabled", String(next)); } catch {}
+    if (!next) stopProjectSpeaking();
+  };
 
   // Mark this project as recently active whenever its chat is opened
   useEffect(() => {
@@ -4077,6 +4121,7 @@ This project's conversation history below IS its memory — there's no separate 
 
       const display = reply.replace(/\nACTION:\{[^\n]+\}/g, "").replace(/ACTION:\{[^\n]+\}/g, "").trim();
       setMessages(prev => [...prev, { role:"assistant", content:display, ts:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) }]);
+      speakProject(display);
 
       const actionMatch = reply.match(/ACTION:(\{[^\n]+\})/);
       if (actionMatch) {
@@ -4304,6 +4349,10 @@ This project's conversation history below IS its memory — there's no separate 
             <span style={{ fontSize:11, fontWeight:600, color:T.muted }}>File</span>
             <input type="file" accept=".pdf,.txt,.md,.csv,.xlsx,.xls,.docx,.doc,image/*" onChange={e=>handleProjectFile(e,false)} style={{ display:"none" }} />
           </label>
+          <button onClick={toggleProjectVoice} style={{ flex:1, padding:"7px 0", borderRadius:10, border:`1px solid ${voiceEnabled?T.blue+"44":T.border}`, background:voiceEnabled?`${T.blue}18`:T.elevated, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+            <span style={{ fontSize:15 }}>{voiceEnabled?"🔊":"🔇"}</span>
+            <span style={{ fontSize:11, fontWeight:600, color:voiceEnabled?T.blue:T.muted }}>{voiceEnabled?"Voice on":"Muted"}</span>
+          </button>
         </div>
         {/* Bottom row — mic, text input, send */}
         <div style={{ display:"flex", gap:8, alignItems:"center" }}>
