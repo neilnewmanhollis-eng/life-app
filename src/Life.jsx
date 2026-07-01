@@ -2483,7 +2483,6 @@ function TarsScreen({ onBack, appState }) {
     if (!voiceEnabled) return;
     const key = getElevenLabsKey();
     if (!key) return;
-    // Stop any current audio
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.src = "";
@@ -2492,18 +2491,16 @@ function TarsScreen({ onBack, appState }) {
     const myRequestId = speakRequestId.current;
     setSpeaking(true);
     try {
-      const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}/stream`, {
+      const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "xi-api-key": key },
         body: JSON.stringify({
           text,
           model_id: "eleven_turbo_v2",
           voice_settings: { stability: 0.85, similarity_boost: 0.75, style: 0.0, use_speaker_boost: false },
-          output_format: "mp3_44100_128",
         }),
       });
       if (!res.ok) { setSpeaking(false); return; }
-      if (myRequestId !== speakRequestId.current || !voiceEnabled) { setSpeaking(false); return; }
       const blob = await res.blob();
       if (myRequestId !== speakRequestId.current || !voiceEnabled) { setSpeaking(false); return; }
       const url = URL.createObjectURL(blob);
@@ -2511,12 +2508,9 @@ function TarsScreen({ onBack, appState }) {
       audio.src = url;
       audioRef.current = audio;
       audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(url); audioRef.current = null; };
-      audio.onerror = (e) => { setSpeaking(false); URL.revokeObjectURL(url); audioRef.current = null; };
-      // play() returns a promise on mobile — must catch rejection or it silently fails
-      const playPromise = audio.play();
-      if (playPromise !== undefined) {
-        playPromise.catch(() => { setSpeaking(false); });
-      }
+      audio.onerror = () => { setSpeaking(false); URL.revokeObjectURL(url); audioRef.current = null; };
+      const p = audio.play();
+      if (p !== undefined) p.catch(() => setSpeaking(false));
     } catch { setSpeaking(false); }
   };
 
@@ -4043,10 +4037,10 @@ function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState 
     const myId = speakReqId.current;
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; audioRef.current = null; }
     try {
-      const res = await fetch("https://api.elevenlabs.io/v1/text-to-speech/JBFqnCBsd6RMkjVDRZzb/stream", {
-        method:"POST",
-        headers:{ "Content-Type":"application/json", "xi-api-key": key },
-        body: JSON.stringify({ text, model_id:"eleven_turbo_v2", voice_settings:{ stability:0.85, similarity_boost:0.75, style:0.0, use_speaker_boost:false }, output_format:"mp3_44100_128" })
+      const res = await fetch("https://api.elevenlabs.io/v1/text-to-speech/JBFqnCBsd6RMkjVDRZzb", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "xi-api-key": key },
+        body: JSON.stringify({ text, model_id:"eleven_turbo_v2", voice_settings:{ stability:0.85, similarity_boost:0.75, style:0.0, use_speaker_boost:false } })
       });
       if (!res.ok || myId !== speakReqId.current || !voiceEnabled) return;
       const blob = await res.blob();
