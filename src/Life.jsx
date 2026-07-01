@@ -1254,11 +1254,59 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
 
 
 
+function WorkoutLogger({ today, exercises, onSave, onCancel }) {
+  const [reps, setReps] = useState(() => Object.fromEntries(exercises.map(e=>([e.name, { sets:"3", reps:"", notes:"" }]))));
+  const [sessionNotes, setSessionNotes] = useState("");
+
+  const save = () => {
+    const completed = exercises.map(e => ({
+      name: e.name,
+      setsCompleted: reps[e.name]?.sets || "3",
+      repsCompleted: reps[e.name]?.reps || "",
+      notes: reps[e.name]?.notes || "",
+    }));
+    onSave({ exercises: completed, notes: sessionNotes, completedAt: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) });
+  };
+
+  return (
+    <div>
+      {exercises.map(ex => (
+        <div key={ex.name} style={{ marginBottom:12, paddingBottom:12, borderBottom:`1px solid ${T.border}` }}>
+          <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:6 }}>{ex.icon} {ex.name}</div>
+          <div style={{ display:"flex", gap:8 }}>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:9, color:T.muted, marginBottom:3 }}>Sets</div>
+              <input type="number" value={reps[ex.name]?.sets} onChange={e=>setReps(p=>({...p,[ex.name]:{...p[ex.name],sets:e.target.value}}))}
+                style={{ width:"100%", padding:"7px 8px", borderRadius:7, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+            </div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:9, color:T.muted, marginBottom:3 }}>Reps</div>
+              <input type="text" placeholder={ex.detail.split(" ")[2]||"10"} value={reps[ex.name]?.reps} onChange={e=>setReps(p=>({...p,[ex.name]:{...p[ex.name],reps:e.target.value}}))}
+                style={{ width:"100%", padding:"7px 8px", borderRadius:7, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+            </div>
+            <div style={{ flex:2 }}>
+              <div style={{ fontSize:9, color:T.muted, marginBottom:3 }}>Notes</div>
+              <input type="text" placeholder="e.g. easier, harder" value={reps[ex.name]?.notes} onChange={e=>setReps(p=>({...p,[ex.name]:{...p[ex.name],notes:e.target.value}}))}
+                style={{ width:"100%", padding:"7px 8px", borderRadius:7, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+            </div>
+          </div>
+        </div>
+      ))}
+      <input type="text" value={sessionNotes} onChange={e=>setSessionNotes(e.target.value)} placeholder="Overall session notes (optional)..."
+        style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box", marginBottom:10 }} />
+      <div style={{ display:"flex", gap:8 }}>
+        <button onClick={save} style={{ flex:1, padding:"10px", borderRadius:10, background:T.green, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Save Session</button>
+        <button onClick={onCancel} style={{ flex:1, padding:"10px", borderRadius:10, background:T.elevated, color:T.muted, fontWeight:700, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
   const [tab, setTab] = useState("overview");
   // entries and calLog now passed in from LifeApp (TARS can write to them)
   const [suppChecked, setSuppChecked] = useState({});
-  const [form, setForm] = useState({ date:"", weight:"", bodyFat:"", fatMass:"", muscle:"", bp:"" });
+  const [form, setForm] = useState({ date:"", weight:"", bodyFat:"", fatMass:"", muscle:"", bp:"", waist:"" });
 
     // Calorie tracking state
   const today = new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"});
@@ -1295,15 +1343,19 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
       fatMass: parseFloat(form.fatMass)||l.fatMass,
       muscle:  parseFloat(form.muscle)||l.muscle,
       bp:      form.bp||l.bp,
+      waist:   parseFloat(form.waist)||l.waist||null,
     }]);
-    setForm({ date:"", weight:"", bodyFat:"", fatMass:"", muscle:"", bp:"" });
+    setForm({ date:"", weight:"", bodyFat:"", fatMass:"", muscle:"", bp:"", waist:"" });
   };
 
 
   // Steps & sleep state
-  const [stepsLog, setStepsLog] = useState({});
+  const [stepsLog, setStepsLog] = usePersistentState("life_steps_log", {});
   const [stepsForm, setStepsForm] = useState({ steps:"", sleep:"" });
   const todayActivity = stepsLog[today] || null;
+
+  // Supplement reminder state
+  const [suppPrompt, setSuppPrompt] = useState(null); // "Breakfast" | "Dinner" | null
 
   const saveActivity = () => {
     if (!stepsForm.steps && !stepsForm.sleep) return;
@@ -1398,7 +1450,7 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
               <div style={{ fontSize:13, fontWeight:700, color:T.text, marginBottom:12 }}>Check-in History</div>
               <div style={{ overflowX:"auto" }}>
                 <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11 }}>
-                  <thead><tr>{["Date","Weight","Fat%","Fat kg","Muscle","BP"].map(h=><th key={h} style={{ textAlign:"left", padding:"4px 8px", color:T.muted, fontWeight:600, whiteSpace:"nowrap" }}>{h}</th>)}</tr></thead>
+                  <thead><tr>{["Date","Weight","Fat%","Fat kg","Muscle","Waist","BP"].map(h=><th key={h} style={{ textAlign:"left", padding:"4px 8px", color:T.muted, fontWeight:600, whiteSpace:"nowrap" }}>{h}</th>)}</tr></thead>
                   <tbody>{entries.map((e,i)=>(
                     <tr key={i} style={{ borderTop:`1px solid ${T.border}` }}>
                       <td style={{ padding:"6px 8px", fontWeight:i===0?700:400, color:T.text }}>{e.date}{i===0?" ★":""}</td>
@@ -1406,6 +1458,7 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
                       <td style={{ padding:"6px 8px", color:T.text }}>{e.bodyFat}%</td>
                       <td style={{ padding:"6px 8px", color:T.text }}>{e.fatMass}</td>
                       <td style={{ padding:"6px 8px", color:T.text }}>{e.muscle}</td>
+                      <td style={{ padding:"6px 8px", color:T.text }}>{e.waist ? `${e.waist}cm` : "—"}</td>
                       <td style={{ padding:"6px 8px", color:T.text }}>{e.bp}</td>
                     </tr>
                   ))}</tbody>
@@ -1544,6 +1597,48 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
               ))}
             </div>
             <Card>
+              <SectionLabel>Log Today's Session</SectionLabel>
+              {workoutLog[today] ? (
+                <div>
+                  <div style={{ fontSize:12, color:T.green, fontWeight:700, marginBottom:8 }}>✓ Session logged — {workoutLog[today].completedAt}</div>
+                  {workoutLog[today].notes && <div style={{ fontSize:12, color:T.muted, fontStyle:"italic" }}>{workoutLog[today].notes}</div>}
+                  <div style={{ marginTop:8 }}>
+                    {workoutLog[today].exercises?.map((ex,i) => (
+                      <div key={i} style={{ fontSize:11, color:T.text, padding:"3px 0" }}>• {ex.name}: {ex.setsCompleted} sets · {ex.repsCompleted} reps · {ex.notes||""}</div>
+                    ))}
+                  </div>
+                  <button onClick={()=>setLoggingWorkout(true)} style={{ marginTop:8, fontSize:11, padding:"5px 12px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.muted, cursor:"pointer", fontFamily:"inherit" }}>Edit</button>
+                </div>
+              ) : (
+                !loggingWorkout ? (
+                  <div>
+                    <div style={{ fontSize:12, color:T.muted, marginBottom:10 }}>No session logged today. Complete your workout then log it.</div>
+                    <button onClick={()=>setLoggingWorkout(true)} style={{ width:"100%", padding:"10px", borderRadius:10, background:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Log Today's Session</button>
+                  </div>
+                ) : null
+              )}
+              {loggingWorkout && (
+                <WorkoutLogger today={today} exercises={EXERCISES} onSave={(data)=>{ setWorkoutLog(prev=>({...prev,[today]:data})); setLoggingWorkout(false); }} onCancel={()=>setLoggingWorkout(false)} />
+              )}
+            </Card>
+
+            {/* Recent workout history */}
+            {Object.keys(workoutLog).length > 0 && (
+              <Card>
+                <SectionLabel>Recent Sessions</SectionLabel>
+                {Object.entries(workoutLog).slice(-5).reverse().map(([date, session])=>(
+                  <div key={date} style={{ padding:"8px 0", borderBottom:`1px solid ${T.border}` }}>
+                    <div style={{ display:"flex", justifyContent:"space-between" }}>
+                      <div style={{ fontSize:12, fontWeight:700, color:T.text }}>{date}</div>
+                      <div style={{ fontSize:11, color:T.green }}>✓ Completed</div>
+                    </div>
+                    {session.notes && <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{session.notes}</div>}
+                  </div>
+                ))}
+              </Card>
+            )}
+
+            <Card>
               <SectionLabel>Bodyweight Routine (3×/week)</SectionLabel>
               {EXERCISES.map((e,i)=>(
                 <div key={i} style={{ display:"flex", gap:12, paddingBottom:12, marginBottom:i<EXERCISES.length-1?12:0, borderBottom:i<EXERCISES.length-1?`1px solid ${T.border}`:"none" }}>
@@ -1617,7 +1712,27 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
               {/* Add entry — AI powered */}
               <AICalLogger onAdd={(entry) => {
                 setCalLog(prev => ({ ...prev, [today]: [...(prev[today]||[]), {...entry, id:Date.now(), time:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"})} ] }));
+                // Supplement reminder — check if it's a meal time (not just a snack/coffee)
+                const h = new Date().getHours();
+                const isMealTime = entry.kcal > 200; // only prompt for substantial meals
+                if (isMealTime) {
+                  const suppGroup = h < 11 ? "Breakfast" : h < 15 ? null : "Dinner";
+                  if (suppGroup) setSuppPrompt(suppGroup);
+                }
               }} />
+
+              {suppPrompt && (
+                <div style={{ background:`${T.gold}18`, borderRadius:12, padding:14, border:`1px solid ${T.gold}44`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                  <div>
+                    <div style={{ fontSize:13, fontWeight:700, color:T.gold }}>💊 Supplements taken?</div>
+                    <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{suppPrompt} supplements — {SUPPLEMENTS.filter(s=>s.when===suppPrompt).map(s=>s.name).join(", ")}</div>
+                  </div>
+                  <div style={{ display:"flex", gap:6, flexShrink:0, marginLeft:10 }}>
+                    <button onClick={()=>setSuppPrompt(null)} style={{ padding:"6px 12px", borderRadius:8, background:T.green, color:"white", fontWeight:700, fontSize:11, border:"none", cursor:"pointer", fontFamily:"inherit" }}>✓ Yes</button>
+                    <button onClick={()=>setSuppPrompt(null)} style={{ padding:"6px 12px", borderRadius:8, background:T.elevated, color:T.muted, fontWeight:700, fontSize:11, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>Skip</button>
+                  </div>
+                </div>
+              )}
 
               {/* Today's log */}
               {todayEntries.length > 0 && (
@@ -2971,7 +3086,7 @@ ${(() => {
     {
       label: "HEALTH (latest check-in)",
       data: latestHealth,
-      format: (h) => `Weight: ${h.weight||89.0}kg, Body fat: ${h.bodyFat||25.2}%, Fat mass: ${h.fatMass||22.4}kg, Muscle: ${h.muscle||35.6}kg, BP: ${h.bp||"127/75"}`
+      format: (h) => `Weight: ${h.weight||89.0}kg, Body fat: ${h.bodyFat||25.2}%, Fat mass: ${h.fatMass||22.4}kg, Muscle: ${h.muscle||35.6}kg, BP: ${h.bp||"127/75"}${h.waist?`, Waist: ${h.waist}cm`:""}`
     },
     {
       label: "TODAY'S NUTRITION",
@@ -3042,6 +3157,14 @@ ${(() => {
       label: "MEAL LIBRARY (use for calorie logging by meal name)",
       data: (() => { try { return JSON.parse(localStorage.getItem("meal_library")||"[]").filter(m=>!m.cooked); } catch { return []; } })(),
       format: (meals) => meals.length === 0 ? "empty" : meals.map(m=>`  "${m.name}": ${m.kcal}kcal, ${m.protein}g protein`).join("\n"),
+      skipIfEmpty: true
+    },
+    {
+      label: "WORKOUT LOG (completed sessions — use for tracking progression)",
+      data: (() => { try { return Object.entries(JSON.parse(localStorage.getItem("life_workout_log")||"{}")); } catch { return []; } })(),
+      format: (sessions) => sessions.length === 0 ? "No sessions logged yet" : sessions.slice(-7).reverse().map(([date,s]) =>
+        `  ${date}: ${s.exercises?.map(e=>`${e.name} ${e.setsCompleted}×${e.repsCompleted||"?"}`).join(", ")}${s.notes?` — ${s.notes}`:""}`
+      ).join("\n"),
       skipIfEmpty: true
     },
     {
@@ -3217,7 +3340,7 @@ ${(() => {
       case "add_cal_events":
         return { type:"add_cal_events", payload:{ events:data.events||[] }, description:`Add ${data.events?.length||0} events to calendar` };
       case "log_health":
-        return { type:"log_health", payload:{ weight:data.weight, bodyFat:data.bodyFat, fatMass:data.fatMass, muscle:data.muscle, bp:data.bp }, description:`Log health check-in` };
+        return { type:"log_health", payload:{ weight:data.weight, bodyFat:data.bodyFat, fatMass:data.fatMass, muscle:data.muscle, bp:data.bp, waist:data.waist }, description:`Log health check-in` };
       case "complete_task": {
         const matchedTask = tasks.find(t => String(t.id) === String(data.id));
         return { type:"complete_task", payload:{ id:data.id }, description:`Mark complete: "${matchedTask?.text || "task"}"` };
@@ -4384,7 +4507,7 @@ This project's conversation history below IS its memory — there's no separate 
       if (op === "create") { const entry={id:Date.now(),name:fields.name,kcal:fields.kcal||0,protein:fields.protein||0,time:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"})}; setCalLog(prev=>({...prev,[todayLabel]:[...(prev[todayLabel]||[]),entry]})); }
     } else if (module === "health") {
       const latest = healthEntries[healthEntries.length-1] || {};
-      setHealthEntries(prev => [...prev, { date:new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}), weight:fields.weight||latest.weight, bodyFat:fields.bodyFat||latest.bodyFat, fatMass:fields.fatMass||latest.fatMass, muscle:fields.muscle||latest.muscle, bp:fields.bp||latest.bp }]);
+      setHealthEntries(prev => [...prev, { date:new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}), weight:fields.weight||latest.weight, bodyFat:fields.bodyFat||latest.bodyFat, fatMass:fields.fatMass||latest.fatMass, muscle:fields.muscle||latest.muscle, bp:fields.bp||latest.bp, waist:fields.waist||latest.waist||null }]);
     }
     setPendingAction(null);
   };
@@ -4559,6 +4682,10 @@ export default function LifeApp() {
   }, []);
 
   const [screen, setScreen] = useState("home");
+  const [notifications, setNotifications] = usePersistentState("life_notifications", []);
+
+  // Derive unread notification count
+  const unreadCount = notifications.filter(n => !n.read).length;
 
   const [tasks, setTasks] = usePersistentState("life_tasks", INIT_TASKS);
 
@@ -4622,7 +4749,27 @@ export default function LifeApp() {
   const renderScreen = () => {
     switch(screen) {
       case "home":     return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} />;
-      case "health":   return <HealthScreen onBack={()=>setScreen("home")} entries={healthEntries} setEntries={setHealthEntries} calLog={calLog} setCalLog={setCalLog} />;
+      case "notifications": return (
+        <div>
+          <SectionHeader title="Notifications" onBack={()=>setScreen("home")} />
+          <div style={{ padding:"16px" }}>
+            {notifications.length === 0 ? (
+              <div style={{ textAlign:"center", padding:"40px 20px", color:T.muted, fontSize:13 }}>No notifications yet.</div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                {notifications.slice().reverse().map((n,i) => (
+                  <div key={i} onClick={()=>setNotifications(prev=>prev.map((x,j)=>prev.length-1-j===i?{...x,read:true}:x))}
+                    style={{ background:T.card, borderRadius:12, padding:14, border:`1px solid ${n.read?T.border:T.blue}`, opacity:n.read?0.6:1, cursor:"pointer" }}>
+                    <div style={{ fontSize:13, fontWeight:600, color:n.read?T.muted:T.text }}>{n.message}</div>
+                    <div style={{ fontSize:10, color:T.muted, marginTop:4 }}>{n.time}</div>
+                  </div>
+                ))}
+                <button onClick={()=>setNotifications([])} style={{ padding:"9px", borderRadius:10, border:`1px solid ${T.border}`, background:T.elevated, color:T.muted, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>Clear all</button>
+              </div>
+            )}
+          </div>
+        </div>
+      );
       case "meals":    return (
         <div>
           <SectionHeader title="Meal Planning" onBack={()=>setScreen("home")} />
@@ -4646,9 +4793,18 @@ export default function LifeApp() {
     <div style={{ background:T.bg, minHeight:"100vh", fontFamily:"'Inter', system-ui, -apple-system, sans-serif", color:T.text, width:"100%", position:"relative", overscrollBehaviorX:"none" }}>
       <div style={{ position:"sticky", top:0, zIndex:50, background:`${T.bg}ee`, backdropFilter:"blur(12px)", borderBottom:`1px solid ${T.border}`, padding:"12px 20px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
         <button onClick={()=>setScreen("home")} style={{ background:"none", border:"none", padding:0, cursor:"pointer", fontSize:18, fontWeight:800, letterSpacing:"-0.02em", color:T.text, fontFamily:"inherit" }}>LIFE<span style={{ color:T.accent }}>.</span></button>
-        <button onClick={()=>setScreen("tars")} style={{ background:T.elevated, border:`1px solid ${T.border}`, borderRadius:999, padding:"6px 12px", display:"flex", alignItems:"center", gap:6, cursor:"pointer", color:T.blue, fontSize:11, fontWeight:700 }}>
-          <Icon name="mic" size={12} color={T.blue} /> TARS
-        </button>
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          {/* Notification bell */}
+          <button onClick={()=>setScreen("notifications")} style={{ position:"relative", background:"none", border:"none", cursor:"pointer", padding:4 }}>
+            <span style={{ fontSize:18 }}>🔔</span>
+            {unreadCount > 0 && (
+              <div style={{ position:"absolute", top:0, right:0, width:16, height:16, borderRadius:"50%", background:T.accent, color:"white", fontSize:9, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center" }}>{unreadCount}</div>
+            )}
+          </button>
+          <button onClick={()=>setScreen("tars")} style={{ background:T.elevated, border:`1px solid ${T.border}`, borderRadius:999, padding:"6px 12px", display:"flex", alignItems:"center", gap:6, cursor:"pointer", color:T.blue, fontSize:11, fontWeight:700 }}>
+            <Icon name="mic" size={12} color={T.blue} /> TARS
+          </button>
+        </div>
       </div>
       <div>{renderScreen()}</div>
     </div>
