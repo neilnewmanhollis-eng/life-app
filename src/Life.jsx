@@ -10,18 +10,195 @@ function usePersistentState(key, defaultValue) {
     try {
       const saved = localStorage.getItem(key);
       return saved !== null ? JSON.parse(saved) : defaultValue;
-    } catch {
-      return defaultValue;
-    }
+    } catch { return defaultValue; }
   });
-
   useEffect(() => {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch {} // storage full or unavailable — fail silently rather than crash the app
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
   }, [key, value]);
-
   return [value, setValue];
+}
+
+// ─── SHARED UI COMPONENTS ──────────────────────────────────────────────────────
+function Card({ children, style }) {
+  return <div style={{ background:T.card, borderRadius:16, padding:16, border:`1px solid ${T.border}`, ...style }}>{children}</div>;
+}
+
+function SectionLabel({ children }) {
+  return <div style={{ fontSize:11, fontWeight:700, color:T.muted, textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:10 }}>{children}</div>;
+}
+
+function SectionHeader({ title, onBack }) {
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:10, padding:"14px 16px", borderBottom:`1px solid ${T.border}` }}>
+      {onBack && <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", padding:4, color:T.text }}><Icon name="back" size={20} color={T.text} /></button>}
+      <div style={{ fontSize:17, fontWeight:700, color:T.text }}>{title}</div>
+    </div>
+  );
+}
+
+function SubTab({ tabs, active, onChange }) {
+  return (
+    <div style={{ display:"flex", gap:0, borderBottom:`1px solid ${T.border}`, marginBottom:12 }}>
+      {tabs.map(t => (
+        <button key={t.id} onClick={() => onChange(t.id)} style={{ flex:1, padding:"9px 4px", fontSize:11, fontWeight:600, border:"none", background:"none", cursor:"pointer", fontFamily:"inherit", color:active===t.id?T.blue:T.muted, borderBottom:active===t.id?`2px solid ${T.blue}`:"2px solid transparent", whiteSpace:"nowrap" }}>{t.label}</button>
+      ))}
+    </div>
+  );
+}
+
+function MetricCard({ label, value, baseline, unit, target }) {
+  const isWeight = label === "Weight" || label === "Fat Mass";
+  const isMuscle = label === "Muscle";
+  const atTarget = value <= target.max && value >= target.min;
+  const improved = isMuscle ? value >= baseline : value < baseline;
+  const color = atTarget ? T.green : improved ? T.gold : T.accent;
+  const statusText = atTarget ? "At target" : improved ? "Improving" : "Baseline";
+  const statusBg = atTarget ? `${T.green}22` : improved ? `${T.gold}22` : `${T.accent}22`;
+  const range = target.max - target.min;
+  const safeMin = target.min - range * 0.3;
+  const safeMax = target.max + range * 0.3;
+  const total = safeMax - safeMin;
+  const valPct = Math.min(100, Math.max(0, ((value - safeMin) / total) * 100));
+  const basePct = Math.min(100, Math.max(0, ((baseline - safeMin) / total) * 100));
+  const zonePct1 = ((target.min - safeMin) / total) * 100;
+  const zonePct2 = ((target.max - safeMin) / total) * 100;
+  return (
+    <div style={{ background:T.card, borderRadius:14, padding:14, border:`1px solid ${T.border}` }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:4 }}>
+        <span style={{ fontSize:11, fontWeight:600, color:T.muted, textTransform:"uppercase", letterSpacing:"0.05em" }}>{label}</span>
+        <span style={{ fontSize:10, padding:"2px 8px", borderRadius:999, fontWeight:700, background:statusBg, color }}>{statusText}</span>
+      </div>
+      <div style={{ display:"flex", alignItems:"baseline", gap:3, marginBottom:8 }}>
+        <span style={{ fontSize:24, fontWeight:800, color:T.text }}>{value}</span>
+        <span style={{ fontSize:12, color:T.muted }}>{unit}</span>
+      </div>
+      <div style={{ position:"relative", height:8, background:T.elevated, borderRadius:999, marginBottom:6 }}>
+        <div style={{ position:"absolute", height:"100%", left:`${zonePct1}%`, width:`${zonePct2-zonePct1}%`, background:color, opacity:0.25, borderRadius:999 }} />
+        <div style={{ position:"absolute", top:0, width:2, height:"100%", background:T.muted, opacity:0.5, left:`${basePct}%` }} />
+        <div style={{ position:"absolute", top:"50%", transform:"translate(-50%,-50%)", width:12, height:12, borderRadius:"50%", background:color, border:"2px solid white", left:`${valPct}%` }} />
+      </div>
+      <div style={{ display:"flex", justifyContent:"space-between", fontSize:10, color:T.muted }}>
+        <span>Baseline: {baseline}{unit}</span>
+        <span>Target: {target.min}–{target.max}{unit}</span>
+      </div>
+    </div>
+  );
+}
+
+function TrendsCharts({ entries }) {
+  if (entries.length < 2) return (
+    <Card><div style={{ textAlign:"center", padding:"24px 0", color:T.muted, fontSize:13 }}>Add more check-ins to see trends.</div></Card>
+  );
+  const metrics = [
+    { key:"weight", label:"Weight (kg)", color:T.blue },
+    { key:"bodyFat", label:"Body Fat (%)", color:T.accent },
+    { key:"muscle", label:"Muscle (kg)", color:T.green },
+  ];
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+      {metrics.map(({ key, label, color }) => {
+        const vals = entries.map(e => e[key]).filter(Boolean);
+        if (vals.length < 2) return null;
+        const min = Math.min(...vals);
+        const max = Math.max(...vals);
+        const range = max - min || 1;
+        const W = 280, H = 80;
+        const pts = entries.map((e, i) => {
+          const x = (i / (entries.length - 1)) * W;
+          const y = H - ((e[key] - min) / range) * (H - 10) - 5;
+          return `${x},${y}`;
+        }).join(" ");
+        return (
+          <Card key={key}>
+            <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:10 }}>{label}</div>
+            <svg viewBox={`0 0 ${W} ${H}`} style={{ width:"100%", height:H }}>
+              <polyline points={pts} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" />
+              {entries.map((e, i) => {
+                const x = (i / (entries.length - 1)) * W;
+                const y = H - ((e[key] - min) / range) * (H - 10) - 5;
+                return <circle key={i} cx={x} cy={y} r={4} fill={color} />;
+              })}
+            </svg>
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:10, color:T.muted, marginTop:4 }}>
+              <span>{entries[0].date}</span>
+              <span style={{ fontWeight:700, color }}>{vals[vals.length-1]} {key==="bodyFat"?"%":"kg"}</span>
+              <span>{entries[entries.length-1].date}</span>
+            </div>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+function WeeklySummary({ entries, calLog, stepsLog }) {
+  const last7 = Object.entries(calLog).slice(-7);
+  const avgKcal = last7.length > 0 ? Math.round(last7.reduce((s,[,v])=>s+v.reduce((a,e)=>a+e.kcal,0),0)/last7.length) : 0;
+  const avgProtein = last7.length > 0 ? Math.round(last7.reduce((s,[,v])=>s+v.reduce((a,e)=>a+e.protein,0),0)/last7.length) : 0;
+  const totalSteps = Object.values(stepsLog).reduce((s,v)=>s+(v.steps||0),0);
+  return (
+    <Card>
+      <SectionLabel>Weekly Summary</SectionLabel>
+      <div style={{ display:"flex", gap:12 }}>
+        {[
+          { label:"Avg calories", value:avgKcal||"—", unit:"kcal/day", color:T.blue },
+          { label:"Avg protein", value:avgProtein||"—", unit:"g/day", color:T.accent },
+          { label:"Total steps", value:totalSteps>0?totalSteps.toLocaleString():"—", unit:"this week", color:T.green },
+        ].map(s=>(
+          <div key={s.label} style={{ flex:1, textAlign:"center", background:T.elevated, borderRadius:10, padding:"10px 6px" }}>
+            <div style={{ fontSize:16, fontWeight:800, color:s.color }}>{s.value}</div>
+            <div style={{ fontSize:9, color:T.muted, marginTop:2 }}>{s.unit}</div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function AICalLogger({ onAdd }) {
+  const [text, setText] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const estimate = async () => {
+    if (!text.trim()) return;
+    const apiKey = getAnthropicKey();
+    if (!apiKey) { alert("Add your Anthropic API key via TARS settings."); return; }
+    setLoading(true);
+    try {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", "x-api-key":apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
+        body: JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:200,
+          system:"You are a nutrition estimator. Return ONLY valid JSON, no markdown.",
+          messages:[{ role:"user", content:`Estimate calories and protein for: "${text}". Return JSON: {"name":"short name","kcal":number,"protein":number}` }]
+        })
+      });
+      const data = await response.json();
+      const parsed = JSON.parse(data.content?.map(b=>b.text||"").join("").replace(/```json|```/g,"").trim());
+      setResult(parsed);
+    } catch { alert("Could not estimate — try being more specific."); }
+    setLoading(false);
+  };
+
+  return (
+    <Card>
+      <SectionLabel>Log Food</SectionLabel>
+      <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+        <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&estimate()} placeholder='e.g. "2 scrambled eggs and toast"' style={{ flex:1, padding:"9px 12px", borderRadius:9, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none" }} />
+        <button onClick={estimate} disabled={loading} style={{ padding:"9px 14px", borderRadius:9, background:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit", opacity:loading?0.5:1 }}>{loading?"…":"Ask"}</button>
+      </div>
+      {result && (
+        <div style={{ background:T.elevated, borderRadius:10, padding:"10px 12px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <div>
+            <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{result.name}</div>
+            <div style={{ fontSize:11, color:T.muted }}>{result.kcal} kcal · {result.protein}g protein</div>
+          </div>
+          <button onClick={()=>{ onAdd(result); setResult(null); setText(""); }} style={{ padding:"8px 14px", borderRadius:9, background:T.green, color:"white", fontWeight:700, fontSize:12, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Log it</button>
+        </div>
+      )}
+    </Card>
+  );
 }
 
 // ─── DATE FORMAT STANDARD ─────────────────────────────────────────────────────
@@ -243,358 +420,324 @@ const NEIL_FOOD_PROFILE = {
 };
 
 // ─── MEAL PLANNING SCREEN ─────────────────────────────────────────────────────
-function MealPlanScreen({ calLog, setCalLog, todayLabel, appState }) {
-  const [mealView, setMealView] = useState("planner"); // planner | pantry | history
-  const [mealLibrary, setMealLibrary] = usePersistentState("meal_library", []);
-  const [pantry, setPantry] = usePersistentState("meal_pantry", [
-    { id:1,  name:"Olive oil",       type:"staple", status:"have", qty:"Bottle", cat:"Oil & Condiments" },
-    { id:2,  name:"Soy sauce",       type:"staple", status:"have", qty:"Bottle", cat:"Oil & Condiments" },
+function MealPlanScreen({ calLog, setCalLog, todayLabel }) {
+  // ── Persistent state ──
+  const [mealLibrary, setMealLibrary]       = usePersistentState("meal_library", []);
+  const [currentMeals, setCurrentMeals]     = usePersistentState("meal_current", []);
+  const [cookedMeals, setCookedMeals]       = usePersistentState("meal_cooked", []);
+  const [shoppingList, setShoppingList]     = usePersistentState("meal_shopping", []);
+  const [myRegulars, setMyRegulars]         = usePersistentState("meal_regulars", []);
+  const [pantry, setPantry]                 = usePersistentState("meal_pantry", [
+    { id:1,  name:"Olive oil",       type:"staple", status:"have", qty:"Bottle", cat:"Oils & Condiments" },
+    { id:2,  name:"Soy sauce",       type:"staple", status:"have", qty:"Bottle", cat:"Oils & Condiments" },
     { id:3,  name:"Garlic",          type:"staple", status:"have", qty:"Bulb",   cat:"Herbs & Spices" },
     { id:4,  name:"Salt & pepper",   type:"staple", status:"have", qty:"—",      cat:"Herbs & Spices" },
-    { id:5,  name:"Olive oil spray", type:"staple", status:"have", qty:"Can",    cat:"Oil & Condiments" },
-    { id:6,  name:"Smoked paprika",  type:"staple", status:"have", qty:"Jar",    cat:"Herbs & Spices" },
-    { id:7,  name:"Ground cumin",    type:"staple", status:"have", qty:"Jar",    cat:"Herbs & Spices" },
-    { id:8,  name:"Dried oregano",   type:"staple", status:"have", qty:"Jar",    cat:"Herbs & Spices" },
-    { id:9,  name:"Fish sauce",      type:"staple", status:"have", qty:"Bottle", cat:"Oil & Condiments" },
-    { id:10, name:"Sesame oil",      type:"staple", status:"have", qty:"Bottle", cat:"Oil & Condiments" },
+    { id:5,  name:"Fish sauce",      type:"staple", status:"have", qty:"Bottle", cat:"Oils & Condiments" },
+    { id:6,  name:"Sesame oil",      type:"staple", status:"have", qty:"Bottle", cat:"Oils & Condiments" },
+    { id:7,  name:"Smoked paprika",  type:"staple", status:"have", qty:"Jar",    cat:"Herbs & Spices" },
+    { id:8,  name:"Ground cumin",    type:"staple", status:"have", qty:"Jar",    cat:"Herbs & Spices" },
+    { id:9,  name:"Dried oregano",   type:"staple", status:"have", qty:"Jar",    cat:"Herbs & Spices" },
+    { id:10, name:"Butter",          type:"staple", status:"have", qty:"Block",  cat:"Dairy & Eggs" },
   ]);
-  const [selectedMeals, setSelectedMeals] = useState(new Set());
-  const [generating, setGenerating] = useState(false);
+
+  // ── Session state ──
+  const [tab, setTab]                       = useState("generate");
+  const [selectedIds, setSelectedIds]       = useState(new Set());
+  const [generating, setGenerating]         = useState(false);
+  const [generatingRecipe, setGeneratingRecipe] = useState(null);
+  const [weeklyInstruction, setWeeklyInstruction] = useState("");
   const [generateBudget, setGenerateBudget] = useState("$8-15");
-  const [generateCount, setGenerateCount] = useState(12);
-  const [showShoppingList, setShowShoppingList] = useState(false);
-  const [ratingTarget, setRatingTarget] = useState(null);
-  const [ratingValue, setRatingValue] = useState(0);
-  const [ratingNotes, setRatingNotes] = useState("");
-  const [pantryInput, setPantryInput] = useState("");
+  const [generateCount, setGenerateCount]   = useState(12);
+  const [currentMealView, setCurrentMealView] = useState(null); // meal id being viewed
+  const [ratingTarget, setRatingTarget]     = useState(null);
+  const [ratingValue, setRatingValue]       = useState(0);
+  const [ratingNotes, setRatingNotes]       = useState("");
+  const [shopNewItem, setShopNewItem]       = useState("");
+  const [shopNewCat, setShopNewCat]         = useState("Other");
+  const [regularNewItem, setRegularNewItem] = useState("");
+  const [regularNewCat, setRegularNewCat]   = useState("Other");
+  const [addRegularToList, setAddRegularToList] = useState(false);
   const [pantryProcessing, setPantryProcessing] = useState(false);
-  const [pantryImage, setPantryImage] = useState(null);
 
-  const toBase64Mp = (file) => new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result.split(",")[1]); r.onerror=()=>rej(); r.readAsDataURL(file); });
+  // ── Supermarket categories in New World Ilam aisle order ──
+  const SHOP_CATS = ["Produce","Meat & Seafood","Dairy & Eggs","Deli & Cheese","Pantry & Dry Goods","Canned & Sauces","Oils & Condiments","Herbs & Spices","Frozen","Bread & Bakery","Other"];
 
-  // ── Season detection (Christchurch, NZ — Southern Hemisphere) ──
+  // ── Season detection (Christchurch NZ — Southern Hemisphere) ──
   const getSeason = () => {
-    const m = new Date().getMonth(); // 0-indexed
-    if (m >= 11 || m <= 1) return "Summer"; // Dec-Feb
-    if (m >= 2 && m <= 4) return "Autumn";   // Mar-May
-    if (m >= 5 && m <= 7) return "Winter";   // Jun-Aug
-    return "Spring";                          // Sep-Nov
+    const m = new Date().getMonth();
+    if (m >= 11 || m <= 1) return "Summer";
+    if (m >= 2 && m <= 4) return "Autumn";
+    if (m >= 5 && m <= 7) return "Winter";
+    return "Spring";
   };
   const currentSeason = getSeason();
 
-  // ── Generate meals via Claude ──
+  // ── Rating summary for generation context ──
+  const getRatingSummary = () => {
+    const rated = cookedMeals.filter(m => m.rating > 0);
+    if (rated.length === 0) return "";
+    const top = rated.filter(m => m.rating >= 4).map(m => `"${m.name}" (${m.rating}★${m.ratingNotes ? `: ${m.ratingNotes}` : ""})`).join(", ");
+    const low = rated.filter(m => m.rating <= 2).map(m => `"${m.name}" (${m.rating}★${m.ratingNotes ? `: ${m.ratingNotes}` : ""})`).join(", ");
+    const saved = cookedMeals.filter(m => m.saved).map(m => m.name).join(", ");
+    return `\nNeil's rated meal history (use this to refine suggestions):\n${top ? `High rated (4-5★): ${top}` : ""}${low ? `\nLow rated (1-2★): ${low}` : ""}${saved ? `\nSaved favourites: ${saved}` : ""}`;
+  };
+
+  // ── Generate meals ──
   const generateMeals = async () => {
     const apiKey = localStorage.getItem("tars_anthropic_key");
     if (!apiKey) { alert("Add your Anthropic API key in TARS settings first."); return; }
     setGenerating(true);
     try {
-      const pantryList = pantry.filter(p=>p.status==="have").map(p=>p.name).join(", ");
+      const pantryList = pantry.filter(p => p.status === "have").map(p => p.name).join(", ");
+      const ratingSummary = getRatingSummary();
+      const instruction = weeklyInstruction.trim();
+      const isSurprise = instruction.toLowerCase().includes("surprise");
+
       const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST",
-        headers:{ "Content-Type":"application/json", "x-api-key":apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
+        method: "POST",
+        headers: { "Content-Type":"application/json", "x-api-key":apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
         body: JSON.stringify({
           model: "claude-sonnet-4-6",
           max_tokens: 8000,
-          system: `You are a professional meal planner generating personalised dinner suggestions. Return ONLY a valid JSON array, no markdown, no backticks, no preamble. Keep all text fields SHORT.`,
-          messages:[{ role:"user", content:`Generate ${generateCount} dinner meal suggestions for Neil. Budget: ${generateBudget} NZD per serving. Season: ${currentSeason} in Christchurch NZ (Southern Hemisphere). Current pantry staples: ${pantryList}.
+          system: `You are a professional meal planner. Return ONLY a valid JSON array, no markdown, no backticks, no preamble.`,
+          messages: [{ role: "user", content: `Generate ${generateCount} dinner suggestions for Neil. Budget: ${generateBudget} NZD/serve. Season: ${currentSeason}, Christchurch NZ (Southern Hemisphere).${ratingSummary}
 
-NEIL'S KEY PREFERENCES: Loves beef/chicken/lamb/pork/fish. Mediterranean and classic Western cuisine preferred. Avoids: offal, eggplant, bitter veg, kumara, beans (green beans OK), most legumes. Cooking time: 20-30 mins active max, oven time OK. No marinades. Medium spice. Balanced macros, carbs in moderation.
+NEIL'S PROFILE: Loves beef/chicken/lamb/pork/fish. Mediterranean and classic Western preferred. Likes Asian, Middle Eastern, Mexican. Avoids: offal, eggplant, bitter veg (kale/brussels sprouts/radicchio), kumara, most beans (green beans OK), most legumes (chickpeas in moderation OK). Medium spice. Balanced macros, carbs in moderation. 20-30 mins active kitchen time max (passive oven time fine). Always 2 serves (dinner + next day lunch). No marinades. Loves mushrooms, all cheeses, coconut milk, cream/butter sauces. Pantry staples available: ${pantryList}.
 
-IMPORTANT: Always 2 serves. High protein (45-65g per serve). Vary cuisines. Reflect ${currentSeason} season.
+${isSurprise ? "SURPRISE MODE: Ignore his usual safe choices. Push boundaries within his hard avoids. Unexpected flavour combinations, cuisines he hasn't tried much, unusual cooking methods. Make it genuinely surprising." : instruction ? `THIS WEEK'S SPECIAL INSTRUCTION: ${instruction}` : ""}
 
-Return ONLY a JSON array — no recipe field needed, keep ingredients list short (max 6 items):
-[{
-  "id": 1,
-  "name": "Meal name",
-  "cuisine": "Mediterranean|Asian|Western|Middle Eastern|Mexican|Other",
-  "protein": 55,
-  "kcal": 650,
-  "costPerServe": 12,
-  "prepTime": "25 mins active",
-  "season": "${currentSeason}",
-  "ingredients": [{"name": "ingredient", "qty": "qty for 2 serves", "type": "fresh|staple|protein"}],
-  "recipe": "",
-  "rating": 0,
-  "notes": "",
-  "cooked": false,
-  "cookedDates": []
-}]` }]
+RULES: Always 2 serves. 45-65g protein/serve. Reflect ${currentSeason} season. Vary cuisines. Keep ingredients list to 6 items max (staples already in pantry don't need to be listed).
+
+Return ONLY JSON array (no recipe field — kept blank for on-demand generation):
+[{"id":1,"name":"meal name","cuisine":"Mediterranean|Asian|Western|Middle Eastern|Mexican|Other","protein":55,"kcal":650,"costPerServe":12,"prepTime":"25 mins active","season":"${currentSeason}","ingredients":[{"name":"ingredient","qty":"qty for 2 serves","cat":"Produce|Meat & Seafood|Dairy & Eggs|Pantry & Dry Goods|Canned & Sauces|Oils & Condiments|Herbs & Spices|Frozen|Other","type":"fresh|staple"}],"recipe":"","rating":0,"ratingNotes":"","cooked":false,"saved":false,"cookedDates":[]}]` }]
         })
       });
       const data = await response.json();
-      const text = data.content?.map(b=>b.text||"").join("") || "";
+      const text = data.content?.map(b => b.text || "").join("") || "";
       let clean = text.replace(/```json|```/g, "").trim();
-
-      // If JSON was truncated mid-response (hit token limit), try to salvage
-      // complete meal objects by closing the array at the last complete entry
       let meals;
       try {
         meals = JSON.parse(clean);
       } catch {
-        // Find the last complete object in the array (ends with }) and close the array there
         const lastComplete = clean.lastIndexOf("},");
-        const lastCompleteFinal = clean.lastIndexOf("}]");
-        const salvageAt = Math.max(lastComplete, lastCompleteFinal);
-        if (salvageAt > 0) {
-          const salvaged = clean.slice(0, lastComplete + 1) + "]";
-          try {
-            meals = JSON.parse(salvaged);
-            console.log(`Salvaged ${meals.length} meals from truncated response`);
-          } catch {
-            throw new Error("Response was too large and couldn't be salvaged — try generating fewer meals (e.g. 8 instead of 12)");
-          }
-        } else {
-          throw new Error("Response was too large and couldn't be salvaged — try generating fewer meals (e.g. 8 instead of 12)");
-        }
+        if (lastComplete > 0) {
+          try { meals = JSON.parse(clean.slice(0, lastComplete + 1) + "]"); }
+          catch { throw new Error("Try generating fewer meals or try again."); }
+        } else throw new Error("Try generating fewer meals or try again.");
       }
-
-      setMealLibrary(prev => {
-        // Keep existing meals that have been cooked or rated, replace uncooked/unrated ones
-        const keep = prev.filter(m => m.cooked || m.rating > 0);
-        return [...keep, ...meals.map((m,i) => ({ ...m, id: Date.now() + i }))];
-      });
+      setMealLibrary(meals.map((m, i) => ({ ...m, id: Date.now() + i })));
+      setSelectedIds(new Set());
+      setWeeklyInstruction("");
     } catch(err) {
       alert(`Could not generate meals: ${err.message}`);
     }
     setGenerating(false);
   };
 
-  // ── Generate recipe on demand for a specific meal ──
-  const [generatingRecipe, setGeneratingRecipe] = useState(null);
+  // ── Confirm selection → move to Current Meals + build shopping list ──
+  const confirmSelection = () => {
+    const selected = mealLibrary.filter(m => selectedIds.has(m.id));
+    if (selected.length === 0) return;
+    setCurrentMeals(selected);
 
+    // Build shopping list from selected meals, excluding pantry staples
+    const pantryNames = pantry.filter(p => p.status === "have" && p.type === "staple").map(p => p.name.toLowerCase());
+    const itemMap = {};
+    selected.forEach(meal => {
+      (meal.ingredients || []).forEach(ing => {
+        if (ing.type === "staple" || pantryNames.some(p => p.includes(ing.name.toLowerCase().split(" ")[0]))) return;
+        const key = ing.name.toLowerCase();
+        if (!itemMap[key]) itemMap[key] = { id: Date.now() + Math.random(), name: ing.name, qty: ing.qty, cat: ing.cat || "Other", checked: false, source: "meals" };
+      });
+    });
+    setShoppingList(Object.values(itemMap));
+    setSelectedIds(new Set());
+    setTab("current");
+  };
+
+  // ── Generate recipe on demand ──
   const generateRecipe = async (meal) => {
     const apiKey = localStorage.getItem("tars_anthropic_key");
     if (!apiKey) return;
     setGeneratingRecipe(meal.id);
     try {
       const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST",
-        headers:{ "Content-Type":"application/json", "x-api-key":apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
+        method: "POST",
+        headers: { "Content-Type":"application/json", "x-api-key":apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
         body: JSON.stringify({
-          model:"claude-sonnet-4-6", max_tokens:1000,
-          system:`You are a recipe writer. Return ONLY the recipe as plain numbered steps, no markdown, no preamble.`,
-          messages:[{ role:"user", content:`Write a simple recipe for "${meal.name}" for 2 serves. Active kitchen time should be 20-30 mins max. Passive oven time is fine. Numbered steps, concise. Ingredients: ${meal.ingredients?.map(i=>`${i.name} (${i.qty})`).join(", ")}.` }]
+          model: "claude-sonnet-4-6", max_tokens: 800,
+          system: "You are a recipe writer. Return ONLY numbered steps, plain text, no markdown.",
+          messages: [{ role: "user", content: `Simple recipe for "${meal.name}", 2 serves. Active time 20-30 mins max, oven time OK. No marinades. Numbered steps, concise. Use: ${meal.ingredients?.map(i => `${i.name} (${i.qty})`).join(", ")}.` }]
         })
       });
       const data = await response.json();
-      const recipe = data.content?.map(b=>b.text||"").join("") || "";
-      setMealLibrary(prev => prev.map(m => m.id===meal.id ? {...m, recipe} : m));
+      const recipe = data.content?.map(b => b.text || "").join("") || "";
+      const updater = (prev) => prev.map(m => m.id === meal.id ? { ...m, recipe } : m);
+      setCurrentMeals(updater);
+      setCookedMeals(prev => prev.map(m => m.id === meal.id ? { ...m, recipe } : m));
     } catch {}
     setGeneratingRecipe(null);
   };
 
-  // ── Log selected meal to calorie tracker ──
-  const logMealToCalories = (meal) => {
-    const entry = { id:Date.now(), name:meal.name, kcal:meal.kcal, protein:meal.protein, time:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) };
-    setCalLog(prev => ({ ...prev, [todayLabel]: [...(prev[todayLabel]||[]), entry] }));
-  };
-
-  // ── Mark meal as cooked — removes fresh ingredients from pantry ──
+  // ── Mark meal as cooked → move to Cooked Meals ──
   const markCooked = (meal) => {
-    const today = new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"});
-    setMealLibrary(prev => prev.map(m => m.id===meal.id ? {...m, cooked:true, cookedDates:[...(m.cookedDates||[]), today]} : m));
-    // Remove fresh ingredients from pantry
-    const freshToRemove = (meal.ingredients||[]).filter(i=>i.type==="fresh").map(i=>i.name.toLowerCase());
-    setPantry(prev => prev.filter(p => !freshToRemove.some(f => p.name.toLowerCase().includes(f.split(" ")[0]))));
-    logMealToCalories(meal);
+    const today = new Date().toLocaleDateString("en-NZ", { day:"numeric", month:"short", year:"numeric" });
+    const cooked = { ...meal, cooked: true, cookedDates: [...(meal.cookedDates || []), today] };
+    setCookedMeals(prev => [cooked, ...prev.filter(m => m.id !== meal.id)]);
+    setCurrentMeals(prev => prev.filter(m => m.id !== meal.id));
+    // Log to calorie tracker
+    const entry = { id: Date.now(), name: meal.name, kcal: meal.kcal, protein: meal.protein, time: new Date().toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit" }) };
+    setCalLog(prev => ({ ...prev, [todayLabel]: [...(prev[todayLabel] || []), entry] }));
+    setCurrentMealView(null);
+    setRatingTarget(cooked);
   };
 
-  // ── Save meal rating ──
+  // ── Save rating ──
   const saveRating = () => {
     if (!ratingTarget) return;
-    setMealLibrary(prev => prev.map(m => m.id===ratingTarget.id ? {...m, rating:ratingValue, notes:ratingNotes} : m));
+    const rated = { ...ratingTarget, rating: ratingValue, ratingNotes };
+    setCookedMeals(prev => prev.map(m => m.id === rated.id ? rated : m));
     setRatingTarget(null); setRatingValue(0); setRatingNotes("");
   };
 
-  // ── Process pantry photo via Claude ──
+  // ── Shopping list helpers ──
+  const toggleShopItem = (id) => setShoppingList(prev => prev.map(i => i.id === id ? { ...i, checked: !i.checked } : i));
+  const addShopItem = () => {
+    if (!shopNewItem.trim()) return;
+    setShoppingList(prev => [...prev, { id: Date.now(), name: shopNewItem.trim(), qty: "", cat: shopNewCat, checked: false, source: "manual" }]);
+    setShopNewItem("");
+  };
+  const saveToRegulars = (item) => {
+    if (myRegulars.find(r => r.name.toLowerCase() === item.name.toLowerCase())) return;
+    setMyRegulars(prev => [...prev, { id: Date.now(), name: item.name, qty: item.qty, cat: item.cat, source: "regulars" }]);
+  };
+  const addRegularsToList = () => {
+    const existing = shoppingList.map(i => i.name.toLowerCase());
+    const toAdd = myRegulars.filter(r => !existing.includes(r.name.toLowerCase())).map(r => ({ ...r, id: Date.now() + Math.random(), checked: false, source: "regulars" }));
+    setShoppingList(prev => [...prev, ...toAdd]);
+    setAddRegularToList(false);
+  };
+
+  const toBase64Mp = (file) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(",")[1]); r.onerror = rej; r.readAsDataURL(file); });
+
   const processPantryPhoto = async (file) => {
     const apiKey = localStorage.getItem("tars_anthropic_key");
-    if (!apiKey) { alert("Add your Anthropic API key in TARS settings first."); return; }
+    if (!apiKey) return;
     setPantryProcessing(true);
     try {
       const base64 = await toBase64Mp(file);
       const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST",
-        headers:{ "Content-Type":"application/json", "x-api-key":apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
-        body: JSON.stringify({
-          model:"claude-sonnet-4-6", max_tokens:1000,
-          system:`You are reading a photo of food items, a pantry, or groceries. Extract every visible food item and classify each as either "staple" (things that persist long-term like oils, sauces, spices, butter, flour, condiments) or "fresh" (things that get used up like meat, vegetables, fruit, dairy). Return ONLY a valid JSON array, no markdown.`,
-          messages:[{ role:"user", content:[
-            { type:"image", source:{ type:"base64", media_type:file.type, data:base64 }},
-            { type:"text", text:`List every food item visible. For each item, determine if it's a staple (long-lasting: oils, spices, sauces, condiments, butter, canned goods) or fresh (used up: meat, vegetables, fruit, fresh dairy). Return JSON array: [{"name": "item name", "type": "staple|fresh", "qty": "estimated quantity or package size", "cat": "Protein|Produce|Dairy|Oil & Condiments|Herbs & Spices|Canned|Other"}]` }
-          ]}]
-        })
+        method:"POST", headers:{ "Content-Type":"application/json", "x-api-key":apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
+        body: JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:800, system:"Extract food items from image. Return ONLY a JSON array.", messages:[{ role:"user", content:[{ type:"image", source:{ type:"base64", media_type:file.type, data:base64 }},{ type:"text", text:'List every visible food item. Classify each as "staple" (oils, spices, sauces, condiments, butter, canned, long-lasting) or "fresh" (meat, veg, fruit, fresh dairy). JSON: [{"name":"item","type":"staple|fresh","qty":"est. qty","cat":"Produce|Meat & Seafood|Dairy & Eggs|Pantry & Dry Goods|Canned & Sauces|Oils & Condiments|Herbs & Spices|Frozen|Other"}]' }] }] })
       });
       const data = await response.json();
-      const text = data.content?.map(b=>b.text||"").join("") || "";
-      const items = JSON.parse(text.replace(/```json|```/g,"").trim());
-      const newItems = items.map((item,i) => ({
-        id: Date.now() + i,
-        name: item.name, type: item.type, status:"have",
-        qty: item.qty || "—", cat: item.cat || "Other"
-      }));
+      const items = JSON.parse((data.content?.map(b=>b.text||"").join("")||"").replace(/```json|```/g,"").trim());
       setPantry(prev => {
-        const existing = prev.map(p=>p.name.toLowerCase());
-        const toAdd = newItems.filter(n => !existing.includes(n.name.toLowerCase()));
+        const existing = prev.map(p => p.name.toLowerCase());
+        const toAdd = items.filter(i => !existing.includes(i.name.toLowerCase())).map((i, idx) => ({ id: Date.now()+idx, ...i, status:"have" }));
         return [...prev, ...toAdd];
       });
-      setPantryImage(null);
-      alert(`Added ${newItems.length} items to pantry.`);
-    } catch(err) {
-      alert(`Could not read photo: ${err.message}`);
-    }
+    } catch(err) { alert(`Could not read photo: ${err.message}`); }
     setPantryProcessing(false);
   };
 
-  // ── Build shopping list ──
-  const buildShoppingList = () => {
-    const meals = mealLibrary.filter(m => selectedMeals.has(m.id));
-    const allIngredients = {};
-    meals.forEach(meal => {
-      (meal.ingredients||[]).forEach(ing => {
-        const key = ing.name.toLowerCase();
-        if (!allIngredients[key]) allIngredients[key] = { ...ing, meals:[] };
-        allIngredients[key].meals.push(meal.name);
-      });
-    });
-    const pantryNames = pantry.filter(p=>p.status==="have").map(p=>p.name.toLowerCase());
-    return Object.values(allIngredients).map(ing => ({
-      ...ing,
-      inPantry: ing.type === "staple" || pantryNames.some(p=>p.includes(ing.name.toLowerCase().split(" ")[0]))
-    })).filter(ing => !ing.inPantry);
-  };
+  // ── Current meal detail view ──
+  const viewMeal = currentMeals.find(m => m.id === currentMealView);
 
-  const shoppingList = buildShoppingList();
-  const selectedMealObjects = mealLibrary.filter(m => selectedMeals.has(m.id));
+  // ── Grouped shopping list ──
+  const allShopItems = shoppingList;
+  const groupedShop = SHOP_CATS.reduce((acc, cat) => {
+    const items = allShopItems.filter(i => i.cat === cat);
+    if (items.length > 0) acc[cat] = items;
+    return acc;
+  }, {});
 
-  // ── Render ──
   return (
     <div>
-      {/* Sub-nav */}
-      <div style={{ display:"flex", gap:0, borderBottom:`1px solid ${T.border}`, marginBottom:16 }}>
-        {[["planner","🍽 Planner"],["pantry","🫙 Pantry"],["history","⭐ History"]].map(([id,label])=>(
-          <button key={id} onClick={()=>setMealView(id)} style={{ flex:1, padding:"10px 4px", fontSize:12, fontWeight:600, border:"none", background:"none", cursor:"pointer", fontFamily:"inherit", color:mealView===id?T.blue:T.muted, borderBottom:mealView===id?`2px solid ${T.blue}`:"2px solid transparent" }}>{label}</button>
+      {/* Tab bar */}
+      <div style={{ display:"flex", gap:0, borderBottom:`1px solid ${T.border}`, marginBottom:16, overflowX:"auto" }}>
+        {[["generate","✨ Generate"],["current",`🍽 Current${currentMeals.length>0?` (${currentMeals.length})`:""}` ],["shopping",`🛒 Shopping${shoppingList.length>0?` (${shoppingList.filter(i=>!i.checked).length})`:""}` ],["cooked","⭐ Cooked"]].map(([id,label])=>(
+          <button key={id} onClick={()=>{ setTab(id); setCurrentMealView(null); }} style={{ flexShrink:0, padding:"10px 12px", fontSize:11, fontWeight:600, border:"none", background:"none", cursor:"pointer", fontFamily:"inherit", color:tab===id?T.blue:T.muted, borderBottom:tab===id?`2px solid ${T.blue}`:"2px solid transparent", whiteSpace:"nowrap" }}>{label}</button>
         ))}
       </div>
 
-      {/* ── PLANNER TAB ── */}
-      {mealView==="planner" && (
+      {/* ════ GENERATE TAB ════ */}
+      {tab==="generate" && !viewMeal && (
         <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-          {/* Generate controls */}
+          {/* Controls */}
           <div style={{ background:T.card, borderRadius:14, padding:14, border:`1px solid ${T.border}` }}>
-            <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:10 }}>Generate Meal Options</div>
-            <div style={{ fontSize:11, color:T.muted, marginBottom:10, lineHeight:1.5 }}>
-              Currently {currentSeason} in Christchurch — meals will be seasonally appropriate.
-            </div>
+            <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:4 }}>Generate Meals for the Week</div>
+            <div style={{ fontSize:11, color:T.muted, marginBottom:12 }}>{currentSeason} in Christchurch — suggestions will be seasonally appropriate.</div>
             <div style={{ display:"flex", gap:8, marginBottom:10 }}>
               <div style={{ flex:1 }}>
-                <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Budget per serve</div>
+                <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Budget/serve</div>
                 <select value={generateBudget} onChange={e=>setGenerateBudget(e.target.value)} style={{ width:"100%", padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit" }}>
-                  <option value="under $10">Under $10 NZD</option>
-                  <option value="$8-15">$8–15 NZD</option>
-                  <option value="$12-20">$12–20 NZD</option>
+                  <option value="under $10">Under $10</option>
+                  <option value="$8-15">$8–15</option>
+                  <option value="$12-20">$12–20</option>
                   <option value="no limit">No limit</option>
                 </select>
               </div>
               <div style={{ flex:1 }}>
-                <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Number of options</div>
+                <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Options</div>
                 <select value={generateCount} onChange={e=>setGenerateCount(Number(e.target.value))} style={{ width:"100%", padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit" }}>
-                  <option value={8}>8 options</option>
-                  <option value={12}>12 options</option>
-                  <option value={15}>15 options</option>
+                  <option value={8}>8</option>
+                  <option value={12}>12</option>
+                  <option value={15}>15</option>
                 </select>
               </div>
             </div>
-            <button onClick={generateMeals} disabled={generating} style={{ width:"100%", padding:"11px", borderRadius:10, background:generating?T.elevated:T.blue, color:generating?T.muted:"white", fontWeight:700, fontSize:13, border:"none", cursor:generating?"not-allowed":"pointer", fontFamily:"inherit" }}>
-              {generating ? "Generating..." : "✨ Generate meals for the week"}
+            {/* Weekly instruction */}
+            <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>This week's vibe (optional)</div>
+            <input value={weeklyInstruction} onChange={e=>setWeeklyInstruction(e.target.value)} placeholder='e.g. "Light and healthy", "1 comfort meal", "Surprise me"'
+              style={{ width:"100%", padding:"9px 12px", borderRadius:9, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box", marginBottom:10 }} />
+            {/* Quick suggestion pills */}
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12 }}>
+              {["Surprise me 🎲","Light & healthy","1 comfort meal","Quick & easy","High protein week","No fish this week"].map(s=>(
+                <button key={s} onClick={()=>setWeeklyInstruction(s)} style={{ fontSize:10, padding:"4px 10px", borderRadius:999, border:`1px solid ${weeklyInstruction===s?T.blue:T.border}`, background:weeklyInstruction===s?`${T.blue}22`:T.elevated, color:weeklyInstruction===s?T.blue:T.muted, cursor:"pointer", fontFamily:"inherit" }}>{s}</button>
+              ))}
+            </div>
+            <button onClick={generateMeals} disabled={generating} style={{ width:"100%", padding:"12px", borderRadius:10, background:generating?T.elevated:T.blue, color:generating?T.muted:"white", fontWeight:700, fontSize:13, border:"none", cursor:generating?"not-allowed":"pointer", fontFamily:"inherit" }}>
+              {generating?"Generating...":"✨ Generate"}
             </button>
           </div>
 
-          {/* Selected meals summary */}
-          {selectedMeals.size > 0 && (
-            <div style={{ background:`${T.green}18`, borderRadius:14, padding:14, border:`1px solid ${T.green}44` }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
-                <div style={{ fontSize:12, fontWeight:700, color:T.green }}>{selectedMeals.size} meal{selectedMeals.size!==1?"s":""} selected for the week</div>
-                <button onClick={()=>setShowShoppingList(s=>!s)} style={{ fontSize:11, fontWeight:700, color:T.green, background:`${T.green}22`, border:`1px solid ${T.green}44`, borderRadius:8, padding:"4px 10px", cursor:"pointer", fontFamily:"inherit" }}>
-                  {showShoppingList ? "Hide list" : "Shopping list"}
-                </button>
-              </div>
-              {showShoppingList && shoppingList.length > 0 && (
-                <div>
-                  <div style={{ fontSize:11, color:T.muted, marginBottom:6 }}>Items to buy (pantry staples excluded):</div>
-                  {shoppingList.map((item,i)=>(
-                    <div key={i} style={{ fontSize:12, color:T.text, padding:"3px 0", borderBottom:`1px solid ${T.border}33` }}>
-                      {item.name} <span style={{ color:T.muted }}>{item.qty}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {showShoppingList && shoppingList.length === 0 && (
-                <div style={{ fontSize:12, color:T.muted }}>Everything you need is already in your pantry.</div>
-              )}
+          {/* Selection summary */}
+          {selectedIds.size > 0 && (
+            <div style={{ background:`${T.green}18`, borderRadius:12, padding:"10px 14px", border:`1px solid ${T.green}44`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+              <div style={{ fontSize:12, color:T.green, fontWeight:700 }}>{selectedIds.size} meal{selectedIds.size!==1?"s":""} selected</div>
+              <button onClick={confirmSelection} style={{ padding:"8px 16px", borderRadius:9, background:T.green, color:"white", fontWeight:700, fontSize:12, border:"none", cursor:"pointer", fontFamily:"inherit" }}>✓ Confirm & build shopping list</button>
             </div>
           )}
 
           {/* Meal cards */}
-          {mealLibrary.filter(m=>!m.cooked).length === 0 && !generating && (
-            <div style={{ textAlign:"center", padding:"40px 20px", color:T.muted, fontSize:13, lineHeight:1.6 }}>
-              No meals generated yet. Tap "Generate meals for the week" above to get personalised suggestions based on your food profile and the current season.
+          {mealLibrary.length === 0 && !generating && (
+            <div style={{ textAlign:"center", padding:"40px 20px", color:T.muted, fontSize:13, lineHeight:1.8 }}>
+              No meals generated yet.<br/>Set your preferences above and tap Generate.
             </div>
           )}
-
-          {mealLibrary.filter(m=>!m.cooked).map(meal => {
-            const isSelected = selectedMeals.has(meal.id);
+          {mealLibrary.map(meal => {
+            const sel = selectedIds.has(meal.id);
             return (
-              <div key={meal.id} style={{ background:T.card, borderRadius:14, border:`1px solid ${isSelected?T.blue:T.border}`, overflow:"hidden" }}>
-                {/* Header */}
-                <div style={{ padding:"12px 14px", borderBottom:`1px solid ${T.border}` }}>
-                  <div style={{ display:"flex", alignItems:"flex-start", gap:8, marginBottom:6 }}>
-                    <button onClick={()=>setSelectedMeals(prev=>{ const n=new Set(prev); n.has(meal.id)?n.delete(meal.id):n.add(meal.id); return n; })}
-                      style={{ width:22, height:22, borderRadius:6, border:`2px solid ${isSelected?T.blue:T.border}`, background:isSelected?T.blue:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, cursor:"pointer", marginTop:1 }}>
-                      {isSelected && <span style={{ color:"white", fontSize:12 }}>✓</span>}
-                    </button>
+              <div key={meal.id} style={{ background:T.card, borderRadius:14, border:`2px solid ${sel?T.blue:T.border}`, overflow:"hidden" }}>
+                <div onClick={()=>setSelectedIds(prev=>{ const n=new Set(prev); n.has(meal.id)?n.delete(meal.id):n.add(meal.id); return n; })} style={{ padding:"12px 14px", cursor:"pointer" }}>
+                  <div style={{ display:"flex", alignItems:"flex-start", gap:8, marginBottom:8 }}>
+                    <div style={{ width:22, height:22, borderRadius:6, border:`2px solid ${sel?T.blue:T.border}`, background:sel?T.blue:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1 }}>
+                      {sel && <span style={{ color:"white", fontSize:12 }}>✓</span>}
+                    </div>
                     <div style={{ flex:1 }}>
                       <div style={{ fontSize:13, fontWeight:700, color:T.text, lineHeight:1.4 }}>{meal.name}</div>
-                      <div style={{ fontSize:10, color:T.muted, marginTop:2 }}>{meal.cuisine} · {meal.prepTime} · ~${meal.costPerServe?.toFixed(0)||"?"}/serve</div>
+                      <div style={{ fontSize:10, color:T.muted, marginTop:2 }}>{meal.cuisine} · {meal.prepTime} · ${meal.costPerServe?.toFixed(0)||"?"}/serve</div>
                     </div>
                   </div>
-                  <div style={{ display:"flex", gap:10 }}>
-                    <div style={{ textAlign:"center" }}>
-                      <div style={{ fontSize:15, fontWeight:700, color:T.accent }}>{meal.kcal}</div>
-                      <div style={{ fontSize:9, color:T.muted }}>kcal/serve</div>
-                    </div>
-                    <div style={{ textAlign:"center" }}>
-                      <div style={{ fontSize:15, fontWeight:700, color:T.blue }}>{meal.protein}g</div>
-                      <div style={{ fontSize:9, color:T.muted }}>protein</div>
-                    </div>
-                    <div style={{ textAlign:"center" }}>
-                      <div style={{ fontSize:15, fontWeight:700, color:T.green }}>${meal.costPerServe?.toFixed(0)||"?"}</div>
-                      <div style={{ fontSize:9, color:T.muted }}>NZD/serve</div>
-                    </div>
+                  <div style={{ display:"flex", gap:16 }}>
+                    <div><div style={{ fontSize:15, fontWeight:700, color:T.accent }}>{meal.kcal}</div><div style={{ fontSize:9, color:T.muted }}>kcal</div></div>
+                    <div><div style={{ fontSize:15, fontWeight:700, color:T.blue }}>{meal.protein}g</div><div style={{ fontSize:9, color:T.muted }}>protein</div></div>
+                    <div><div style={{ fontSize:15, fontWeight:700, color:T.green }}>${meal.costPerServe?.toFixed(0)||"?"}</div><div style={{ fontSize:9, color:T.muted }}>NZD</div></div>
                   </div>
                 </div>
-                {/* Recipe accordion */}
-                <details style={{ padding:"10px 14px" }} onToggle={e => { if (e.target.open && !meal.recipe && generatingRecipe !== meal.id) generateRecipe(meal); }}>
-                  <summary style={{ fontSize:11, fontWeight:600, color:T.blue, cursor:"pointer", listStyle:"none" }}>
-                    📋 View recipe & ingredients
-                  </summary>
-                  <div style={{ marginTop:10 }}>
-                    <div style={{ fontSize:11, fontWeight:600, color:T.muted, marginBottom:6 }}>INGREDIENTS (2 serves)</div>
-                    {(meal.ingredients||[]).map((ing,i)=>(
-                      <div key={i} style={{ fontSize:11, color:T.text, padding:"2px 0" }}>• {ing.name} — {ing.qty} <span style={{ fontSize:9, color:T.muted }}>({ing.type})</span></div>
-                    ))}
-                    <div style={{ fontSize:11, fontWeight:600, color:T.muted, marginBottom:6, marginTop:12 }}>RECIPE</div>
-                    {generatingRecipe === meal.id && <div style={{ fontSize:12, color:T.blue }}>⏳ Generating recipe...</div>}
-                    {!meal.recipe && generatingRecipe !== meal.id && <div style={{ fontSize:12, color:T.muted }}>Tap to load recipe</div>}
-                    {meal.recipe && <div style={{ fontSize:12, color:T.text, lineHeight:1.6, whiteSpace:"pre-wrap" }}>{meal.recipe}</div>}
-                  </div>
-                </details>
-                {/* Actions */}
-                <div style={{ display:"flex", gap:8, padding:"8px 14px 12px" }}>
-                  <button onClick={()=>logMealToCalories(meal)} style={{ flex:1, padding:"8px", borderRadius:9, background:`${T.blue}18`, border:`1px solid ${T.blue}44`, color:T.blue, fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>+ Log calories</button>
-                  <button onClick={()=>markCooked(meal)} style={{ flex:1, padding:"8px", borderRadius:9, background:`${T.green}18`, border:`1px solid ${T.green}44`, color:T.green, fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>✓ Cooked it</button>
-                  <button onClick={()=>setRatingTarget(meal)} style={{ padding:"8px 12px", borderRadius:9, background:`${T.gold}18`, border:`1px solid ${T.gold}44`, color:T.gold, fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>⭐</button>
-                  <button onClick={()=>{ if(window.confirm(`Remove "${meal.name}" from your meal library?`)) setMealLibrary(prev=>prev.filter(m=>m.id!==meal.id)); }} style={{ padding:"8px 12px", borderRadius:9, background:`${T.accent}11`, border:`1px solid ${T.accent}33`, color:T.accent, fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>✕</button>
+                <div style={{ padding:"6px 14px 12px", borderTop:`1px solid ${T.border}33`, display:"flex", gap:8 }}>
+                  <button onClick={e=>{ e.stopPropagation(); if(window.confirm(`Remove "${meal.name}"?`)) setMealLibrary(prev=>prev.filter(m=>m.id!==meal.id)); }} style={{ fontSize:10, padding:"5px 10px", borderRadius:8, border:`1px solid ${T.accent}33`, background:`${T.accent}11`, color:T.accent, cursor:"pointer", fontFamily:"inherit" }}>Remove</button>
                 </div>
               </div>
             );
@@ -602,86 +745,183 @@ Return ONLY a JSON array — no recipe field needed, keep ingredients list short
         </div>
       )}
 
-      {/* ── PANTRY TAB ── */}
-      {mealView==="pantry" && (
+      {/* ════ CURRENT MEALS TAB ════ */}
+      {tab==="current" && !viewMeal && (
         <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-          <div style={{ background:T.card, borderRadius:14, padding:14, border:`1px solid ${T.border}` }}>
-            <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:8 }}>Update Pantry via Photo</div>
-            <div style={{ fontSize:11, color:T.muted, marginBottom:10, lineHeight:1.5 }}>
-              Take a photo of your fridge, pantry or groceries. TARS will identify items and tag them as staples (never auto-removed) or fresh (removed when you cook a meal).
+          {currentMeals.length === 0 && (
+            <div style={{ textAlign:"center", padding:"40px 20px", color:T.muted, fontSize:13, lineHeight:1.8 }}>
+              No current meals yet.<br/>Generate and confirm your selections on the Generate tab.
             </div>
-            <label style={{ display:"block", border:`2px dashed ${T.border}`, borderRadius:12, padding:"20px", textAlign:"center", cursor:"pointer", marginBottom:8 }}>
-              <div style={{ fontSize:24, marginBottom:4 }}>📷</div>
-              <div style={{ fontSize:12, fontWeight:600, color:T.text }}>Take or upload a photo</div>
-              <div style={{ fontSize:10, color:T.muted }}>Fridge, pantry shelf, or grocery bag</div>
-              <input type="file" accept="image/*" capture="environment" onChange={async e=>{ const f=e.target.files?.[0]; if(f) await processPantryPhoto(f); e.target.value=""; }} style={{ display:"none" }} />
-            </label>
-            {pantryProcessing && <div style={{ textAlign:"center", fontSize:12, color:T.blue, padding:"8px 0" }}>⏳ Reading photo…</div>}
-          </div>
-
-          {/* Add manually */}
-          <div style={{ background:T.card, borderRadius:14, padding:14, border:`1px solid ${T.border}` }}>
-            <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:8 }}>Add Item Manually</div>
-            <div style={{ display:"flex", gap:8 }}>
-              <input value={pantryInput} onChange={e=>setPantryInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"&&pantryInput.trim()){ setPantry(prev=>[...prev,{id:Date.now(),name:pantryInput.trim(),type:"fresh",status:"have",qty:"—",cat:"Other"}]); setPantryInput(""); }}} placeholder="Item name..." style={{ flex:1, padding:"9px 12px", borderRadius:9, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none" }} />
-              <button onClick={()=>{ if(pantryInput.trim()){ setPantry(prev=>[...prev,{id:Date.now(),name:pantryInput.trim(),type:"fresh",status:"have",qty:"—",cat:"Other"}]); setPantryInput(""); }}} style={{ padding:"9px 14px", borderRadius:9, background:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Add</button>
-            </div>
-          </div>
-
-          {/* Pantry list */}
-          {["staple","fresh"].map(type => {
-            const items = pantry.filter(p=>p.type===type);
-            if (items.length === 0) return null;
-            return (
-              <div key={type} style={{ background:T.card, borderRadius:14, padding:14, border:`1px solid ${T.border}` }}>
-                <div style={{ fontSize:11, fontWeight:700, color:T.muted, marginBottom:10, textTransform:"uppercase", letterSpacing:"0.05em" }}>
-                  {type === "staple" ? "🫙 Staples (never auto-removed)" : "🥩 Fresh items (removed when you cook)"}
-                </div>
-                {items.map(item=>(
-                  <div key={item.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 0", borderBottom:`1px solid ${T.border}` }}>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontSize:12, fontWeight:600, color:T.text }}>{item.name}</div>
-                      <div style={{ fontSize:10, color:T.muted }}>{item.qty} · {item.cat}</div>
-                    </div>
-                    <button onClick={()=>setPantry(prev=>prev.map(p=>p.id===item.id?{...p,type:p.type==="staple"?"fresh":"staple"}:p))} style={{ fontSize:9, padding:"3px 7px", borderRadius:6, border:`1px solid ${T.border}`, background:T.elevated, color:T.muted, cursor:"pointer", fontFamily:"inherit" }}>
-                      {item.type==="staple"?"→ fresh":"→ staple"}
-                    </button>
-                    <button onClick={()=>{ if(window.confirm(`Remove "${item.name}" from pantry?`)) setPantry(prev=>prev.filter(p=>p.id!==item.id)); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:14, padding:"2px 4px" }}>✕</button>
-                  </div>
-                ))}
+          )}
+          {currentMeals.map(meal => (
+            <div key={meal.id} onClick={()=>setCurrentMealView(meal.id)} style={{ background:T.card, borderRadius:14, border:`1px solid ${T.border}`, padding:"14px", cursor:"pointer" }}>
+              <div style={{ fontSize:13, fontWeight:700, color:T.text, marginBottom:4 }}>{meal.name}</div>
+              <div style={{ fontSize:10, color:T.muted, marginBottom:8 }}>{meal.cuisine} · {meal.prepTime} · ${meal.costPerServe?.toFixed(0)||"?"}/serve</div>
+              <div style={{ display:"flex", gap:16 }}>
+                <div><div style={{ fontSize:14, fontWeight:700, color:T.accent }}>{meal.kcal}</div><div style={{ fontSize:9, color:T.muted }}>kcal</div></div>
+                <div><div style={{ fontSize:14, fontWeight:700, color:T.blue }}>{meal.protein}g</div><div style={{ fontSize:9, color:T.muted }}>protein</div></div>
               </div>
-            );
-          })}
+              <div style={{ fontSize:11, color:T.blue, marginTop:8 }}>Tap for recipe & details →</div>
+            </div>
+          ))}
         </div>
       )}
 
-      {/* ── HISTORY TAB ── */}
-      {mealView==="history" && (
-        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-          {mealLibrary.filter(m=>m.cooked||m.rating>0).length === 0 && (
-            <div style={{ textAlign:"center", padding:"40px 20px", color:T.muted, fontSize:13 }}>No cooking history yet. Cook a meal and rate it to see it here.</div>
+      {/* ── Current Meal Detail View ── */}
+      {tab==="current" && viewMeal && (
+        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          <button onClick={()=>setCurrentMealView(null)} style={{ display:"flex", alignItems:"center", gap:6, background:"none", border:"none", cursor:"pointer", color:T.blue, fontSize:12, fontWeight:600, padding:0, fontFamily:"inherit" }}>
+            ← Back to Current Meals
+          </button>
+          <div style={{ background:T.card, borderRadius:14, border:`1px solid ${T.border}`, padding:14 }}>
+            <div style={{ fontSize:15, fontWeight:700, color:T.text, marginBottom:4 }}>{viewMeal.name}</div>
+            <div style={{ fontSize:11, color:T.muted, marginBottom:12 }}>{viewMeal.cuisine} · {viewMeal.prepTime} · ${viewMeal.costPerServe?.toFixed(0)||"?"}/serve</div>
+            <div style={{ display:"flex", gap:16, marginBottom:14 }}>
+              <div><div style={{ fontSize:16, fontWeight:700, color:T.accent }}>{viewMeal.kcal}</div><div style={{ fontSize:9, color:T.muted }}>kcal/serve</div></div>
+              <div><div style={{ fontSize:16, fontWeight:700, color:T.blue }}>{viewMeal.protein}g</div><div style={{ fontSize:9, color:T.muted }}>protein/serve</div></div>
+              <div><div style={{ fontSize:16, fontWeight:700, color:T.green }}>${viewMeal.costPerServe?.toFixed(0)||"?"}</div><div style={{ fontSize:9, color:T.muted }}>NZD/serve</div></div>
+            </div>
+            {/* Ingredients */}
+            <div style={{ fontSize:11, fontWeight:700, color:T.muted, marginBottom:6, textTransform:"uppercase", letterSpacing:"0.05em" }}>Ingredients (2 serves)</div>
+            {(viewMeal.ingredients||[]).map((ing,i)=>(
+              <div key={i} style={{ fontSize:12, color:T.text, padding:"3px 0", borderBottom:`1px solid ${T.border}33` }}>• {ing.name} <span style={{ color:T.muted }}>— {ing.qty}</span></div>
+            ))}
+            {/* Recipe */}
+            <div style={{ fontSize:11, fontWeight:700, color:T.muted, marginBottom:8, marginTop:14, textTransform:"uppercase", letterSpacing:"0.05em" }}>Recipe</div>
+            {generatingRecipe===viewMeal.id && <div style={{ fontSize:12, color:T.blue }}>⏳ Generating recipe...</div>}
+            {!viewMeal.recipe && generatingRecipe!==viewMeal.id && (
+              <button onClick={()=>generateRecipe(viewMeal)} style={{ padding:"8px 16px", borderRadius:9, background:`${T.blue}18`, border:`1px solid ${T.blue}44`, color:T.blue, fontWeight:600, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>Load recipe</button>
+            )}
+            {viewMeal.recipe && <div style={{ fontSize:12, color:T.text, lineHeight:1.7, whiteSpace:"pre-wrap" }}>{viewMeal.recipe}</div>}
+          </div>
+          {/* Actions */}
+          <button onClick={()=>markCooked(viewMeal)} style={{ width:"100%", padding:"13px", borderRadius:12, background:T.green, color:"white", fontWeight:700, fontSize:14, border:"none", cursor:"pointer", fontFamily:"inherit" }}>✓ Mark as Cooked — log to today's calories</button>
+          <button onClick={()=>{ if(window.confirm(`Remove "${viewMeal.name}" from current meals without cooking?`)) { setCurrentMeals(prev=>prev.filter(m=>m.id!==viewMeal.id)); setCurrentMealView(null); }}} style={{ width:"100%", padding:"11px", borderRadius:12, background:T.elevated, color:T.muted, fontWeight:600, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>Remove from current meals</button>
+        </div>
+      )}
+
+      {/* ════ SHOPPING LIST TAB ════ */}
+      {tab==="shopping" && (
+        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          {/* Add item */}
+          <div style={{ background:T.card, borderRadius:14, padding:14, border:`1px solid ${T.border}` }}>
+            <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:10 }}>Add Item</div>
+            <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+              <input value={shopNewItem} onChange={e=>setShopNewItem(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addShopItem()} placeholder="Item name..." style={{ flex:1, padding:"9px 12px", borderRadius:9, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none" }} />
+              <button onClick={addShopItem} style={{ padding:"9px 14px", borderRadius:9, background:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Add</button>
+            </div>
+            <select value={shopNewCat} onChange={e=>setShopNewCat(e.target.value)} style={{ width:"100%", padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit" }}>
+              {SHOP_CATS.map(c=><option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+
+          {/* My Regulars button */}
+          {myRegulars.length > 0 && (
+            <button onClick={()=>setAddRegularToList(v=>!v)} style={{ padding:"10px", borderRadius:10, border:`1px solid ${T.green}44`, background:`${T.green}18`, color:T.green, fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
+              {addRegularToList ? "▲ Hide" : "▼ Add from My Regulars"} ({myRegulars.length} items)
+            </button>
           )}
-          {mealLibrary.filter(m=>m.cooked||m.rating>0).map(meal=>(
-            <div key={meal.id} style={{ background:T.card, borderRadius:14, padding:14, border:`1px solid ${T.border}` }}>
-              <div style={{ fontSize:13, fontWeight:700, color:T.text, marginBottom:4 }}>{meal.name}</div>
-              <div style={{ fontSize:11, color:T.muted, marginBottom:6 }}>
-                Cooked {meal.cookedDates?.length||0} time{meal.cookedDates?.length!==1?"s":""}
-                {meal.cookedDates?.length>0 ? ` · Last: ${meal.cookedDates[meal.cookedDates.length-1]}` : ""}
+          {addRegularToList && (
+            <div style={{ background:T.card, borderRadius:12, padding:12, border:`1px solid ${T.border}` }}>
+              {myRegulars.map(r=>(
+                <div key={r.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"5px 0", borderBottom:`1px solid ${T.border}` }}>
+                  <div style={{ fontSize:12, color:T.text }}>{r.name} <span style={{ color:T.muted, fontSize:10 }}>({r.cat})</span></div>
+                  <div style={{ display:"flex", gap:6 }}>
+                    <button onClick={()=>{ if(!shoppingList.find(i=>i.name.toLowerCase()===r.name.toLowerCase())) setShoppingList(prev=>[...prev,{...r,id:Date.now(),checked:false}]); }} style={{ fontSize:10, padding:"3px 8px", borderRadius:6, border:`1px solid ${T.blue}44`, background:`${T.blue}18`, color:T.blue, cursor:"pointer", fontFamily:"inherit" }}>+ Add</button>
+                    <button onClick={()=>{ if(window.confirm(`Remove "${r.name}" from My Regulars?`)) setMyRegulars(prev=>prev.filter(i=>i.id!==r.id)); }} style={{ fontSize:10, padding:"3px 8px", borderRadius:6, border:`1px solid ${T.accent}33`, background:"none", color:T.accent, cursor:"pointer", fontFamily:"inherit" }}>✕</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Add Regulars section */}
+          <div style={{ background:T.card, borderRadius:14, padding:14, border:`1px solid ${T.border}` }}>
+            <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:8 }}>Add to My Regulars</div>
+            <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+              <input value={regularNewItem} onChange={e=>setRegularNewItem(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"&&regularNewItem.trim()){ setMyRegulars(prev=>[...prev,{id:Date.now(),name:regularNewItem.trim(),qty:"",cat:regularNewCat}]); setRegularNewItem(""); }}} placeholder="Item always in your trolley..." style={{ flex:1, padding:"9px 12px", borderRadius:9, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none" }} />
+              <button onClick={()=>{ if(regularNewItem.trim()){ setMyRegulars(prev=>[...prev,{id:Date.now(),name:regularNewItem.trim(),qty:"",cat:regularNewCat}]); setRegularNewItem(""); }}} style={{ padding:"9px 14px", borderRadius:9, background:T.green, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Save</button>
+            </div>
+            <select value={regularNewCat} onChange={e=>setRegularNewCat(e.target.value)} style={{ width:"100%", padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit" }}>
+              {SHOP_CATS.map(c=><option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+
+          {/* Shopping list by category */}
+          {shoppingList.length === 0 && (
+            <div style={{ textAlign:"center", padding:"30px 20px", color:T.muted, fontSize:13 }}>Shopping list is empty. Confirm your meal selection to generate one.</div>
+          )}
+          {shoppingList.length > 0 && (
+            <button onClick={()=>{ if(window.confirm("Clear all checked items?")) setShoppingList(prev=>prev.filter(i=>!i.checked)); }} style={{ padding:"9px", borderRadius:10, border:`1px solid ${T.border}`, background:T.elevated, color:T.muted, fontWeight:600, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
+              Clear checked items ({shoppingList.filter(i=>i.checked).length})
+            </button>
+          )}
+          {Object.entries(groupedShop).map(([cat, items])=>(
+            <div key={cat} style={{ background:T.card, borderRadius:14, border:`1px solid ${T.border}`, overflow:"hidden" }}>
+              <div style={{ padding:"8px 14px", background:T.elevated, fontSize:11, fontWeight:700, color:T.muted, textTransform:"uppercase", letterSpacing:"0.05em" }}>{cat}</div>
+              {items.map(item=>(
+                <div key={item.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", borderBottom:`1px solid ${T.border}33`, opacity:item.checked?0.45:1 }}>
+                  <div onClick={()=>toggleShopItem(item.id)} style={{ width:20, height:20, borderRadius:6, border:`2px solid ${item.checked?T.green:T.border}`, background:item.checked?T.green:"transparent", flexShrink:0, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                    {item.checked && <span style={{ color:"white", fontSize:11 }}>✓</span>}
+                  </div>
+                  <div style={{ flex:1, cursor:"pointer" }} onClick={()=>toggleShopItem(item.id)}>
+                    <div style={{ fontSize:13, color:T.text, textDecoration:item.checked?"line-through":"none" }}>{item.name}</div>
+                    {item.qty && <div style={{ fontSize:10, color:T.muted }}>{item.qty}</div>}
+                  </div>
+                  <div style={{ display:"flex", gap:6 }}>
+                    {item.source!=="regulars" && <button onClick={()=>saveToRegulars(item)} title="Save to My Regulars" style={{ fontSize:9, padding:"3px 7px", borderRadius:6, border:`1px solid ${T.green}44`, background:`${T.green}11`, color:T.green, cursor:"pointer", fontFamily:"inherit" }}>★ Regular</button>}
+                    <button onClick={()=>{ if(window.confirm(`Remove "${item.name}"?`)) setShoppingList(prev=>prev.filter(i=>i.id!==item.id)); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:14 }}>✕</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+          {/* Uncategorised */}
+          {allShopItems.filter(i=>!SHOP_CATS.includes(i.cat)).length > 0 && (
+            <div style={{ background:T.card, borderRadius:14, border:`1px solid ${T.border}`, overflow:"hidden" }}>
+              <div style={{ padding:"8px 14px", background:T.elevated, fontSize:11, fontWeight:700, color:T.muted }}>OTHER</div>
+              {allShopItems.filter(i=>!SHOP_CATS.includes(i.cat)).map(item=>(
+                <div key={item.id} onClick={()=>toggleShopItem(item.id)} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", borderBottom:`1px solid ${T.border}33`, opacity:item.checked?0.45:1, cursor:"pointer" }}>
+                  <div style={{ width:20, height:20, borderRadius:6, border:`2px solid ${item.checked?T.green:T.border}`, background:item.checked?T.green:"transparent", flexShrink:0 }} />
+                  <div style={{ fontSize:13, color:T.text, textDecoration:item.checked?"line-through":"none" }}>{item.name}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ════ COOKED TAB ════ */}
+      {tab==="cooked" && (
+        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+          {cookedMeals.length === 0 && (
+            <div style={{ textAlign:"center", padding:"40px 20px", color:T.muted, fontSize:13 }}>No cooked meals yet. Mark meals as cooked from the Current Meals tab.</div>
+          )}
+          {cookedMeals.map(meal=>(
+            <div key={meal.id} style={{ background:T.card, borderRadius:14, padding:14, border:`1px solid ${meal.saved?T.gold:T.border}` }}>
+              <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:4 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:T.text, flex:1, marginRight:8 }}>{meal.name}</div>
+                <button onClick={()=>setCookedMeals(prev=>prev.map(m=>m.id===meal.id?{...m,saved:!m.saved}:m))} style={{ fontSize:9, padding:"3px 8px", borderRadius:6, border:`1px solid ${meal.saved?T.gold:T.border}`, background:meal.saved?`${T.gold}22`:T.elevated, color:meal.saved?T.gold:T.muted, cursor:"pointer", fontFamily:"inherit", flexShrink:0 }}>
+                  {meal.saved?"★ Saved":"☆ Save"}
+                </button>
               </div>
-              {meal.rating > 0 && (
-                <div style={{ fontSize:13, marginBottom:4 }}>{"⭐".repeat(meal.rating)}{"☆".repeat(5-meal.rating)}</div>
-              )}
-              {meal.notes && <div style={{ fontSize:11, color:T.muted, fontStyle:"italic" }}>{meal.notes}</div>}
-              <div style={{ display:"flex", gap:8, marginTop:8 }}>
-                <button onClick={()=>setRatingTarget(meal)} style={{ fontSize:11, padding:"6px 12px", borderRadius:8, border:`1px solid ${T.gold}44`, background:`${T.gold}18`, color:T.gold, cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>Rate / edit</button>
-                <button onClick={()=>logMealToCalories(meal)} style={{ fontSize:11, padding:"6px 12px", borderRadius:8, border:`1px solid ${T.blue}44`, background:`${T.blue}18`, color:T.blue, cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>+ Log calories</button>
+              <div style={{ fontSize:11, color:T.muted, marginBottom:6 }}>
+                Cooked {meal.cookedDates?.length||0} time{meal.cookedDates?.length!==1?"s":""}{meal.cookedDates?.length>0?` · Last: ${meal.cookedDates[meal.cookedDates.length-1]}`:""}
+              </div>
+              {meal.rating>0 && <div style={{ fontSize:14, marginBottom:4 }}>{"⭐".repeat(meal.rating)}{"☆".repeat(5-meal.rating)}</div>}
+              {meal.ratingNotes && <div style={{ fontSize:11, color:T.muted, fontStyle:"italic", marginBottom:8 }}>{meal.ratingNotes}</div>}
+              <div style={{ display:"flex", gap:8 }}>
+                <button onClick={()=>setRatingTarget(meal)} style={{ flex:1, padding:"7px", borderRadius:9, border:`1px solid ${T.gold}44`, background:`${T.gold}18`, color:T.gold, fontWeight:600, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>
+                  {meal.rating>0?"Edit rating":"Rate it"}
+                </button>
+                <button onClick={()=>{ const entry={id:Date.now(),name:meal.name,kcal:meal.kcal,protein:meal.protein,time:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"})}; setCalLog(prev=>({...prev,[todayLabel]:[...(prev[todayLabel]||[]),entry]})); }} style={{ flex:1, padding:"7px", borderRadius:9, border:`1px solid ${T.blue}44`, background:`${T.blue}18`, color:T.blue, fontWeight:600, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>+ Log calories</button>
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* ── RATING MODAL ── */}
+      {/* ── Rating Modal ── */}
       {ratingTarget && (
         <div style={{ position:"fixed", inset:0, background:"#000a", zIndex:200, display:"flex", alignItems:"flex-end" }} onClick={()=>setRatingTarget(null)}>
           <div onClick={e=>e.stopPropagation()} style={{ background:T.card, borderRadius:"20px 20px 0 0", padding:"24px 20px 40px", width:"100%", maxWidth:480, margin:"0 auto" }}>
@@ -692,7 +932,7 @@ Return ONLY a JSON array — no recipe field needed, keep ingredients list short
                 <button key={n} onClick={()=>setRatingValue(n)} style={{ fontSize:28, background:"none", border:"none", cursor:"pointer", opacity:n<=ratingValue?1:0.3 }}>⭐</button>
               ))}
             </div>
-            <textarea value={ratingNotes} onChange={e=>setRatingNotes(e.target.value)} placeholder="Notes (optional) — what worked, what you'd change, cook again?" rows={3}
+            <textarea value={ratingNotes} onChange={e=>setRatingNotes(e.target.value)} placeholder="Notes — what worked, what you'd change, would you make it again?" rows={3}
               style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", resize:"none", boxSizing:"border-box", marginBottom:12 }} />
             <button onClick={saveRating} style={{ width:"100%", padding:"11px", borderRadius:10, background:T.green, color:"white", fontWeight:700, fontSize:14, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Save rating</button>
           </div>
@@ -702,363 +942,6 @@ Return ONLY a JSON array — no recipe field needed, keep ingredients list short
   );
 }
 
-
-function getRotationInfo() {
-  const start = new Date(USER.rotation.start);
-  const now = new Date();
-  const daysDiff = Math.floor((now - start) / (1000 * 60 * 60 * 24));
-  const cycleLen = (USER.rotation.weeksOn + USER.rotation.weeksOff) * 7;
-  const dayInCycle = daysDiff % cycleLen;
-  const onDays = USER.rotation.weeksOn * 7;
-  const isOn = dayInCycle < onDays;
-  const daysLeft = isOn ? onDays - dayInCycle : cycleLen - dayInCycle;
-  return { isOn, daysLeft, phase: isOn ? "On Rotation" : "Off Rotation" };
-}
-
-function getGreeting() {
-  const h = new Date().getHours();
-  if (h < 12) return "Good morning";
-  if (h < 17) return "Good afternoon";
-  return "Good evening";
-}
-
-function formatDate() {
-  return new Date().toLocaleDateString("en-NZ", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
-}
-
-function getTARSQuip(rotation) {
-  const quips = rotation.isOn
-    ? [`${rotation.daysLeft} days until shore leave. The fridge will miss you.`,
-       `Rotation day ${56 - rotation.daysLeft} of 56. Hull integrity: nominal.`,
-       `${rotation.daysLeft} days remaining. I've calculated the exact number of protein shakes needed.`]
-    : [`${rotation.daysLeft} days of freedom remaining. Use them wisely.`,
-       `Off rotation. Gym has no excuses now.`,
-       `${rotation.daysLeft} days until next rotation. I suggest not spending them all on the couch.`];
-  return quips[new Date().getDate() % quips.length];
-}
-
-// ─── ICONS ───────────────────────────────────────────────────────────────────
-const Icon = ({ name, size=22, color=T.text }) => {
-  const p = { fill:"none", stroke:color, strokeWidth:"2", strokeLinecap:"round", strokeLinejoin:"round" };
-  const icons = {
-    home:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
-    health:   <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>,
-    tasks:    <svg width={size} height={size} viewBox="0 0 24 24" {...p}><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>,
-    calendar: <svg width={size} height={size} viewBox="0 0 24 24" {...p}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
-    finance:  <svg width={size} height={size} viewBox="0 0 24 24" {...p}><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>,
-    work:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/><line x1="12" y1="12" x2="12" y2="12"/></svg>,
-    tars:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="9" y2="9"/><line x1="15" y1="9" x2="15" y2="9"/><line x1="9" y1="15" x2="15" y2="15"/></svg>,
-    mic:      <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>,
-    plane:    <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>,
-    check:    <svg width={size} height={size} viewBox="0 0 24 24" {...{...p,strokeWidth:"2.5"}}><polyline points="20 6 9 17 4 12"/></svg>,
-    plus:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
-    trash:    <svg width={size} height={size} viewBox="0 0 24 24" {...p}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>,
-    back:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><polyline points="15 18 9 12 15 6"/></svg>,
-    weight:   <svg width={size} height={size} viewBox="0 0 24 24" {...p}><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>,
-    pill:     <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M10.5 20H4a2 2 0 01-2-2V6a2 2 0 012-2h16a2 2 0 012 2v7"/><path d="M16 19h6"/><path d="M19 16v6"/></svg>,
-    run:      <svg width={size} height={size} viewBox="0 0 24 24" {...p}><circle cx="13" cy="4" r="2"/><path d="M7.7 22l1.3-5L12 14l1-4"/><path d="M9.1 9.1L6 12H2"/><path d="M14.5 9.5L18 8l1 4-4 1"/></svg>,
-    meals:    <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M18 8h1a4 4 0 010 8h-1"/><path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>,
-    projects: <svg width={size} height={size} viewBox="0 0 24 24" {...p}><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>,
-  };
-  return icons[name] || <span>{name}</span>;
-};
-
-// ─── SHARED UI ────────────────────────────────────────────────────────────────
-function SectionHeader({ title, onBack }) {
-  return (
-    <div style={{ display:"flex", alignItems:"center", gap:12, padding:"16px 20px", borderBottom:`1px solid ${T.border}` }}>
-      <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", padding:4, color:T.muted, display:"flex" }}>
-        <Icon name="back" size={20} color={T.muted} />
-      </button>
-      <div style={{ fontSize:17, fontWeight:700, color:T.text }}>{title}</div>
-    </div>
-  );
-}
-
-function Card({ children, style={} }) {
-  return <div style={{ background:T.card, borderRadius:16, padding:"14px 16px", border:`1px solid ${T.border}`, ...style }}>{children}</div>;
-}
-
-function SectionLabel({ children }) {
-  return <div style={{ fontSize:10, fontWeight:700, letterSpacing:"0.1em", color:T.muted, textTransform:"uppercase", marginBottom:10, marginTop:4 }}>{children}</div>;
-}
-
-function SubTab({ tabs, active, onChange }) {
-  return (
-    <div style={{ display:"flex", gap:0, background:T.elevated, borderRadius:12, padding:3, marginBottom:16 }}>
-      {tabs.map(t => (
-        <button key={t.id} onClick={() => onChange(t.id)} style={{
-          flex:1, padding:"8px 4px", borderRadius:9, border:"none", cursor:"pointer",
-          background: active===t.id ? T.card : "transparent",
-          color: active===t.id ? T.text : T.muted,
-          fontSize:12, fontWeight:600, fontFamily:"inherit",
-          transition:"all 0.15s",
-        }}>{t.label}</button>
-      ))}
-    </div>
-  );
-}
-
-function ProgressBar({ value, min, max, baseline, color }) {
-  const range = max - min;
-  const safeMin = min - range * 0.3;
-  const safeMax = max + range * 0.3;
-  const total = safeMax - safeMin;
-  const pct = v => Math.min(100, Math.max(0, ((v - safeMin) / total) * 100));
-  return (
-    <div style={{ position:"relative", height:8, background:T.elevated, borderRadius:999, margin:"8px 0 4px" }}>
-      <div style={{ position:"absolute", height:8, borderRadius:999, opacity:0.25, background:color, left:`${pct(min)}%`, width:`${pct(max)-pct(min)}%` }} />
-      <div style={{ position:"absolute", top:0, width:2, height:8, background:T.muted, opacity:0.5, left:`${pct(baseline)}%` }} />
-      <div style={{ position:"absolute", top:"50%", transform:"translateY(-50%)", width:12, height:12, borderRadius:"50%", border:"2px solid white", background:color, boxShadow:"0 1px 4px rgba(0,0,0,0.4)", left:`calc(${pct(value)}% - 6px)` }} />
-    </div>
-  );
-}
-
-function MetricCard({ label, value, baseline, unit, target }) {
-  const atTarget = value >= target.min && value <= target.max;
-  const improved = label === "Muscle" ? value >= baseline : value < baseline;
-  const badge = atTarget ? { text:"At target", bg:"#dcfce722", color:T.green } : improved ? { text:"Improving", bg:"#fef9c322", color:T.gold } : { text:"Baseline", bg:"#fee2e222", color:T.accent };
-  return (
-    <Card>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:4 }}>
-        <span style={{ fontSize:10, fontWeight:700, color:T.muted, textTransform:"uppercase", letterSpacing:"0.05em" }}>{label}</span>
-        <span style={{ fontSize:9, padding:"2px 7px", borderRadius:999, fontWeight:700, background:badge.bg, color:badge.color }}>{badge.text}</span>
-      </div>
-      <div style={{ fontSize:24, fontWeight:800, color:T.text }}>{value}<span style={{ fontSize:12, color:T.muted, fontWeight:400 }}> {unit}</span></div>
-      <ProgressBar value={value} min={target.min} max={target.max} baseline={baseline} color={target.color} />
-      <div style={{ display:"flex", justifyContent:"space-between", fontSize:10, color:T.muted }}>
-        <span>Baseline: {baseline}{unit}</span>
-        <span>Target: {target.label}</span>
-      </div>
-    </Card>
-  );
-}
-
-// ─── STAT PILL ────────────────────────────────────────────────────────────────
-function StatPill({ icon, label, value, color=T.blue }) {
-  return (
-    <div style={{ display:"flex", alignItems:"center", gap:6, background:T.elevated, borderRadius:10, padding:"7px 12px", border:`1px solid ${T.border}` }}>
-      <span style={{ color }}>{icon}</span>
-      <div>
-        <div style={{ fontSize:10, color:T.muted, lineHeight:1 }}>{label}</div>
-        <div style={{ fontSize:13, fontWeight:700, color:T.text, lineHeight:1.3 }}>{value}</div>
-      </div>
-    </div>
-  );
-}
-
-// ─── MODULE TILE ──────────────────────────────────────────────────────────────
-function ModuleTile({ icon, label, sublabel, accent, onClick, badge }) {
-  const [hov, setHov] = useState(false);
-  return (
-    <div onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{ background:hov?T.elevated:T.card, borderRadius:16, padding:"18px 14px", border:`1px solid ${hov?accent:T.border}`, cursor:"pointer", transition:"all 0.18s", position:"relative", display:"flex", flexDirection:"column", gap:10, boxShadow:hov?`0 8px 24px rgba(0,0,0,0.3)`:"none" }}>
-      {badge && <div style={{ position:"absolute", top:10, right:10, background:T.accent, color:"white", fontSize:9, fontWeight:700, borderRadius:999, padding:"2px 6px" }}>{badge}</div>}
-      <div style={{ width:38, height:38, borderRadius:12, background:`${accent}18`, display:"flex", alignItems:"center", justifyContent:"center", border:`1px solid ${accent}33` }}>
-        <Icon name={icon} size={19} color={accent} />
-      </div>
-      <div>
-        <div style={{ fontSize:13, fontWeight:700, color:T.text }}>{label}</div>
-        <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{sublabel}</div>
-      </div>
-    </div>
-  );
-}
-
-// ─── COMING SOON ─────────────────────────────────────────────────────────────
-function ComingSoon({ label, icon, accent, onBack }) {
-  return (
-    <div>
-      <SectionHeader title={label} onBack={onBack} />
-      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"55vh", gap:16, padding:32 }}>
-        <div style={{ width:64, height:64, borderRadius:20, background:`${accent}18`, border:`1px solid ${accent}33`, display:"flex", alignItems:"center", justifyContent:"center" }}>
-          <Icon name={icon} size={30} color={accent} />
-        </div>
-        <div style={{ textAlign:"center" }}>
-          <div style={{ fontSize:18, fontWeight:700, color:T.text, marginBottom:6 }}>{label}</div>
-          <div style={{ fontSize:13, color:T.muted, lineHeight:1.6 }}>Coming soon — we're building it together.</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// ─── TO DO SCREEN ─────────────────────────────────────────────────────────────
-// ═══════════════════════════════════════════════════════════════════════════════
-const CATS = ["All", "Health", "Admin", "Work", "Home", "Shopping", "Entertainment"];
-const CAT_COLORS = { Health:T.accent, Admin:T.blue, Work:T.gold, Home:T.green, Shopping:T.purple, Entertainment:"#fb923c" };
-const PRIORITY_COLORS = { high:T.accent, med:T.gold, low:T.green };
-
-function TodoScreen({ tasks, setTasks, onBack }) {
-  const [filterCat, setFilterCat] = useState("All");
-  const [filterStatus, setFilterStatus] = useState("active");
-  const [adding, setAdding] = useState(false);
-  const [newTask, setNewTask] = useState({ text:"", cat:"Admin", priority:"med", due:"" });
-
-  const filtered = tasks.filter(t => {
-    const catOk = filterCat === "All" || t.cat === filterCat;
-    const statusOk = filterStatus === "all" || (filterStatus === "active" ? !t.done : t.done);
-    return catOk && statusOk;
-  });
-
-  const toggle = (id) => setTasks(prev => prev.map(t => t.id === id ? {...t, done:!t.done} : t));
-  const remove = (id) => setTasks(prev => prev.filter(t => t.id !== id));
-  const add = () => {
-    if (!newTask.text.trim()) return;
-    setTasks(prev => [...prev, { ...newTask, id:Date.now(), done:false }]);
-    setNewTask({ text:"", cat:"Admin", priority:"med", due:"" });
-    setAdding(false);
-  };
-
-  const pending = tasks.filter(t => !t.done).length;
-
-  return (
-    <div>
-      <SectionHeader title="To Do" onBack={onBack} />
-      <div style={{ padding:"16px 16px 0" }}>
-
-        {/* Summary */}
-        <div style={{ display:"flex", gap:10, marginBottom:16 }}>
-          {[
-            { label:"Pending",   value:pending,                    color:T.accent },
-            { label:"Done today",value:tasks.filter(t=>t.done).length, color:T.green },
-            { label:"Total",     value:tasks.length,               color:T.blue },
-          ].map(s => (
-            <div key={s.label} style={{ flex:1, background:T.card, borderRadius:12, padding:"10px 12px", border:`1px solid ${T.border}`, textAlign:"center" }}>
-              <div style={{ fontSize:20, fontWeight:800, color:s.color }}>{s.value}</div>
-              <div style={{ fontSize:10, color:T.muted }}>{s.label}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* Status filter */}
-        <SubTab
-          tabs={[{id:"active",label:"Active"},{id:"done",label:"Done"},{id:"all",label:"All"}]}
-          active={filterStatus} onChange={setFilterStatus}
-        />
-
-        {/* Category pills */}
-        <div style={{ display:"flex", gap:6, flexWrap:"wrap", paddingBottom:12, marginBottom:4 }}>
-          {CATS.map(c => (
-            <button key={c} onClick={() => setFilterCat(c)} style={{
-              padding:"5px 12px", borderRadius:999, border:"none", cursor:"pointer", whiteSpace:"nowrap", fontFamily:"inherit",
-              fontSize:11, fontWeight:600,
-              background: filterCat===c ? (CAT_COLORS[c]||T.blue) : T.elevated,
-              color: filterCat===c ? "white" : T.muted,
-              transition:"all 0.15s",
-            }}>{c}</button>
-          ))}
-        </div>
-
-        {/* Task list */}
-        <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:16 }}>
-          {filtered.length === 0 && (
-            <div style={{ textAlign:"center", padding:"32px 0", color:T.muted, fontSize:13 }}>No tasks here 👌</div>
-          )}
-          {filtered.map(task => (
-            <div key={task.id} style={{ background:T.card, borderRadius:12, padding:"12px 14px", border:`1px solid ${T.border}`, display:"flex", alignItems:"flex-start", gap:10 }}>
-              <div onClick={() => toggle(task.id)} style={{
-                width:20, height:20, borderRadius:6, flexShrink:0, marginTop:1,
-                border:`2px solid ${task.done ? T.green : T.border}`,
-                background: task.done ? T.green : "transparent",
-                display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", transition:"all 0.15s",
-              }}>
-                {task.done && <Icon name="check" size={11} color="white" />}
-              </div>
-              <div style={{ flex:1 }}>
-                <div style={{ fontSize:13, fontWeight:600, color:task.done?T.muted:T.text, textDecoration:task.done?"line-through":"none" }}>{task.text}</div>
-                <div style={{ display:"flex", gap:6, marginTop:5, flexWrap:"wrap" }}>
-                  <span style={{ fontSize:9, fontWeight:700, padding:"2px 7px", borderRadius:999, background:`${CAT_COLORS[task.cat]||T.blue}22`, color:CAT_COLORS[task.cat]||T.blue }}>{task.cat}</span>
-                  <span style={{ fontSize:9, fontWeight:700, padding:"2px 7px", borderRadius:999, background:`${PRIORITY_COLORS[task.priority]}22`, color:PRIORITY_COLORS[task.priority] }}>{task.priority}</span>
-                  {task.due && <span style={{ fontSize:9, color:T.muted }}>{task.due}</span>}
-                </div>
-              </div>
-              <button onClick={() => { if(window.confirm(`Delete task "${task.text}"?`)) remove(task.id); }} style={{ background:"none", border:"none", cursor:"pointer", padding:2, opacity:0.4 }}>
-                <Icon name="trash" size={15} color={T.muted} />
-              </button>
-            </div>
-          ))}
-        </div>
-
-        {/* Add task */}
-        {adding ? (
-          <Card style={{ marginBottom:16 }}>
-            <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:10 }}>New Task</div>
-            <input value={newTask.text} onChange={e=>setNewTask(p=>({...p,text:e.target.value}))}
-              placeholder="What needs doing?" onKeyDown={e=>e.key==="Enter"&&add()}
-              style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", marginBottom:8, outline:"none" }} />
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:10 }}>
-              <div>
-                <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Category</div>
-                <select value={newTask.cat} onChange={e=>setNewTask(p=>({...p,cat:e.target.value}))}
-                  style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit" }}>
-                  {CATS.filter(c=>c!=="All").map(c=><option key={c}>{c}</option>)}
-                </select>
-              </div>
-              <div>
-                <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Priority</div>
-                <select value={newTask.priority} onChange={e=>setNewTask(p=>({...p,priority:e.target.value}))}
-                  style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit" }}>
-                  <option value="high">High</option>
-                  <option value="med">Medium</option>
-                  <option value="low">Low</option>
-                </select>
-              </div>
-            </div>
-            <input value={newTask.due} onChange={e=>setNewTask(p=>({...p,due:e.target.value}))}
-              placeholder="Due date (optional)" type="date"
-              style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", marginBottom:10, outline:"none" }} />
-            <div style={{ display:"flex", gap:8 }}>
-              <button onClick={add} style={{ flex:1, padding:"10px", borderRadius:10, background:T.green, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Add Task</button>
-              <button onClick={()=>setAdding(false)} style={{ padding:"10px 16px", borderRadius:10, background:T.elevated, color:T.muted, fontWeight:700, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>Cancel</button>
-            </div>
-          </Card>
-        ) : (
-          <button onClick={()=>setAdding(true)} style={{ width:"100%", padding:"12px", borderRadius:12, background:T.elevated, border:`1px solid ${T.border}`, color:T.blue, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", justifyContent:"center", gap:6, marginBottom:16 }}>
-            <Icon name="plus" size={15} color={T.blue} /> New Task
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── MEAL REVIEW MODAL ───────────────────────────────────────────────────────
-function MealReviewModal({ meal, onSave, onClose }) {
-  const [rating, setRating] = useState(meal.rating||0);
-  const [cookAgain, setCookAgain] = useState(meal.cookAgain||null);
-  const [notes, setNotes] = useState(meal.notes||"");
-  return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:200, display:"flex", alignItems:"flex-end" }}>
-      <div style={{ background:T.card, borderRadius:"20px 20px 0 0", padding:"20px 20px 40px", width:"100%", maxWidth:480, margin:"0 auto" }}>
-        <div style={{ fontSize:15, fontWeight:700, color:T.text, marginBottom:4 }}>{meal.name}</div>
-        <div style={{ fontSize:11, color:T.muted, marginBottom:14 }}>Rate this meal</div>
-        <div style={{ display:"flex", gap:6, marginBottom:14 }}>
-          {[1,2,3,4,5].map(n=>(
-            <span key={n} onClick={()=>setRating(n)} style={{ fontSize:26, cursor:"pointer", opacity:rating>=n?1:0.25, transition:"opacity 0.1s" }}>★</span>
-          ))}
-        </div>
-        <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Notes — taste, tweaks, what you'd change…" rows={2}
-          style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", resize:"none", outline:"none", marginBottom:10, boxSizing:"border-box" }} />
-        <div style={{ display:"flex", gap:8, marginBottom:12, alignItems:"center" }}>
-          <div style={{ fontSize:12, color:T.muted, flex:1 }}>Cook again?</div>
-          {["yes","no"].map(v=>(
-            <button key={v} onClick={()=>setCookAgain(v)} style={{ padding:"6px 16px", borderRadius:999, border:"none", cursor:"pointer", fontFamily:"inherit", fontSize:11, fontWeight:700,
-              background:cookAgain===v?(v==="yes"?`${T.green}33`:`${T.accent}33`):T.elevated,
-              color:cookAgain===v?(v==="yes"?T.green:T.accent):T.muted }}>
-              {v==="yes"?"👍 Yes":"👎 No"}
-            </button>
-          ))}
-        </div>
-        <div style={{ display:"flex", gap:8 }}>
-          <button onClick={()=>onSave(rating,cookAgain,notes)} style={{ flex:1, padding:"11px", borderRadius:10, background:T.green, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Save Review</button>
-          <button onClick={onClose} style={{ padding:"11px 16px", borderRadius:10, background:T.elevated, color:T.muted, fontWeight:700, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>Cancel</button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 
 function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
@@ -1122,7 +1005,7 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
     {id:"overview",label:"Overview"},{id:"trends",label:"Trends"},
     {id:"history",label:"History"},{id:"activity",label:"Activity"},
     {id:"calories",label:"Calories"},{id:"supplements",label:"Supps"},
-    {id:"exercise",label:"Exercise"},{id:"meal-planning",label:"Meal Planning"},
+    {id:"exercise",label:"Exercise"},
   ];
 
   return (
@@ -1453,11 +1336,6 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
           </div>
         )}
 
-        {/* MEAL PLANNING */}
-        {tab==="meal-planning" && (
-          <MealPlanScreen calLog={calLog} setCalLog={setCalLog} todayLabel={today} appState={{}} />
-        )}
-
       </div>
     </div>
   );
@@ -1504,6 +1382,7 @@ function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo 
           <ModuleTile icon="tasks"    label="To Do"     sublabel={`${completedToday}/${tasks.length} today`} accent={T.green}  onClick={()=>onNavigate("tasks")} badge={pendingHigh||null} />
           <ModuleTile icon="calendar" label="Calendar"  sublabel="Flights & rotation"        accent={T.gold}   onClick={()=>onNavigate("calendar")} />
           <ModuleTile icon="finance"  label="Finance"   sublabel="Budget & spending"         accent={T.purple} onClick={()=>onNavigate("finance")} />
+          <ModuleTile icon="meals"    label="Meals"     sublabel="Plan, shop & cook"         accent={T.gold}   onClick={()=>onNavigate("meals")} />
           <ModuleTile icon="work"     label="Work"      sublabel="Certs & vessel log"        accent={T.blue}   onClick={()=>onNavigate("work")} />
           <ModuleTile icon="projects" label="Projects"  sublabel="Plan with TARS"            accent={T.green}  onClick={()=>onNavigate("projects")} />
         </div>
@@ -3912,6 +3791,14 @@ export default function LifeApp() {
     switch(screen) {
       case "home":     return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} />;
       case "health":   return <HealthScreen onBack={()=>setScreen("home")} entries={healthEntries} setEntries={setHealthEntries} calLog={calLog} setCalLog={setCalLog} />;
+      case "meals":    return (
+        <div>
+          <SectionHeader title="Meal Planning" onBack={()=>setScreen("home")} />
+          <div style={{ padding:"0 16px 24px" }}>
+            <MealPlanScreen calLog={calLog} setCalLog={setCalLog} todayLabel={todayLabel} />
+          </div>
+        </div>
+      );
       case "tasks":    return <TodoScreen tasks={tasks} setTasks={setTasks} onBack={()=>setScreen("home")} />;
       case "calendar": return <CalendarScreen onBack={()=>setScreen("home")} calEvents={calEvents} rotationBlocks={rotationBlocks} addCalEvent={addCalEvent} removeCalEvent={removeCalEvent} addRotation={addRotation} removeRotation={removeRotation} tasks={tasks} />;
       case "finance":  return <ComingSoon label="Finance" icon="finance" accent={T.purple} onBack={()=>setScreen("home")} />;
