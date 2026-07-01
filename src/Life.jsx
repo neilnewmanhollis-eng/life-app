@@ -2984,6 +2984,23 @@ ${(() => {
       }
     },
     {
+      label: "CALORIE HISTORY (last 7 days — use this for questions about previous days)",
+      data: (() => {
+        const entries = Object.entries(calLog)
+          .filter(([date]) => date !== todayLabel)
+          .slice(-7)
+          .reverse();
+        return entries;
+      })(),
+      format: (days) => days.length === 0 ? "No history yet" : days.map(([date, items]) => {
+        const kcal = items.reduce((s,e)=>s+e.kcal,0);
+        const protein = items.reduce((s,e)=>s+e.protein,0);
+        const itemList = items.map(e=>`${e.name} (${e.kcal}kcal, ${e.protein}g)`).join(", ");
+        return `  ${date}: ${kcal}kcal, ${protein}g protein — ${itemList}`;
+      }).join("\n"),
+      skipIfEmpty: true
+    },
+    {
       label: "EXERCISE ROUTINE",
       data: EXERCISES,
       format: (ex) => `Bodyweight training (Mon/Wed/Fri), walking (Tue/Thu/Sat), rest (Sun).\nToday's training session:\n${ex.map(e=>`  - ${e.name}: ${e.detail} (${e.muscles})`).join("\n")}`
