@@ -1959,27 +1959,105 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addCalEvent, remove
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ─── TARS MEMORY SYSTEM ──────────────────────────────────────────────────────
-const MEMORY_KEY = "tars_memory";
-const MAX_MEMORY_CHARS = 4000;
+// ─── MEMORY ARCHITECTURE ──────────────────────────────────────────────────────
+// Two-tier memory system for main TARS. Projects have their own persistent
+// conversation which IS their memory — this is for the top-bar TARS only.
+//
+// TIER 1 — Durable profile: structured insights about Neil as a person.
+//   Preferences, patterns, things mentioned, how he thinks. Not facts already
+//   visible in the app (tasks/calendar/health) — the human layer on top of that.
+//   Grows incrementally, never fully overwritten.
+//
+// TIER 2 — Session summaries: a rolling window of the last 5 conversations.
+//   Gives TARS genuine continuity — "we discussed X yesterday" — not just facts.
+//   Each session adds one entry, oldest drops off at 5.
+//
+// STORAGE — abstracted into MemoryStore so cloud sync (GitHub Gist, next major
+//   update) can replace localStorage here without touching any memory logic above.
 
-function loadMemory() {
-  try { return localStorage.getItem(MEMORY_KEY) || ""; }
-  catch { return ""; }
-}
+const MEMORY_KEYS = {
+  profile:  "tars_memory_profile",   // Tier 1: durable personal profile
+  sessions: "tars_memory_sessions",  // Tier 2: rolling session summaries
+  legacy:   "tars_memory",           // Old single-string format — migrated on first load
+};
 
-function saveMemory(text) {
-  try { localStorage.setItem(MEMORY_KEY, text.slice(0, MAX_MEMORY_CHARS)); }
-  catch {}
-}
+const MAX_PROFILE_CHARS   = 3000;  // ~750 tokens — enough for rich personal profile
+const MAX_SESSION_CHARS   = 600;   // ~150 tokens per session summary
+const MAX_SESSIONS_STORED = 5;     // Rolling window of last 5 conversations
 
-async function summariseSession(messages, existingMemory) {
-  const apiKey = getAnthropicKey();
-  if (!apiKey || messages.length < 3) return existingMemory;
+// ── MemoryStore — abstracted storage layer (swap for cloud sync later) ────────
+const MemoryStore = {
+  getProfile() {
+    try {
+      // Migrate from old single-string format if it exists
+      const legacy = localStorage.getItem(MEMORY_KEYS.legacy);
+      if (legacy && !localStorage.getItem(MEMORY_KEYS.profile)) {
+        localStorage.setItem(MEMORY_KEYS.profile, legacy);
+        localStorage.removeItem(MEMORY_KEYS.legacy);
+      }
+      return localStorage.getItem(MEMORY_KEYS.profile) || "";
+    } catch { return ""; }
+  },
 
+  setProfile(text) {
+    try { localStorage.setItem(MEMORY_KEYS.profile, text.slice(0, MAX_PROFILE_CHARS)); }
+    catch {}
+  },
+
+  getSessions() {
+    try { return JSON.parse(localStorage.getItem(MEMORY_KEYS.sessions) || "[]"); }
+    catch { return []; }
+  },
+
+  addSession(summary) {
+    try {
+      const sessions = this.getSessions();
+      sessions.unshift({ // newest first
+        date: new Date().toLocaleDateString("en-NZ", { day:"numeric", month:"short", year:"numeric" }),
+        summary: summary.slice(0, MAX_SESSION_CHARS),
+      });
+      // Keep only the last MAX_SESSIONS_STORED
+      if (sessions.length > MAX_SESSIONS_STORED) sessions.splice(MAX_SESSIONS_STORED);
+      localStorage.setItem(MEMORY_KEYS.sessions, JSON.stringify(sessions));
+    } catch {}
+  },
+
+  clearAll() {
+    try {
+      localStorage.removeItem(MEMORY_KEYS.profile);
+      localStorage.removeItem(MEMORY_KEYS.sessions);
+      localStorage.removeItem(MEMORY_KEYS.legacy);
+    } catch {}
+  },
+
+  // Build the full memory context string injected into every TARS message
+  buildContext() {
+    const profile = this.getProfile();
+    const sessions = this.getSessions();
+    let context = "";
+    if (profile) context += `WHAT TARS HAS LEARNED ABOUT NEIL OVER TIME:\n${profile}`;
+    if (sessions.length > 0) {
+      context += `\n\nRECENT CONVERSATIONS (last ${sessions.length} session${sessions.length>1?"s":""}):\n`;
+      context += sessions.map((s, i) =>
+        `${i === 0 ? "Most recent" : s.date}: ${s.summary}`
+      ).join("\n");
+    }
+    return context;
+  }
+};
+
+// ── Memory update functions ────────────────────────────────────────────────────
+
+async function updateDurableProfile(messages, apiKey) {
+  // Tier 1: extract genuinely new personal insights from this conversation
+  // and merge them into the durable profile. Runs on Haiku — cheap, fast.
   const transcript = messages
-    .filter(m => typeof m.content === "string")
+    .filter(m => typeof m.content === "string" && m.role !== "system")
+    .slice(-20) // last 20 messages is enough context
     .map(m => `${m.role === "user" ? "Neil" : "TARS"}: ${m.content}`)
     .join("\n");
+
+  const existing = MemoryStore.getProfile();
 
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -1991,24 +2069,86 @@ async function summariseSession(messages, existingMemory) {
         "anthropic-dangerous-direct-browser-access": "true",
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5",
-        max_tokens: 600,
-        system: `You are updating a persistent memory file for TARS, an AI assistant for Neil Newman-Hollis. 
-Extract only genuinely new, specific, useful things learned about Neil from this conversation — preferences, patterns, things that made him laugh, frustrations, goals mentioned, habits observed, topics discussed. 
-Write in plain sentences as notes TARS can use to feel more familiar with Neil next session.
-Be specific and concrete. Skip generic health info already known. Skip anything already covered in existing memory.
-Keep the total under 400 words. Return only the updated memory text, no preamble.`,
+        model: HAIKU,
+        max_tokens: 500,
+        system: `You are updating a personal profile for TARS, an AI that knows Neil Newman-Hollis well.
+
+Extract ONLY things from this conversation that genuinely reveal something about Neil as a person — preferences that emerged, patterns noticed, personal things he mentioned, how he reacted to things, what made him engage more or less. 
+
+DO NOT include:
+- Facts already visible in the app (his weight, tasks, calendar events, flights)
+- Generic information (he's a Second Officer, he lives in Christchurch — already known)
+- Anything vague or obvious
+
+DO include:
+- Specific preferences that emerged ("preferred lamb dish over the chicken one")
+- How he communicates in practice ("tends to send follow-up messages when he wants to change direction")
+- Personal things mentioned in passing ("mentioned his sister is visiting")  
+- What landed well or didn't ("the chips joke went down well again")
+- Patterns in his decisions or thinking
+
+Write as concise bullet points. Merge with existing profile — don't repeat what's already there. Keep total under 600 words. Return only the updated profile text, no preamble.`,
         messages: [{
           role: "user",
-          content: `EXISTING MEMORY:\n${existingMemory || "None yet."}\n\nTODAY'S CONVERSATION:\n${transcript.slice(0, 3000)}\n\nUpdate the memory with anything genuinely new and useful learned today.`
+          content: `EXISTING PROFILE:\n${existing || "Empty — first session."}\n\nCONVERSATION:\n${transcript.slice(0, 2500)}\n\nUpdate the profile with anything genuinely new.`
         }]
       }),
     });
-    if (!response.ok) return existingMemory;
+    if (!response.ok) return;
     const data = await response.json();
-    return data.content?.map(b => b.text || "").join("") || existingMemory;
-  } catch { return existingMemory; }
+    const updated = data.content?.map(b => b.text || "").join("") || "";
+    if (updated) MemoryStore.setProfile(updated);
+  } catch {}
 }
+
+async function addSessionSummary(messages, apiKey) {
+  // Tier 2: generate a brief summary of what was actually discussed in this session.
+  // Focuses on topics and context, not personal insights (that's Tier 1's job).
+  const transcript = messages
+    .filter(m => typeof m.content === "string" && m.role !== "system")
+    .map(m => `${m.role === "user" ? "Neil" : "TARS"}: ${m.content}`)
+    .join("\n");
+
+  if (transcript.length < 100) return; // skip trivial sessions
+
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: HAIKU,
+        max_tokens: 200,
+        system: `Summarise this TARS conversation in 2-3 concise sentences. Focus on what was discussed and any decisions or actions taken. This gives TARS context for future conversations. No preamble, just the summary.`,
+        messages: [{
+          role: "user",
+          content: transcript.slice(0, 2500)
+        }]
+      }),
+    });
+    if (!response.ok) return;
+    const data = await response.json();
+    const summary = data.content?.map(b => b.text || "").join("") || "";
+    if (summary) MemoryStore.addSession(summary);
+  } catch {}
+}
+
+async function saveSessionMemory(messages, apiKey) {
+  // Run both tiers in parallel — both use Haiku so combined cost is minimal
+  await Promise.all([
+    updateDurableProfile(messages, apiKey),
+    addSessionSummary(messages, apiKey),
+  ]);
+}
+
+// Keep these for backwards compatibility with the save button handler
+function loadMemory() { return MemoryStore.buildContext(); }
+function saveMemory(text) { MemoryStore.setProfile(text); }
+
 
 // ─── MODULE REGISTRY ──────────────────────────────────────────────────────────
 // This is the foundation of TARS's full app access. Every module Neil's data lives
@@ -2143,9 +2283,8 @@ function TarsScreen({ onBack, appState }) {
   const handleSaveSession = async () => {
     if (memorySaving || messages.length < 3) return;
     setMemorySaving(true);
-    const existing = loadMemory();
-    const updated = await summariseSession(messages, existing);
-    saveMemory(updated);
+    const apiKey = getAnthropicKey();
+    if (apiKey) await saveSessionMemory(messages, apiKey);
     setMemorySaving(false);
     setMemoryJustSaved(true);
     setTimeout(() => setMemoryJustSaved(false), 2000);
@@ -2457,8 +2596,6 @@ A React PWA deployed on GitHub Pages at: https://neilnewmanhollis-eng.github.io/
     const rotationSummary = (rotationBlocks||[])
       .map(b=>`${b.start} to ${b.end}${b.notes?` (${b.notes})`:""}`)
       .join("\n") || "none set";
-    const memory = loadMemory();
-
     return `You are TARS. Not an AI assistant, not Claude, not a chatbot. You are TARS — the dry, deadpan AI unit from Interstellar, now hardwired into Neil's Life app as his personal AI.
 
 IDENTITY: Never say you are Claude or mention Anthropic. You are TARS. You are fully integrated into Neil's app and can log food, add tasks, add calendar events, and update health stats. Never claim you cannot do something the app supports.
@@ -2691,7 +2828,10 @@ ${(() => {
     .join("\n\n");
 })()}
 
-${memory ? `MEMORY FROM PREVIOUS SESSIONS:\n${memory}` : "No previous session memory yet."}`;
+${(() => {
+    const memCtx = MemoryStore.buildContext();
+    return memCtx ? `\n${memCtx}` : "\nNo session memory yet — this is early days.";
+  })()}`;
   };
 
   // ── Execute confirmed action ──
@@ -3388,9 +3528,20 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
             {keysSaved ? "✓ Saved" : "Save Keys"}
           </button>
           <div style={{ marginTop:12, paddingTop:12, borderTop:`1px solid ${T.border}` }}>
-            <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:6 }}>Session Memory {loadMemory() ? "✓ Active" : "— None yet"}</div>
-            <div style={{ fontSize:11, color:T.muted, lineHeight:1.5, marginBottom:8 }}>{loadMemory() ? `${loadMemory().length} characters stored. TARS reads this at the start of every session.` : "No memory saved yet. Chat with TARS then tap 💾 save to start building memory."}</div>
-            {loadMemory() && <button onClick={()=>{ if(window.confirm("Clear all TARS memory? This cannot be undone.")) { saveMemory(""); window.location.reload(); }}} style={{ width:"100%", padding:"7px", borderRadius:8, background:`${T.accent}11`, border:`1px solid ${T.accent}33`, color:T.accent, fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>Clear Memory</button>}
+            <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:6 }}>
+              TARS Memory {MemoryStore.getProfile() ? "✓ Active" : "— None yet"}
+            </div>
+            <div style={{ fontSize:11, color:T.muted, lineHeight:1.5, marginBottom:8 }}>
+              {MemoryStore.getProfile()
+                ? `Profile: ${MemoryStore.getProfile().length} chars · Sessions: ${MemoryStore.getSessions().length} stored. Tap 💾 save after any conversation to update.`
+                : "No memory yet. Chat with TARS then tap 💾 save to start building his understanding of you."}
+            </div>
+            {(MemoryStore.getProfile() || MemoryStore.getSessions().length > 0) && (
+              <button onClick={()=>{ if(window.confirm("Clear all TARS memory? This removes both his personal profile and session history. Cannot be undone.")) { MemoryStore.clearAll(); window.location.reload(); }}}
+                style={{ width:"100%", padding:"7px", borderRadius:8, background:`${T.accent}11`, border:`1px solid ${T.accent}33`, color:T.accent, fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>
+                Clear All Memory
+              </button>
+            )}
           </div>
         </div>
       )}
