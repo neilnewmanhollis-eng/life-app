@@ -2590,23 +2590,87 @@ ACTION:{"type":"delete_cal_event","title":"GP Appointment","date":"2026-07-04"}
 
 IMPORTANT: Only include the ACTION line when you are proposing an action that needs confirmation. Never say you have done something without first getting confirmation via this flow. The ACTION line is machine-readable — do not wrap it in quotes or markdown. The "date" field must always be in YYYY-MM-DD format using the exact date you resolved from the reference table above, never a relative term. You DO have the ability to delete calendar events — never tell Neil you can't, use the delete_cal_event action instead.
 
+
 LIVE DATA — right now:
 Today is ${today}.
-Weight: ${latestHealth.weight || 89.0} kg. Body fat: ${latestHealth.bodyFat || 25.2}%. Fat mass: ${latestHealth.fatMass || 22.4} kg. Muscle: ${latestHealth.muscle || 35.6} kg. BP: ${latestHealth.bp || "127/75"}.
-Calories logged today: ${todayKcal}. Protein: ${todayProtein}g. Targets: 1900 to 2000 cal, 140 to 160g protein.
-PENDING TASKS (match Neil's natural description against the text below, then use that exact id for updates):
-${pendingTasks}
 
-RECENTLY COMPLETED TASKS (for reference if Neil asks "did I already..."): ${completedTasksRecent}
+${(() => {
+  // ── STATE_SLICES REGISTRY ──────────────────────────────────────────────────
+  // The single source of truth for everything TARS can see about the app's live state.
+  // Adding a new module: add one entry here. TARS automatically gets visibility. Done.
+  // Format: { label, data, format, skipIfEmpty }
+  const STATE_SLICES = [
+    {
+      label: "HEALTH (latest check-in)",
+      data: latestHealth,
+      format: (h) => `Weight: ${h.weight||89.0}kg, Body fat: ${h.bodyFat||25.2}%, Fat mass: ${h.fatMass||22.4}kg, Muscle: ${h.muscle||35.6}kg, BP: ${h.bp||"127/75"}`
+    },
+    {
+      label: "TODAY'S NUTRITION",
+      data: { kcal: todayKcal, protein: todayProtein, entries: todayEntries },
+      format: ({ kcal, protein, entries }) => {
+        const entryList = entries.length > 0
+          ? entries.map(e => `  - ${e.name}: ${e.kcal}kcal, ${e.protein}g protein (${e.time})`).join("\n")
+          : "  Nothing logged yet";
+        return `Calories: ${kcal} of 1900-2000 target. Protein: ${protein}g of 140-160g target.\nLogged items today:\n${entryList}`;
+      }
+    },
+    {
+      label: "EXERCISE ROUTINE",
+      data: EXERCISES,
+      format: (ex) => `Bodyweight training (Mon/Wed/Fri), walking (Tue/Thu/Sat), rest (Sun).\nToday's training session:\n${ex.map(e=>`  - ${e.name}: ${e.detail} (${e.muscles})`).join("\n")}`
+    },
+    {
+      label: "SUPPLEMENTS",
+      data: SUPPLEMENTS,
+      format: (s) => s.map(x=>`  - ${x.name} — ${x.when} (${x.phase})`).join("\n")
+    },
+    {
+      label: "PENDING TASKS (use exact id when marking complete)",
+      data: tasks.filter(t=>!t.done),
+      format: (t) => t.length === 0 ? "none" : t.map(x=>`  id:${x.id} "${x.text}" (${x.cat}, ${x.priority} priority${x.due?`, due ${x.due}`:""})`).join("\n"),
+      skipIfEmpty: false
+    },
+    {
+      label: "RECENTLY COMPLETED TASKS",
+      data: tasks.filter(t=>t.done).slice(-5),
+      format: (t) => t.length === 0 ? "none" : t.map(x=>`  "${x.text}"`).join(", "),
+      skipIfEmpty: true
+    },
+    {
+      label: "FULL CALENDAR (every event — use for any date/schedule question)",
+      data: calEvents.slice().sort((a,b)=>new Date(a.date)-new Date(b.date)),
+      format: (evs) => evs.length === 0 ? "No events" : evs.map(e=>`  id:${e.id} | ${e.title} | ${e.date}${e.time?` ${e.time}`:""}${e.location?` (${e.location} local time)`:""} | ${e.type}`).join("\n")
+    },
+    {
+      label: "ROTATION BLOCKS (Man of Steel — for leave planning and days-on-board questions)",
+      data: rotationBlocks||[],
+      format: (blocks) => blocks.length === 0 ? "none set" : blocks.map(b=>`  ${b.start} to ${b.end}${b.notes?` (${b.notes})`:""}`).join("\n")
+    },
+    {
+      label: "CURRENT MEAL PLAN (meals selected for this week)",
+      data: (() => { try { return JSON.parse(localStorage.getItem("meal_current")||"[]"); } catch { return []; } })(),
+      format: (meals) => meals.length === 0 ? "No meals currently selected" : meals.map(m=>`  - ${m.name}: ${m.kcal}kcal, ${m.protein}g protein/serve (~$${m.costPerServe?.toFixed(0)||"?"}NZD/serve)`).join("\n"),
+      skipIfEmpty: true
+    },
+    {
+      label: "MEAL LIBRARY (use for calorie logging by meal name)",
+      data: (() => { try { return JSON.parse(localStorage.getItem("meal_library")||"[]").filter(m=>!m.cooked); } catch { return []; } })(),
+      format: (meals) => meals.length === 0 ? "empty" : meals.map(m=>`  "${m.name}": ${m.kcal}kcal, ${m.protein}g protein`).join("\n"),
+      skipIfEmpty: true
+    },
+    // ── FUTURE MODULES — add entries here as Work, Finance etc get built ──────
+    // { label: "WORK CERTIFICATES", data: certificates, format: (c) => c.map(...).join("\n") },
+    // { label: "FINANCE", data: expenses, format: (e) => ... },
+  ];
 
-FULL CALENDAR (every event Neil has — use this for any date/schedule question, not just "upcoming"):
-${allCalEvents}
+  return STATE_SLICES
+    .filter(slice => !slice.skipIfEmpty || (Array.isArray(slice.data) ? slice.data.length > 0 : !!slice.data))
+    .map(slice => `${slice.label}:\n${slice.format(slice.data)}`)
+    .join("\n\n");
+})()}
 
-ROTATION BLOCKS (Man of Steel — use this for any "how many days on my next rotation" or leave planning question; work out the day count yourself from start/end dates using the date reference tables above):
-${rotationSummary}
-
-${memory ? `MEMORY FROM PREVIOUS SESSIONS — things learned about Neil over time:
-${memory}` : "No previous session memory yet. This is early days."}`;
+${memory ? `MEMORY FROM PREVIOUS SESSIONS:\n${memory}` : "No previous session memory yet."}`;
   };
 
   // ── Execute confirmed action ──
