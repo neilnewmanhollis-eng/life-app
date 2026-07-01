@@ -18,7 +18,346 @@ function usePersistentState(key, defaultValue) {
   return [value, setValue];
 }
 
+// ─── THEME & CONSTANTS ────────────────────────────────────────────────────────
+const T = {
+  bg:       "#0a0f1e",
+  card:     "#111827",
+  elevated: "#1a2744",
+  accent:   "#e94560",
+  blue:     "#4facde",
+  gold:     "#f5a623",
+  green:    "#22c55e",
+  purple:   "#a78bfa",
+  text:     "#f8f9fb",
+  muted:    "#64748b",
+  border:   "#1e2d4a",
+};
+
+// ─── INITIAL DATA ─────────────────────────────────────────────────────────────
+const USER = {
+  name: "Neil",
+  rotation: { start: "2026-06-26", weeksOn: 8, weeksOff: 8 },
+  health: { weight: 89.0, target: 81, bodyFat: 25.2, fatMass: 22.4, muscle: 35.6, bp: "127/75" },
+  nextFlight: { route: "CHC → ORD", date: "24 Aug 2026", carrier: "United" },
+};
+
+const INIT_TASKS = [
+  { id:1, text:"Take morning supplements", done:false, priority:"high",  cat:"Health",  due:"Today" },
+  { id:2, text:"Bodyweight training session", done:false, priority:"high",  cat:"Health",  due:"Today" },
+  { id:3, text:"Log meals in planner",       done:true,  priority:"med",   cat:"Health",  due:"Today" },
+  { id:4, text:"Book GP appointment",        done:false, priority:"high",  cat:"Admin",   due:"This week" },
+  { id:5, text:"Review Chief Officer CVs",   done:false, priority:"med",   cat:"Work",    due:"This week" },
+];
+
+const HEALTH_TARGETS = {
+  weight:  { min:79,   max:81,  label:"79–81 kg",  color:T.blue },
+  bodyFat: { min:18,   max:20,  label:"18–20%",    color:T.accent },
+  fatMass: { min:14,   max:16,  label:"14–16 kg",  color:T.gold },
+  muscle:  { min:35.6, max:40,  label:"35.6 kg+",  color:T.green },
+};
+
+const SUPPLEMENTS = [
+  { id:"s1", name:"Centrum for Men × 1",           when:"Breakfast", phase:"Week 1" },
+  { id:"s2", name:"Magnesium Malate × 2",           when:"Breakfast", phase:"Week 1" },
+  { id:"s3", name:"Ashwagandha KSM-66 × 1",        when:"Breakfast", phase:"Now" },
+  { id:"s4", name:"Blackmores Fish Oil × 2",        when:"Dinner",    phase:"Week 1" },
+  { id:"s5", name:"Blackmores Vitamin D3 × 1",      when:"Dinner",    phase:"Week 1" },
+  { id:"s6", name:"Sleep Drops Mag Glycinate × 2",  when:"Bedtime",   phase:"Week 3" },
+  { id:"s7", name:"Faction Labs Creatine × 1 scoop",when:"With meal", phase:"Week 6+" },
+];
+
+const EXERCISE_PLAN = [
+  { day:"Mon", type:"training" }, { day:"Tue", type:"walk" },
+  { day:"Wed", type:"training" }, { day:"Thu", type:"walk" },
+  { day:"Fri", type:"training" }, { day:"Sat", type:"walk" },
+  { day:"Sun", type:"rest" },
+];
+
+const EXERCISES = [
+  { icon:"🦵", name:"Bodyweight Squats",        detail:"3 × 10–15 reps", muscles:"Quads, glutes, hamstrings" },
+  { icon:"💪", name:"Incline Push-ups",          detail:"3 × 8–12 reps",  muscles:"Chest, shoulders, triceps" },
+  { icon:"🏋️", name:"Door Frame / Table Rows",  detail:"3 × 8–12 reps",  muscles:"Back, biceps" },
+  { icon:"🍑", name:"Glute Bridges",             detail:"3 × 12–15 reps", muscles:"Glutes, lower back" },
+  { icon:"🧘", name:"Plank + Dead Bugs",         detail:"3 sets, build time", muscles:"Core stability" },
+];
+
+
+// ─── NEIL'S FOOD PROFILE (compiled from onboarding 1 Jul 2026) ───────────────
+const NEIL_FOOD_PROFILE = {
+  proteins: {
+    beef: "love", chicken: "love", lamb: "love", pork: "love",
+    fish: "love", seafood: "like", eggs: "like"
+  },
+  cuisines: {
+    mediterranean: "love", classicWestern: "love",
+    asian: "like", middleEastern: "like", mexican: "like"
+  },
+  cooking: {
+    activeKitchenTime: "20-30 mins max — passive oven/slow cook time is fine, just not actively working longer than that",
+    complexity: "simple multi-step",
+    methods: "mix of everything",
+    leftovers: "always — dinner becomes next day's lunch (always makes 2 serves)",
+    marinades: "no — keep it simple, no overnight prep"
+  },
+  flavour: {
+    spice: "medium",
+    overall: "seasonal variety — lighter in summer, hearty in winter",
+    sweetSavoury: "balanced",
+    garlicOnion: "in moderation"
+  },
+  loves: ["mushrooms", "all cheeses mild and strong", "coconut milk", "cream and butter sauces", "fish sauce", "coriander", "olives", "capsicum", "anchovies"],
+  avoids: [
+    "offal and organ meats",
+    "eggplant / aubergine",
+    "brussels sprouts, kale, radicchio and bitter vegetables",
+    "kumara / sweet potato",
+    "most legumes and pulses — exception: chickpeas in moderation only",
+    "all beans except green beans",
+    "tofu is acceptable in moderation"
+  ],
+  neutral: ["zucchini", "carrot / parsnip / beetroot"],
+  produce: {
+    seasonal: "mostly seasonal NZ produce, flexible",
+    location: "Christchurch, New Zealand — SOUTHERN HEMISPHERE (seasons are flipped from Northern Hemisphere: currently mid-winter July 2026)",
+    context: "Only cooks when off rotation at home in Christchurch. All meals provided on Man of Steel. Never cook when on rotation."
+  },
+  macros: {
+    priority: "balanced — protein, carbs and fats",
+    carbs: "in moderation",
+    targets: "1900-2000 kcal/day, 140-160g protein/day",
+    salad: "a few times a week as a side"
+  },
+  budget: {
+    base: "$8-15 NZD per serving",
+    note: "Budget is a selectable filter at generation time — Neil can ask for 'under $10 options' or 'no limit this week' depending on mood"
+  },
+  generation: {
+    style: "TARS generates 10-15 options for the week, Neil selects which to cook",
+    adventurousness: "loves trying new things",
+    library: "dynamic — all meals generated by TARS/Claude, no fixed hardcoded list"
+  },
+  ratings: {} // populated over time as Neil rates meals
+};
+
+
+// ─── ICON COMPONENT ───────────────────────────────────────────────────────────
+const Icon = ({ name, size=22, color=T.text }) => {
+  const p = { width:size, height:size, viewBox:"0 0 24 24", fill:"none", stroke:color, strokeWidth:2, strokeLinecap:"round", strokeLinejoin:"round" };
+  const icons = {
+    home:     <svg {...p}><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
+    health:   <svg {...p}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>,
+    tasks:    <svg {...p}><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>,
+    calendar: <svg {...p}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
+    tars:     <svg {...p}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
+    finance:  <svg {...p}><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>,
+    work:     <svg {...p}><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>,
+    projects: <svg {...p}><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>,
+    meals:    <svg {...p}><path d="M18 8h1a4 4 0 010 8h-1"/><path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>,
+    mic:      <svg {...p}><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>,
+    back:     <svg {...p}><polyline points="15 18 9 12 15 6"/></svg>,
+    plus:     <svg {...p}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
+    check:    <svg {...p}><polyline points="20 6 9 17 4 12"/></svg>,
+    trash:    <svg {...p}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>,
+    edit:     <svg {...p}><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
+    save:     <svg {...p}><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>,
+    search:   <svg {...p}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
+    star:     <svg {...p}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
+    anchor:   <svg {...p}><circle cx="12" cy="5" r="3"/><line x1="12" y1="22" x2="12" y2="8"/><path d="M5 12H2a10 10 0 0020 0h-3"/></svg>,
+    flight:   <svg {...p}><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 00-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>,
+    hotel:    <svg {...p}><path d="M3 22V8l9-6 9 6v14"/><path d="M9 22V12h6v10"/></svg>,
+  };
+  return icons[name] || icons.check;
+};
+
 // ─── SHARED UI COMPONENTS ──────────────────────────────────────────────────────
+
+// formatDate — returns today's date as a readable string e.g. "TUESDAY, 1 JULY 2026"
+function formatDate() {
+  return new Date().toLocaleDateString("en-NZ", { weekday:"long", day:"numeric", month:"long", year:"numeric" }).toUpperCase();
+}
+
+// getGreeting — time-appropriate greeting
+function getGreeting() {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  return "Good evening";
+}
+
+// ─── TASK SCREEN CONSTANTS ────────────────────────────────────────────────────
+const CATS = ["All","Health","Admin","Work","Home","Shopping","Entertainment"];
+const CAT_COLORS = { Health:T.accent, Admin:T.blue, Work:T.gold, Home:T.green, Shopping:T.purple, Entertainment:"#fb923c" };
+const PRIORITY_COLORS = { high:T.accent, med:T.gold, low:T.green };
+
+// StatPill — compact stat badge used on home screen
+function StatPill({ icon, label, value, color }) {
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:6, background:T.card, borderRadius:10, padding:"8px 12px", border:`1px solid ${T.border}`, flex:"0 0 auto" }}>
+      <span>{typeof icon === "string" ? icon : icon}</span>
+      <div>
+        <div style={{ fontSize:9, color:T.muted, fontWeight:600 }}>{label}</div>
+        <div style={{ fontSize:13, fontWeight:800, color }}>{value}</div>
+      </div>
+    </div>
+  );
+}
+
+// CalHistory — calorie log history view used in Health > Calories > History
+function CalHistory({ calLog }) {
+  const entries = Object.entries(calLog).slice(-14).reverse();
+  if (entries.length === 0) return (
+    <Card><div style={{ textAlign:"center", padding:"24px 0", color:T.muted, fontSize:13 }}>No calorie history yet.</div></Card>
+  );
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+      {entries.map(([date, items]) => {
+        const kcal = items.reduce((s,e) => s+e.kcal, 0);
+        const protein = items.reduce((s,e) => s+e.protein, 0);
+        return (
+          <Card key={date}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+              <div style={{ fontSize:13, fontWeight:700, color:T.text }}>{date}</div>
+              <div style={{ fontSize:12, color:T.muted }}>{kcal} kcal · {protein}g protein</div>
+            </div>
+            {items.map((e,i) => (
+              <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", borderTop:`1px solid ${T.border}` }}>
+                <div style={{ fontSize:12, color:T.text }}>{e.name}</div>
+                <div style={{ fontSize:11, color:T.muted }}>{e.kcal} kcal · {e.protein}g</div>
+              </div>
+            ))}
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+// TodoScreen — full tasks screen
+function TodoScreen({ tasks, setTasks, onBack }) {
+  const [filter, setFilter] = useState("All");
+  const [showDone, setShowDone] = useState(false);
+  const [newText, setNewText] = useState("");
+  const [newCat, setNewCat] = useState("Admin");
+  const [newPri, setNewPri] = useState("med");
+  const [newDue, setNewDue] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const addTask = () => {
+    if (!newText.trim()) return;
+    setTasks(prev => [...prev, { id:Date.now(), text:newText.trim(), cat:newCat, priority:newPri, due:newDue, done:false }]);
+    setNewText(""); setNewDue(""); setAdding(false);
+  };
+  const toggleTask = (id) => setTasks(prev => prev.map(t => t.id===id ? {...t, done:!t.done} : t));
+  const deleteTask = (id, text) => { if(window.confirm(`Delete "${text}"?`)) setTasks(prev => prev.filter(t => t.id!==id)); };
+
+  const visible = tasks.filter(t => {
+    if (!showDone && t.done) return false;
+    if (filter==="All") return true;
+    return t.cat===filter;
+  });
+
+  return (
+    <div>
+      <SectionHeader title="To Do" onBack={onBack} />
+      <div style={{ padding:"16px" }}>
+        {/* Filter pills */}
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12 }}>
+          {CATS.map(c => (
+            <button key={c} onClick={()=>setFilter(c)} style={{ fontSize:11, padding:"4px 10px", borderRadius:999, border:`1px solid ${filter===c?(CAT_COLORS[c]||T.blue):T.border}`, background:filter===c?`${CAT_COLORS[c]||T.blue}22`:T.elevated, color:filter===c?(CAT_COLORS[c]||T.blue):T.muted, cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>{c}</button>
+          ))}
+        </div>
+
+        {/* Add task */}
+        {!adding ? (
+          <button onClick={()=>setAdding(true)} style={{ width:"100%", padding:"11px", borderRadius:12, border:`1px dashed ${T.border}`, background:"none", color:T.muted, fontSize:13, cursor:"pointer", fontFamily:"inherit", marginBottom:12 }}>+ Add task</button>
+        ) : (
+          <div style={{ background:T.card, borderRadius:14, padding:14, border:`1px solid ${T.border}`, marginBottom:12 }}>
+            <input value={newText} onChange={e=>setNewText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addTask()} placeholder="Task description..." autoFocus
+              style={{ width:"100%", padding:"9px 12px", borderRadius:9, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box", marginBottom:8 }} />
+            <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+              <select value={newCat} onChange={e=>setNewCat(e.target.value)} style={{ flex:1, padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit" }}>
+                {CATS.filter(c=>c!=="All").map(c=><option key={c}>{c}</option>)}
+              </select>
+              <select value={newPri} onChange={e=>setNewPri(e.target.value)} style={{ flex:1, padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit" }}>
+                <option value="high">High</option>
+                <option value="med">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+            <input type="date" value={newDue} onChange={e=>setNewDue(e.target.value)}
+              style={{ width:"100%", padding:"8px 12px", borderRadius:9, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box", marginBottom:8 }} />
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={addTask} style={{ flex:1, padding:"9px", borderRadius:9, background:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Add</button>
+              <button onClick={()=>setAdding(false)} style={{ flex:1, padding:"9px", borderRadius:9, background:T.elevated, color:T.muted, fontWeight:700, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {/* Task list */}
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          {visible.map(t => (
+            <div key={t.id} style={{ background:T.card, borderRadius:12, padding:"12px 14px", border:`1px solid ${t.done?T.border:PRIORITY_COLORS[t.priority]+"33"}`, opacity:t.done?0.6:1, display:"flex", alignItems:"flex-start", gap:10 }}>
+              <button onClick={()=>toggleTask(t.id)} style={{ width:22, height:22, borderRadius:6, border:`2px solid ${t.done?T.green:PRIORITY_COLORS[t.priority]}`, background:t.done?T.green:"transparent", flexShrink:0, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", marginTop:1 }}>
+                {t.done && <Icon name="check" size={12} color="white" />}
+              </button>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:13, fontWeight:600, color:T.text, textDecoration:t.done?"line-through":"none", marginBottom:4 }}>{t.text}</div>
+                <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                  <span style={{ fontSize:9, fontWeight:700, padding:"2px 7px", borderRadius:999, background:`${CAT_COLORS[t.cat]||T.blue}22`, color:CAT_COLORS[t.cat]||T.blue }}>{t.cat}</span>
+                  {t.due && <span style={{ fontSize:9, color:T.muted }}>Due {formatDateDDMMYYYY(t.due)}</span>}
+                </div>
+              </div>
+              <button onClick={()=>deleteTask(t.id, t.text)} style={{ background:"none", border:"none", cursor:"pointer", padding:2, opacity:0.4, flexShrink:0 }}>
+                <Icon name="trash" size={14} color={T.muted} />
+              </button>
+            </div>
+          ))}
+          {visible.length===0 && <div style={{ textAlign:"center", padding:"32px 0", color:T.muted, fontSize:13 }}>{showDone?"No tasks":"No pending tasks"}</div>}
+        </div>
+
+        {/* Show/hide done */}
+        <button onClick={()=>setShowDone(v=>!v)} style={{ width:"100%", marginTop:12, padding:"9px", borderRadius:10, border:`1px solid ${T.border}`, background:"none", color:T.muted, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
+          {showDone?"Hide":"Show"} completed ({tasks.filter(t=>t.done).length})
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ComingSoon — placeholder screen for modules not yet built
+function ComingSoon({ label, icon, accent, onBack }) {
+  return (
+    <div>
+      <SectionHeader title={label} onBack={onBack} />
+      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"55vh", gap:16, padding:32 }}>
+        <div style={{ width:64, height:64, borderRadius:20, background:`${accent}18`, border:`1px solid ${accent}33`, display:"flex", alignItems:"center", justifyContent:"center" }}>
+          <Icon name={icon} size={30} color={accent} />
+        </div>
+        <div style={{ textAlign:"center" }}>
+          <div style={{ fontSize:18, fontWeight:700, color:T.text, marginBottom:6 }}>{label}</div>
+          <div style={{ fontSize:13, color:T.muted, lineHeight:1.6 }}>Coming soon — we're building it together.</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ModuleTile — home screen module card
+function ModuleTile({ icon, label, sublabel, accent, onClick, badge }) {
+  return (
+    <div onClick={onClick} style={{ background:T.card, borderRadius:16, padding:16, border:`1px solid ${T.border}`, cursor:"pointer", position:"relative", minHeight:100, display:"flex", flexDirection:"column", justifyContent:"space-between" }}>
+      {badge && <div style={{ position:"absolute", top:10, right:10, width:20, height:20, borderRadius:"50%", background:T.accent, color:"white", fontSize:10, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center" }}>{badge}</div>}
+      <div style={{ width:44, height:44, borderRadius:13, background:`${accent}22`, border:`1px solid ${accent}44`, display:"flex", alignItems:"center", justifyContent:"center" }}>
+        <Icon name={icon} size={22} color={accent} />
+      </div>
+      <div>
+        <div style={{ fontSize:15, fontWeight:700, color:T.text, marginBottom:2 }}>{label}</div>
+        <div style={{ fontSize:11, color:T.muted }}>{sublabel}</div>
+      </div>
+    </div>
+  );
+}
+
 function Card({ children, style }) {
   return <div style={{ background:T.card, borderRadius:16, padding:16, border:`1px solid ${T.border}`, ...style }}>{children}</div>;
 }
@@ -297,127 +636,6 @@ async function callClaudeWithTools({ system, messages, tools, toolHandlers, maxR
 // (unlike search_vault), and no separate API key — billed through the same Anthropic key.
 // Available to both main TARS chat and Projects.
 const WEB_SEARCH_TOOL = { type: "web_search_20250305", name: "web_search" };
-
-// ─── THEME ────────────────────────────────────────────────────────────────────
-const T = {
-  bg:       "#0a0f1e",
-  card:     "#111827",
-  elevated: "#1a2744",
-  accent:   "#e94560",
-  blue:     "#4facde",
-  gold:     "#f5a623",
-  green:    "#22c55e",
-  purple:   "#a78bfa",
-  text:     "#f8f9fb",
-  muted:    "#64748b",
-  border:   "#1e2d4a",
-};
-
-// ─── INITIAL DATA ─────────────────────────────────────────────────────────────
-const USER = {
-  name: "Neil",
-  rotation: { start: "2026-06-26", weeksOn: 8, weeksOff: 8 },
-  health: { weight: 89.0, target: 81, bodyFat: 25.2, fatMass: 22.4, muscle: 35.6, bp: "127/75" },
-  nextFlight: { route: "CHC → ORD", date: "24 Aug 2026", carrier: "United" },
-};
-
-const INIT_TASKS = [
-  { id:1, text:"Take morning supplements", done:false, priority:"high",  cat:"Health",  due:"Today" },
-  { id:2, text:"Bodyweight training session", done:false, priority:"high",  cat:"Health",  due:"Today" },
-  { id:3, text:"Log meals in planner",       done:true,  priority:"med",   cat:"Health",  due:"Today" },
-  { id:4, text:"Book GP appointment",        done:false, priority:"high",  cat:"Admin",   due:"This week" },
-  { id:5, text:"Review Chief Officer CVs",   done:false, priority:"med",   cat:"Work",    due:"This week" },
-];
-
-const HEALTH_TARGETS = {
-  weight:  { min:79,   max:81,  label:"79–81 kg",  color:T.blue },
-  bodyFat: { min:18,   max:20,  label:"18–20%",    color:T.accent },
-  fatMass: { min:14,   max:16,  label:"14–16 kg",  color:T.gold },
-  muscle:  { min:35.6, max:40,  label:"35.6 kg+",  color:T.green },
-};
-
-const SUPPLEMENTS = [
-  { id:"s1", name:"Centrum for Men × 1",           when:"Breakfast", phase:"Week 1" },
-  { id:"s2", name:"Magnesium Malate × 2",           when:"Breakfast", phase:"Week 1" },
-  { id:"s3", name:"Ashwagandha KSM-66 × 1",        when:"Breakfast", phase:"Now" },
-  { id:"s4", name:"Blackmores Fish Oil × 2",        when:"Dinner",    phase:"Week 1" },
-  { id:"s5", name:"Blackmores Vitamin D3 × 1",      when:"Dinner",    phase:"Week 1" },
-  { id:"s6", name:"Sleep Drops Mag Glycinate × 2",  when:"Bedtime",   phase:"Week 3" },
-  { id:"s7", name:"Faction Labs Creatine × 1 scoop",when:"With meal", phase:"Week 6+" },
-];
-
-const EXERCISE_PLAN = [
-  { day:"Mon", type:"training" }, { day:"Tue", type:"walk" },
-  { day:"Wed", type:"training" }, { day:"Thu", type:"walk" },
-  { day:"Fri", type:"training" }, { day:"Sat", type:"walk" },
-  { day:"Sun", type:"rest" },
-];
-
-const EXERCISES = [
-  { icon:"🦵", name:"Bodyweight Squats",        detail:"3 × 10–15 reps", muscles:"Quads, glutes, hamstrings" },
-  { icon:"💪", name:"Incline Push-ups",          detail:"3 × 8–12 reps",  muscles:"Chest, shoulders, triceps" },
-  { icon:"🏋️", name:"Door Frame / Table Rows",  detail:"3 × 8–12 reps",  muscles:"Back, biceps" },
-  { icon:"🍑", name:"Glute Bridges",             detail:"3 × 12–15 reps", muscles:"Glutes, lower back" },
-  { icon:"🧘", name:"Plank + Dead Bugs",         detail:"3 sets, build time", muscles:"Core stability" },
-];
-
-
-// ─── NEIL'S FOOD PROFILE (compiled from onboarding 1 Jul 2026) ───────────────
-const NEIL_FOOD_PROFILE = {
-  proteins: {
-    beef: "love", chicken: "love", lamb: "love", pork: "love",
-    fish: "love", seafood: "like", eggs: "like"
-  },
-  cuisines: {
-    mediterranean: "love", classicWestern: "love",
-    asian: "like", middleEastern: "like", mexican: "like"
-  },
-  cooking: {
-    activeKitchenTime: "20-30 mins max — passive oven/slow cook time is fine, just not actively working longer than that",
-    complexity: "simple multi-step",
-    methods: "mix of everything",
-    leftovers: "always — dinner becomes next day's lunch (always makes 2 serves)",
-    marinades: "no — keep it simple, no overnight prep"
-  },
-  flavour: {
-    spice: "medium",
-    overall: "seasonal variety — lighter in summer, hearty in winter",
-    sweetSavoury: "balanced",
-    garlicOnion: "in moderation"
-  },
-  loves: ["mushrooms", "all cheeses mild and strong", "coconut milk", "cream and butter sauces", "fish sauce", "coriander", "olives", "capsicum", "anchovies"],
-  avoids: [
-    "offal and organ meats",
-    "eggplant / aubergine",
-    "brussels sprouts, kale, radicchio and bitter vegetables",
-    "kumara / sweet potato",
-    "most legumes and pulses — exception: chickpeas in moderation only",
-    "all beans except green beans",
-    "tofu is acceptable in moderation"
-  ],
-  neutral: ["zucchini", "carrot / parsnip / beetroot"],
-  produce: {
-    seasonal: "mostly seasonal NZ produce, flexible",
-    location: "Christchurch, New Zealand — SOUTHERN HEMISPHERE (seasons are flipped from Northern Hemisphere: currently mid-winter July 2026)",
-    context: "Only cooks when off rotation at home in Christchurch. All meals provided on Man of Steel. Never cook when on rotation."
-  },
-  macros: {
-    priority: "balanced — protein, carbs and fats",
-    carbs: "in moderation",
-    targets: "1900-2000 kcal/day, 140-160g protein/day",
-    salad: "a few times a week as a side"
-  },
-  budget: {
-    base: "$8-15 NZD per serving",
-    note: "Budget is a selectable filter at generation time — Neil can ask for 'under $10 options' or 'no limit this week' depending on mood"
-  },
-  generation: {
-    style: "TARS generates 10-15 options for the week, Neil selects which to cook",
-    adventurousness: "loves trying new things",
-    library: "dynamic — all meals generated by TARS/Claude, no fixed hardcoded list"
-  },
-  ratings: {} // populated over time as Neil rates meals
-};
 
 // ─── MEAL PLANNING SCREEN ─────────────────────────────────────────────────────
 function MealPlanScreen({ calLog, setCalLog, todayLabel }) {
