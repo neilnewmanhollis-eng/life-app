@@ -2475,28 +2475,40 @@ function TarsScreen({ onBack, appState }) {
     setNudgeLoading(false);
   }, []);
 
-  // ── Web Speech API TTS — free, instant, no external API calls ──
-  // Uses whatever voice is set in Android Settings → General Management → Text-to-Speech
-  // Change the system voice any time — TARS picks it up immediately, no code change needed.
-  const TARS_SPEED = 1.1; // Speech rate: 1.0 = normal, 1.1 = slightly faster
+  // ── OpenAI TTS ──
+  const TARS_VOICE = "onyx";  // alloy | echo | fable | onyx | nova | shimmer | ash | coral
+  const TARS_SPEED = 1.3;     // 0.25–4.0, 1.0 = normal
 
-  const speak = (text) => {
+  const speak = async (text) => {
     if (!voiceEnabled) return;
-    if (!window.speechSynthesis) { console.error("TARS Voice: Web Speech API not supported"); return; }
-    // Cancel any current speech
-    window.speechSynthesis.cancel();
+    const key = localStorage.getItem("tars_openai_tts_key") || "";
+    if (!key) return;
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; audioRef.current = null; }
+    const myRequestId = speakRequestId.current;
     setSpeaking(true);
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = TARS_SPEED;
-    utterance.pitch = 0.85;   // Slightly lower pitch — closer to TARS character
-    utterance.volume = 1.0;
-    utterance.onend = () => setSpeaking(false);
-    utterance.onerror = () => setSpeaking(false);
-    window.speechSynthesis.speak(utterance);
+    try {
+      const res = await fetch("https://api.openai.com/v1/audio/speech", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
+        body: JSON.stringify({ model:"tts-1", voice:TARS_VOICE, input:text, speed:TARS_SPEED }),
+      });
+      if (!res.ok) { console.error("TARS Voice: OpenAI", res.status, await res.text()); setSpeaking(false); return; }
+      const blob = await res.blob();
+      if (myRequestId !== speakRequestId.current || !voiceEnabled) { setSpeaking(false); return; }
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio();
+      audio.src = url;
+      audioRef.current = audio;
+      audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(url); audioRef.current = null; };
+      audio.onerror = () => { setSpeaking(false); URL.revokeObjectURL(url); audioRef.current = null; };
+      const p = audio.play();
+      if (p !== undefined) p.catch(() => setSpeaking(false));
+    } catch(err) { console.error("TARS Voice:", err); setSpeaking(false); }
   };
 
   const stopSpeaking = () => {
-    window.speechSynthesis?.cancel();
+    speakRequestId.current++;
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; audioRef.current = null; }
     setSpeaking(false);
   };
 
@@ -3678,10 +3690,13 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
 
           {/* OpenAI TTS */}
           <div style={{ marginBottom:10 }}>
-            <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:4 }}>OpenAI TTS Key {localStorage.getItem("tars_openai_tts_key") ? "✓" : "(optional — for voice)"}</div>
-            <input type="password" value={elevenLabsKeyInput} onChange={e=>setElevenLabsKeyInput(e.target.value)}
-              placeholder={localStorage.getItem("tars_openai_tts_key") ? "sk-... (saved — paste to update)" : "sk-..."}
-              style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${localStorage.getItem("tars_openai_tts_key")?T.green:T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+            <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:4 }}>OpenAI TTS Key {localStorage.getItem("tars_openai_tts_key") ? `✓ (${localStorage.getItem("tars_openai_tts_key").length} chars)` : "(optional — for voice)"}</div>
+            <input type="text" value={elevenLabsKeyInput} onChange={e=>setElevenLabsKeyInput(e.target.value)}
+              placeholder={localStorage.getItem("tars_openai_tts_key") ? "paste new key to update" : "sk-proj-..."}
+              maxLength={300}
+              autoCorrect="off" autoCapitalize="off" spellCheck="false"
+              style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${localStorage.getItem("tars_openai_tts_key")?T.green:T.border}`, background:T.elevated, color:T.text, fontSize:11, fontFamily:"monospace", outline:"none", boxSizing:"border-box" }} />
+            {elevenLabsKeyInput.length > 0 && <div style={{ fontSize:10, color:T.muted, marginTop:3 }}>{elevenLabsKeyInput.length} characters entered</div>}
           </div>
 
           {/* GitHub Gist sync */}
@@ -4005,19 +4020,35 @@ function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState 
   const audioRef = useRef(null);
   const speakReqId = useRef(0);
 
-  const speakProject = (text) => {
+  const speakProject = async (text) => {
     if (!voiceEnabled) return;
-    if (!window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.1;
-    utterance.pitch = 0.85;
-    utterance.volume = 1.0;
-    window.speechSynthesis.speak(utterance);
+    const key = localStorage.getItem("tars_openai_tts_key") || "";
+    if (!key) return;
+    const myId = speakReqId.current;
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; audioRef.current = null; }
+    try {
+      const res = await fetch("https://api.openai.com/v1/audio/speech", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
+        body: JSON.stringify({ model:"tts-1", voice:"onyx", input:text, speed:1.3 })
+      });
+      if (!res.ok || myId !== speakReqId.current || !voiceEnabled) return;
+      const blob = await res.blob();
+      if (myId !== speakReqId.current || !voiceEnabled) return;
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio();
+      audio.src = url;
+      audioRef.current = audio;
+      audio.onended = () => { URL.revokeObjectURL(url); audioRef.current = null; };
+      audio.onerror = () => { URL.revokeObjectURL(url); audioRef.current = null; };
+      const p = audio.play();
+      if (p !== undefined) p.catch(() => {});
+    } catch {}
   };
 
   const stopProjectSpeaking = () => {
-    window.speechSynthesis?.cancel();
+    speakReqId.current++;
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
   };
 
   const toggleProjectVoice = () => {
