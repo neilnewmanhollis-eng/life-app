@@ -2502,40 +2502,26 @@ function TarsScreen({ onBack, appState }) {
           response_format: "mp3",
         }),
       });
-      if (!res.ok || myRequestId !== speakRequestId.current || !voiceEnabled) { setSpeaking(false); return; }
-
-      // Stream the response — collect chunks and build a MediaSource that starts
-      // playing as soon as enough data has arrived rather than waiting for the full file
-      const reader = res.body.getReader();
-      const chunks = [];
-      let done = false;
-
-      while (!done) {
-        const { value, done: streamDone } = await reader.read();
-        if (streamDone) { done = true; break; }
-        if (myRequestId !== speakRequestId.current || !voiceEnabled) {
-          reader.cancel();
-          setSpeaking(false);
-          return;
-        }
-        chunks.push(value);
+      if (!res.ok) {
+        const errText = await res.text();
+        setMessages(prev => [...prev, { role:"assistant", content:`[Voice debug: OpenAI returned ${res.status} — ${errText.slice(0,150)}]`, ts:"", isError:true }]);
+        setSpeaking(false); return;
       }
-
       if (myRequestId !== speakRequestId.current || !voiceEnabled) { setSpeaking(false); return; }
-
-      // Combine chunks and play — streaming fetch means we got data sooner even
-      // if we assemble at the end; full MediaSource streaming needs a Service Worker
-      // which PWAs can't use easily. This gets us ~40% of the benefit with no complexity.
-      const blob = new Blob(chunks, { type: "audio/mpeg" });
+      const blob = await res.blob();
+      if (blob.size === 0) {
+        setMessages(prev => [...prev, { role:"assistant", content:`[Voice debug: empty audio response — key may be invalid or billing not active]`, ts:"", isError:true }]);
+        setSpeaking(false); return;
+      }
       const url = URL.createObjectURL(blob);
       const audio = new Audio();
       audio.src = url;
       audioRef.current = audio;
       audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(url); audioRef.current = null; };
-      audio.onerror = (e) => { console.error("TARS Voice: audio error", e); setSpeaking(false); URL.revokeObjectURL(url); audioRef.current = null; };
+      audio.onerror = (e) => { setMessages(prev => [...prev, { role:"assistant", content:`[Voice debug: audio.onerror — ${audio.error?.message||"unknown"}]`, ts:"", isError:true }]); setSpeaking(false); URL.revokeObjectURL(url); audioRef.current = null; };
       const p = audio.play();
-      if (p !== undefined) p.catch(err => { console.error("TARS Voice: play() blocked", err); setSpeaking(false); });
-    } catch(err) { console.error("TARS Voice: exception", err); setSpeaking(false); }
+      if (p !== undefined) p.catch(err => { setMessages(prev => [...prev, { role:"assistant", content:`[Voice debug: play() blocked — ${err.message}]`, ts:"", isError:true }]); setSpeaking(false); });
+    } catch(err) { setMessages(prev => [...prev, { role:"assistant", content:`[Voice debug: exception — ${err.message}]`, ts:"", isError:true }]); setSpeaking(false); }
   };
 
   const stopSpeaking = () => {
