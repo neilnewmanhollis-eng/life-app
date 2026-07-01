@@ -707,6 +707,7 @@ function MealPlanScreen({ calLog, setCalLog, todayLabel }) {
   const [regularNewCat, setRegularNewCat]   = useState("Other");
   const [addRegularToList, setAddRegularToList] = useState(false);
   const [pantryProcessing, setPantryProcessing] = useState(false);
+  const [pantryInput, setPantryInput] = useState("");
 
   // ── Supermarket categories in New World Ilam aisle order ──
   const SHOP_CATS = ["Produce","Meat & Seafood","Dairy & Eggs","Deli & Cheese","Pantry & Dry Goods","Canned & Sauces","Oils & Condiments","Herbs & Spices","Frozen","Bread & Bakery","Other"];
@@ -905,7 +906,7 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
     <div>
       {/* Tab bar */}
       <div style={{ display:"flex", gap:0, borderBottom:`1px solid ${T.border}`, marginBottom:16, overflowX:"auto" }}>
-        {[["generate","✨ Generate"],["current",`🍽 Current${currentMeals.length>0?` (${currentMeals.length})`:""}` ],["shopping",`🛒 Shopping${shoppingList.length>0?` (${shoppingList.filter(i=>!i.checked).length})`:""}` ],["cooked","⭐ Cooked"]].map(([id,label])=>(
+        {[["generate","✨ Generate"],["current",`🍽 Current${currentMeals.length>0?` (${currentMeals.length})`:""}` ],["shopping",`🛒 Shopping${shoppingList.length>0?` (${shoppingList.filter(i=>!i.checked).length})`:""}` ],["pantry","🫙 Pantry"],["cooked","⭐ Cooked"]].map(([id,label])=>(
           <button key={id} onClick={()=>{ setTab(id); setCurrentMealView(null); }} style={{ flexShrink:0, padding:"10px 12px", fontSize:11, fontWeight:600, border:"none", background:"none", cursor:"pointer", fontFamily:"inherit", color:tab===id?T.blue:T.muted, borderBottom:tab===id?`2px solid ${T.blue}`:"2px solid transparent", whiteSpace:"nowrap" }}>{label}</button>
         ))}
       </div>
@@ -1136,6 +1137,66 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
                 </div>
               ))}
             </div>
+          )}
+        </div>
+      )}
+
+      {/* ════ PANTRY TAB ════ */}
+      {tab==="pantry" && (
+        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          {/* Add manually */}
+          <div style={{ background:T.card, borderRadius:14, padding:14, border:`1px solid ${T.border}` }}>
+            <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:8 }}>Add Item</div>
+            <div style={{ display:"flex", gap:8 }}>
+              <input value={pantryInput} onChange={e=>setPantryInput(e.target.value)}
+                onKeyDown={e=>{ if(e.key==="Enter"&&pantryInput.trim()){ setPantry(prev=>[...prev,{id:Date.now(),name:pantryInput.trim(),type:"fresh",status:"have",qty:"—",cat:"Other"}]); setPantryInput(""); }}}
+                placeholder="Item name..."
+                style={{ flex:1, padding:"9px 12px", borderRadius:9, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none" }} />
+              <button onClick={()=>{ if(pantryInput.trim()){ setPantry(prev=>[...prev,{id:Date.now(),name:pantryInput.trim(),type:"fresh",status:"have",qty:"—",cat:"Other"}]); setPantryInput(""); }}}
+                style={{ padding:"9px 14px", borderRadius:9, background:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Add</button>
+            </div>
+          </div>
+
+          {/* Photo upload */}
+          <div style={{ background:T.card, borderRadius:14, padding:14, border:`1px solid ${T.border}` }}>
+            <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:6 }}>Add via Photo</div>
+            <div style={{ fontSize:11, color:T.muted, marginBottom:10, lineHeight:1.5 }}>Photo your fridge, pantry, or groceries — TARS identifies items and classifies them as staples or fresh.</div>
+            <label style={{ display:"block", border:`2px dashed ${T.border}`, borderRadius:12, padding:"16px", textAlign:"center", cursor:"pointer" }}>
+              <div style={{ fontSize:22, marginBottom:4 }}>📷</div>
+              <div style={{ fontSize:12, fontWeight:600, color:T.text }}>{pantryProcessing ? "⏳ Reading photo…" : "Take or upload a photo"}</div>
+              <input type="file" accept="image/*" capture="environment" onChange={async e=>{ const f=e.target.files?.[0]; if(f) await processPantryPhoto(f); e.target.value=""; }} style={{ display:"none" }} />
+            </label>
+          </div>
+
+          {/* Pantry list by type */}
+          {["staple","fresh"].map(type => {
+            const items = pantry.filter(p=>p.type===type);
+            if (items.length === 0) return null;
+            return (
+              <div key={type} style={{ background:T.card, borderRadius:14, border:`1px solid ${T.border}`, overflow:"hidden" }}>
+                <div style={{ padding:"8px 14px", background:T.elevated, fontSize:11, fontWeight:700, color:T.muted, textTransform:"uppercase", letterSpacing:"0.05em" }}>
+                  {type==="staple" ? "🫙 Staples — never auto-removed" : "🥩 Fresh — removed when you cook"}
+                </div>
+                {items.map(item=>(
+                  <div key={item.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 14px", borderBottom:`1px solid ${T.border}33` }}>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:12, fontWeight:600, color:T.text }}>{item.name}</div>
+                      <div style={{ fontSize:10, color:T.muted }}>{item.qty} · {item.cat}</div>
+                    </div>
+                    <button onClick={()=>setPantry(prev=>prev.map(p=>p.id===item.id?{...p,type:p.type==="staple"?"fresh":"staple"}:p))}
+                      style={{ fontSize:9, padding:"3px 7px", borderRadius:6, border:`1px solid ${T.border}`, background:T.elevated, color:T.muted, cursor:"pointer", fontFamily:"inherit" }}>
+                      {item.type==="staple"?"→ fresh":"→ staple"}
+                    </button>
+                    <button onClick={()=>{ if(window.confirm(`Remove "${item.name}" from pantry?`)) setPantry(prev=>prev.filter(p=>p.id!==item.id)); }}
+                      style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:16, padding:"2px 4px" }}>✕</button>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+
+          {pantry.length === 0 && (
+            <div style={{ textAlign:"center", padding:"32px", color:T.muted, fontSize:13 }}>Pantry is empty. Add items manually or via photo.</div>
           )}
         </div>
       )}
@@ -2964,6 +3025,12 @@ ${(() => {
       label: "MEAL LIBRARY (use for calorie logging by meal name)",
       data: (() => { try { return JSON.parse(localStorage.getItem("meal_library")||"[]").filter(m=>!m.cooked); } catch { return []; } })(),
       format: (meals) => meals.length === 0 ? "empty" : meals.map(m=>`  "${m.name}": ${m.kcal}kcal, ${m.protein}g protein`).join("\n"),
+      skipIfEmpty: true
+    },
+    {
+      label: "COOKED MEALS & RATINGS (use this to discuss past meals, ratings, and what to suggest next)",
+      data: (() => { try { return JSON.parse(localStorage.getItem("meal_cooked")||"[]"); } catch { return []; } })(),
+      format: (meals) => meals.length === 0 ? "none yet" : meals.map(m=>`  "${m.name}" — ${m.rating>0?`${m.rating}★`:"unrated"}${m.ratingNotes?` — "${m.ratingNotes}"`:""}${m.cookedDates?.length?` — cooked ${m.cookedDates.join(", ")}`:""}${m.saved?" — ★ SAVED FAVOURITE":""}`).join("\n"),
       skipIfEmpty: true
     },
     // ── FUTURE MODULES — add entries here as Work, Finance etc get built ──────
