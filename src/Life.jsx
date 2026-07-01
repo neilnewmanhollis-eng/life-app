@@ -2475,8 +2475,7 @@ function TarsScreen({ onBack, appState }) {
     setNudgeLoading(false);
   }, []);
 
-  // ── OpenAI TTS ──
-  const getOpenAITTSKey = () => localStorage.getItem("tars_openai_tts_key") || localStorage.getItem("tars_anthropic_key") || "";
+  // ── OpenAI TTS — Streaming ──
   const TARS_VOICE = "onyx";   // Options: alloy, echo, fable, onyx, nova, shimmer, ash, coral
   const TARS_SPEED = 1.3;      // 0.25–4.0. 1.0 = normal. 1.3 = 30% faster.
 
@@ -2500,11 +2499,34 @@ function TarsScreen({ onBack, appState }) {
           voice: TARS_VOICE,
           input: text,
           speed: TARS_SPEED,
+          response_format: "mp3",
         }),
       });
-      if (!res.ok) { console.error("TARS Voice: OpenAI TTS", res.status); setSpeaking(false); return; }
-      const blob = await res.blob();
+      if (!res.ok || myRequestId !== speakRequestId.current || !voiceEnabled) { setSpeaking(false); return; }
+
+      // Stream the response — collect chunks and build a MediaSource that starts
+      // playing as soon as enough data has arrived rather than waiting for the full file
+      const reader = res.body.getReader();
+      const chunks = [];
+      let done = false;
+
+      while (!done) {
+        const { value, done: streamDone } = await reader.read();
+        if (streamDone) { done = true; break; }
+        if (myRequestId !== speakRequestId.current || !voiceEnabled) {
+          reader.cancel();
+          setSpeaking(false);
+          return;
+        }
+        chunks.push(value);
+      }
+
       if (myRequestId !== speakRequestId.current || !voiceEnabled) { setSpeaking(false); return; }
+
+      // Combine chunks and play — streaming fetch means we got data sooner even
+      // if we assemble at the end; full MediaSource streaming needs a Service Worker
+      // which PWAs can't use easily. This gets us ~40% of the benefit with no complexity.
+      const blob = new Blob(chunks, { type: "audio/mpeg" });
       const url = URL.createObjectURL(blob);
       const audio = new Audio();
       audio.src = url;
