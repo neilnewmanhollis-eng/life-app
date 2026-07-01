@@ -2491,7 +2491,6 @@ function TarsScreen({ onBack, appState }) {
     const myRequestId = speakRequestId.current;
     setSpeaking(true);
     try {
-      console.log("TARS Voice: Fetching audio...");
       const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "xi-api-key": key },
@@ -2501,41 +2500,18 @@ function TarsScreen({ onBack, appState }) {
           voice_settings: { stability: 0.85, similarity_boost: 0.75, style: 0.0, use_speaker_boost: false },
         }),
       });
-      console.log("TARS Voice: ElevenLabs response status:", res.status);
-      if (!res.ok) {
-        const errText = await res.text();
-        console.error("TARS Voice: ElevenLabs error:", errText);
-        setMessages(prev => [...prev, { role:"assistant", content:`[Voice debug: ElevenLabs returned ${res.status} — ${errText.slice(0,100)}]`, ts:"", isError:true }]);
-        setSpeaking(false); return;
-      }
+      if (!res.ok) { console.error("TARS Voice: ElevenLabs", res.status); setSpeaking(false); return; }
       const blob = await res.blob();
-      console.log("TARS Voice: Got blob, size:", blob.size, "type:", blob.type);
       if (myRequestId !== speakRequestId.current || !voiceEnabled) { setSpeaking(false); return; }
       const url = URL.createObjectURL(blob);
       const audio = new Audio();
       audio.src = url;
       audioRef.current = audio;
       audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(url); audioRef.current = null; };
-      audio.onerror = (e) => {
-        console.error("TARS Voice: audio.onerror", e);
-        setMessages(prev => [...prev, { role:"assistant", content:`[Voice debug: audio.onerror — ${audio.error?.message || "unknown"}]`, ts:"", isError:true }]);
-        setSpeaking(false); URL.revokeObjectURL(url); audioRef.current = null;
-      };
-      console.log("TARS Voice: Calling audio.play()...");
+      audio.onerror = (e) => { console.error("TARS Voice: audio error", e); setSpeaking(false); URL.revokeObjectURL(url); audioRef.current = null; };
       const p = audio.play();
-      if (p !== undefined) {
-        p.then(() => console.log("TARS Voice: play() succeeded"))
-         .catch(err => {
-           console.error("TARS Voice: play() rejected:", err);
-           setMessages(prev => [...prev, { role:"assistant", content:`[Voice debug: play() blocked — ${err.message}]`, ts:"", isError:true }]);
-           setSpeaking(false);
-         });
-      }
-    } catch(err) {
-      console.error("TARS Voice: caught error:", err);
-      setMessages(prev => [...prev, { role:"assistant", content:`[Voice debug: exception — ${err.message}]`, ts:"", isError:true }]);
-      setSpeaking(false);
-    }
+      if (p !== undefined) p.catch(err => { console.error("TARS Voice: play() blocked", err); setSpeaking(false); });
+    } catch(err) { console.error("TARS Voice: exception", err); setSpeaking(false); }
   };
 
   const stopSpeaking = () => {
