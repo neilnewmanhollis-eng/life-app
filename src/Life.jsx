@@ -2482,7 +2482,12 @@ function TarsScreen({ onBack, appState }) {
   const speak = async (text) => {
     if (!voiceEnabled) return;
     const key = localStorage.getItem("tars_openai_tts_key") || "";
-    if (!key) { console.error("TARS Voice: No OpenAI TTS key"); return; }
+    if (!key) {
+      setMessages(prev => [...prev, { role:"assistant", content:`[Voice debug: No OpenAI TTS key found in storage — re-enter it in settings]`, ts:"", isError:true }]);
+      return;
+    }
+    // Show first 8 chars of key so we can confirm it's the right one
+    setMessages(prev => [...prev, { role:"assistant", content:`[Voice debug: key found — starts with "${key.slice(0,8)}..." — calling OpenAI...]`, ts:"", isError:true }]);
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.src = "";
