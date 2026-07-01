@@ -42,11 +42,30 @@ const USER = {
 };
 
 const INIT_TASKS = [
-  { id:1, text:"Take morning supplements", done:false, priority:"high",  cat:"Health",  due:"Today" },
-  { id:2, text:"Bodyweight training session", done:false, priority:"high",  cat:"Health",  due:"Today" },
-  { id:3, text:"Log meals in planner",       done:true,  priority:"med",   cat:"Health",  due:"Today" },
-  { id:4, text:"Book GP appointment",        done:false, priority:"high",  cat:"Admin",   due:"This week" },
-  { id:5, text:"Review Chief Officer CVs",   done:false, priority:"med",   cat:"Work",    due:"This week" },
+  // Health — daily
+  { id:1,  text:"Take morning supplements", cat:"Health", priority:"high", due:"2026-07-02", done:false, notes:"Centrum, Magnesium Malate x2, Ashwagandha. Take with breakfast.", subtasks:[], pinned:true },
+  { id:2,  text:"Bodyweight training session", cat:"Health", priority:"high", due:"2026-07-02", done:false, notes:"Mon/Wed/Fri — squats, push-ups, rows, glute bridges, plank. Log it in Health > Exercise when done.", subtasks:[], pinned:false },
+  { id:3,  text:"Evening supplements with dinner", cat:"Health", priority:"med", due:"2026-07-02", done:false, notes:"Fish Oil x2, Vitamin D3. Take with main meal.", subtasks:[], pinned:false },
+  // Admin — pre-rotation
+  { id:4,  text:"Confirm Dubrovnik flights are all ticketed", cat:"Admin", priority:"high", due:"2026-07-05", done:false, notes:"QF134 CHC→BNE 16 Jul, EK435 BNE→DXB 18 Jul, EK2012 DXB→ZAG 19 Jul, OU300 ZAG→DBV 19 Jul. All in vault and calendar.", subtasks:[], pinned:false },
+  { id:5,  text:"Pack for rotation", cat:"Admin", priority:"high", due:"2026-07-14", done:false, notes:"Joining Man of Steel in Dubrovnik 19 Jul. Rotation ~8 weeks.", subtasks:[
+    { id:"5a", text:"Uniform and epaulettes", done:false },
+    { id:"5b", text:"Supplements — full supply for 8 weeks", done:false },
+    { id:"5c", text:"Medications — Amlodipine prescription", done:false },
+    { id:"5d", text:"Safety certificates", done:false },
+  ], pinned:false },
+  { id:6,  text:"Weekly health check-in — send Samsung Health screenshot to TARS", cat:"Health", priority:"med", due:"2026-07-09", done:false, notes:"Every Thursday 7am. Weight, body fat, muscle from Samsung Health. Send screenshot to TARS to auto-update stats.", subtasks:[], pinned:false },
+  // Work — Chief Officer pursuit
+  { id:7,  text:"Update CV for Chief Officer applications", cat:"Work", priority:"high", due:"2026-07-12", done:false, notes:"Goal: Chief Officer within 6-12 months. Need to highlight Man of Steel experience, watchkeeping hours, cargo/guest management.", subtasks:[
+    { id:"7a", text:"Update sea service record", done:false },
+    { id:"7b", text:"Get reference from current Captain", done:false },
+    { id:"7c", text:"Review Chief Officer job boards", done:false },
+  ], pinned:false },
+  { id:8,  text:"Check certificate expiry dates before rotation", cat:"Work", priority:"high", due:"2026-07-10", done:false, notes:"STCW, GMDSS, Medical, Watchkeeping. Flag anything expiring during or before next rotation.", subtasks:[], pinned:false },
+  // Shopping
+  { id:9,  text:"Supplement restock before rotation", cat:"Shopping", priority:"med", due:"2026-07-13", done:false, notes:"Need 8 week supply. Centrum, Magnesium Malate, Ashwagandha, Fish Oil, Vitamin D3.", subtasks:[], pinned:false },
+  // Admin
+  { id:10, text:"Arrange house while on rotation", cat:"Admin", priority:"med", due:"2026-07-12", done:false, notes:"Christchurch property — check mail, plants, any maintenance needs.", subtasks:[], pinned:false },
 ];
 
 const HEALTH_TARGETS = {
@@ -234,91 +253,302 @@ function CalHistory({ calLog }) {
 
 // TodoScreen — full tasks screen
 function TodoScreen({ tasks, setTasks, onBack }) {
+  const [view, setView] = useState("today"); // "today" | "all"
   const [filter, setFilter] = useState("All");
   const [showDone, setShowDone] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [selectedTask, setSelectedTask] = useState(null); // task being viewed/edited
   const [newText, setNewText] = useState("");
   const [newCat, setNewCat] = useState("Admin");
   const [newPri, setNewPri] = useState("med");
   const [newDue, setNewDue] = useState("");
-  const [adding, setAdding] = useState(false);
+
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  const todayStr = new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"});
+
+  const isToday = (due) => {
+    if (!due) return false;
+    if (due === "Today") return true;
+    const d = new Date(due); d.setHours(0,0,0,0);
+    return d.getTime() === today.getTime();
+  };
+  const isOverdue = (due) => {
+    if (!due || due === "Today") return false;
+    const d = new Date(due); d.setHours(0,0,0,0);
+    return d < today;
+  };
 
   const addTask = () => {
     if (!newText.trim()) return;
-    setTasks(prev => [...prev, { id:Date.now(), text:newText.trim(), cat:newCat, priority:newPri, due:newDue, done:false }]);
+    setTasks(prev => [...prev, { id:Date.now(), text:newText.trim(), cat:newCat, priority:newPri, due:newDue, done:false, notes:"", subtasks:[], pinned:false }]);
     setNewText(""); setNewDue(""); setAdding(false);
   };
-  const toggleTask = (id) => setTasks(prev => prev.map(t => t.id===id ? {...t, done:!t.done} : t));
-  const deleteTask = (id, text) => { if(window.confirm(`Delete "${text}"?`)) setTasks(prev => prev.filter(t => t.id!==id)); };
 
-  const visible = tasks.filter(t => {
+  const toggleTask = (id) => setTasks(prev => prev.map(t => t.id===id ? {...t, done:!t.done} : t));
+  const updateTask = (id, changes) => {
+    setTasks(prev => prev.map(t => t.id===id ? {...t,...changes} : t));
+    if (selectedTask?.id === id) setSelectedTask(prev => ({...prev,...changes}));
+  };
+  const deleteTask = (id, text) => { if(window.confirm(`Delete "${text}"?`)) { setTasks(prev => prev.filter(t => t.id!==id)); setSelectedTask(null); }};
+  const toggleSubtask = (taskId, subId) => {
+    setTasks(prev => prev.map(t => t.id===taskId ? {...t, subtasks:t.subtasks.map(s=>s.id===subId?{...s,done:!s.done}:s)} : t));
+    if (selectedTask?.id===taskId) setSelectedTask(prev=>({...prev,subtasks:prev.subtasks.map(s=>s.id===subId?{...s,done:!s.done}:s)}));
+  };
+
+  // Today view tasks — due today or overdue, not done
+  const todayTasks = tasks.filter(t => !t.done && (isToday(t.due) || isOverdue(t.due)));
+  const overdueTasks = todayTasks.filter(t => isOverdue(t.due));
+  const dueTodayTasks = todayTasks.filter(t => isToday(t.due));
+
+  // All view tasks
+  const allVisible = tasks.filter(t => {
     if (!showDone && t.done) return false;
-    if (filter==="All") return true;
-    return t.cat===filter;
+    if (filter !== "All") return t.cat === filter;
+    return true;
+  }).sort((a,b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1;
+    const pri = { high:0, med:1, low:2 };
+    return (pri[a.priority]||1) - (pri[b.priority]||1);
   });
+
+  const pendingCount = tasks.filter(t=>!t.done).length;
+  const overdueCount = tasks.filter(t=>!t.done&&isOverdue(t.due)).length;
+
+  // ── Task Detail View ──
+  if (selectedTask) {
+    const t = tasks.find(x=>x.id===selectedTask.id) || selectedTask;
+    return (
+      <div>
+        <div style={{ display:"flex", alignItems:"center", gap:10, padding:"14px 16px", borderBottom:`1px solid ${T.border}` }}>
+          <button onClick={()=>setSelectedTask(null)} style={{ background:"none", border:"none", cursor:"pointer", padding:4, color:T.text }}>
+            <Icon name="back" size={20} color={T.text} />
+          </button>
+          <div style={{ flex:1, fontSize:15, fontWeight:700, color:T.text }}>Task Detail</div>
+          <button onClick={()=>deleteTask(t.id, t.text)} style={{ background:"none", border:"none", cursor:"pointer", opacity:0.5 }}>
+            <Icon name="trash" size={16} color={T.accent} />
+          </button>
+        </div>
+        <div style={{ padding:16, display:"flex", flexDirection:"column", gap:12 }}>
+          {/* Title — editable */}
+          <Card>
+            <div style={{ fontSize:10, color:T.muted, fontWeight:600, marginBottom:6, textTransform:"uppercase", letterSpacing:"0.05em" }}>Task</div>
+            <textarea value={t.text} onChange={e=>updateTask(t.id,{text:e.target.value})} rows={2}
+              style={{ width:"100%", padding:"8px 10px", borderRadius:9, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:14, fontWeight:600, fontFamily:"inherit", outline:"none", resize:"none", boxSizing:"border-box" }} />
+          </Card>
+
+          {/* Status / priority / category */}
+          <Card>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+              <div>
+                <div style={{ fontSize:10, color:T.muted, fontWeight:600, marginBottom:4 }}>Category</div>
+                <select value={t.cat} onChange={e=>updateTask(t.id,{cat:e.target.value})}
+                  style={{ width:"100%", padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit" }}>
+                  {CATS.filter(c=>c!=="All").map(c=><option key={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={{ fontSize:10, color:T.muted, fontWeight:600, marginBottom:4 }}>Priority</div>
+                <select value={t.priority} onChange={e=>updateTask(t.id,{priority:e.target.value})}
+                  style={{ width:"100%", padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit" }}>
+                  <option value="high">High</option>
+                  <option value="med">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+              </div>
+              <div>
+                <div style={{ fontSize:10, color:T.muted, fontWeight:600, marginBottom:4 }}>Due Date</div>
+                <input type="date" value={t.due||""} onChange={e=>updateTask(t.id,{due:e.target.value})}
+                  style={{ width:"100%", padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+              </div>
+              <div style={{ display:"flex", alignItems:"flex-end" }}>
+                <button onClick={()=>toggleTask(t.id)} style={{ width:"100%", padding:"8px", borderRadius:8, border:`1px solid ${t.done?T.green:T.border}`, background:t.done?`${T.green}22`:T.elevated, color:t.done?T.green:T.muted, fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
+                  {t.done ? "✓ Completed" : "Mark done"}
+                </button>
+              </div>
+            </div>
+          </Card>
+
+          {/* Notes */}
+          <Card>
+            <div style={{ fontSize:10, color:T.muted, fontWeight:600, marginBottom:6, textTransform:"uppercase", letterSpacing:"0.05em" }}>Notes</div>
+            <textarea value={t.notes||""} onChange={e=>updateTask(t.id,{notes:e.target.value})}
+              placeholder="Add notes, context, or details..." rows={4}
+              style={{ width:"100%", padding:"9px 10px", borderRadius:9, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", resize:"none", boxSizing:"border-box", lineHeight:1.5 }} />
+          </Card>
+
+          {/* Subtasks */}
+          <Card>
+            <div style={{ fontSize:10, color:T.muted, fontWeight:600, marginBottom:10, textTransform:"uppercase", letterSpacing:"0.05em" }}>
+              Subtasks ({(t.subtasks||[]).filter(s=>s.done).length}/{(t.subtasks||[]).length})
+            </div>
+            {(t.subtasks||[]).map(s=>(
+              <div key={s.id} onClick={()=>toggleSubtask(t.id,s.id)} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 0", borderBottom:`1px solid ${T.border}33`, cursor:"pointer" }}>
+                <div style={{ width:18, height:18, borderRadius:5, border:`2px solid ${s.done?T.green:T.border}`, background:s.done?T.green:"transparent", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  {s.done && <Icon name="check" size={10} color="white" />}
+                </div>
+                <div style={{ fontSize:12, color:s.done?T.muted:T.text, textDecoration:s.done?"line-through":"none", flex:1 }}>{s.text}</div>
+              </div>
+            ))}
+            {/* Add subtask */}
+            <button onClick={()=>{
+              const text = prompt("Subtask:");
+              if (text?.trim()) updateTask(t.id, { subtasks:[...(t.subtasks||[]), {id:Date.now().toString(), text:text.trim(), done:false}] });
+            }} style={{ marginTop:8, fontSize:11, padding:"5px 10px", borderRadius:8, border:`1px dashed ${T.border}`, background:"none", color:T.muted, cursor:"pointer", fontFamily:"inherit" }}>+ Add subtask</button>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
       <SectionHeader title="To Do" onBack={onBack} />
-      <div style={{ padding:"16px" }}>
-        {/* Filter pills */}
-        <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12 }}>
-          {CATS.map(c => (
-            <button key={c} onClick={()=>setFilter(c)} style={{ fontSize:11, padding:"4px 10px", borderRadius:999, border:`1px solid ${filter===c?(CAT_COLORS[c]||T.blue):T.border}`, background:filter===c?`${CAT_COLORS[c]||T.blue}22`:T.elevated, color:filter===c?(CAT_COLORS[c]||T.blue):T.muted, cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>{c}</button>
+
+      {/* View toggle + stats */}
+      <div style={{ padding:"10px 16px 0" }}>
+        <div style={{ display:"flex", gap:0, borderBottom:`1px solid ${T.border}`, marginBottom:12 }}>
+          {[["today","📅 Today"],["all","📋 All"]].map(([id,label])=>(
+            <button key={id} onClick={()=>setView(id)} style={{ flex:1, padding:"9px 4px", fontSize:12, fontWeight:600, border:"none", background:"none", cursor:"pointer", fontFamily:"inherit", color:view===id?T.blue:T.muted, borderBottom:view===id?`2px solid ${T.blue}`:"2px solid transparent" }}>{label}</button>
           ))}
         </div>
+      </div>
 
-        {/* Add task */}
-        {!adding ? (
-          <button onClick={()=>setAdding(true)} style={{ width:"100%", padding:"11px", borderRadius:12, border:`1px dashed ${T.border}`, background:"none", color:T.muted, fontSize:13, cursor:"pointer", fontFamily:"inherit", marginBottom:12 }}>+ Add task</button>
-        ) : (
-          <div style={{ background:T.card, borderRadius:14, padding:14, border:`1px solid ${T.border}`, marginBottom:12 }}>
-            <input value={newText} onChange={e=>setNewText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addTask()} placeholder="Task description..." autoFocus
-              style={{ width:"100%", padding:"9px 12px", borderRadius:9, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box", marginBottom:8 }} />
-            <div style={{ display:"flex", gap:8, marginBottom:8 }}>
-              <select value={newCat} onChange={e=>setNewCat(e.target.value)} style={{ flex:1, padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit" }}>
-                {CATS.filter(c=>c!=="All").map(c=><option key={c}>{c}</option>)}
-              </select>
-              <select value={newPri} onChange={e=>setNewPri(e.target.value)} style={{ flex:1, padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit" }}>
-                <option value="high">High</option>
-                <option value="med">Medium</option>
-                <option value="low">Low</option>
-              </select>
-            </div>
-            <input type="date" value={newDue} onChange={e=>setNewDue(e.target.value)}
-              style={{ width:"100%", padding:"8px 12px", borderRadius:9, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box", marginBottom:8 }} />
-            <div style={{ display:"flex", gap:8 }}>
-              <button onClick={addTask} style={{ flex:1, padding:"9px", borderRadius:9, background:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Add</button>
-              <button onClick={()=>setAdding(false)} style={{ flex:1, padding:"9px", borderRadius:9, background:T.elevated, color:T.muted, fontWeight:700, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>Cancel</button>
-            </div>
+      <div style={{ padding:"0 16px 24px" }}>
+
+        {/* ── TODAY VIEW ── */}
+        {view==="today" && (
+          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+            {/* Overdue */}
+            {overdueTasks.length > 0 && (
+              <div>
+                <div style={{ fontSize:11, fontWeight:700, color:T.accent, marginBottom:6, textTransform:"uppercase", letterSpacing:"0.05em" }}>⚠️ Overdue ({overdueTasks.length})</div>
+                {overdueTasks.sort((a,b)=>{ const p={high:0,med:1,low:2}; return p[a.priority]-p[b.priority]; }).map(t=>(
+                  <TaskCard key={t.id} task={t} onToggle={()=>toggleTask(t.id)} onOpen={()=>setSelectedTask(t)} accent={T.accent} />
+                ))}
+              </div>
+            )}
+
+            {/* Due today */}
+            {dueTodayTasks.length > 0 && (
+              <div>
+                <div style={{ fontSize:11, fontWeight:700, color:T.blue, marginBottom:6, textTransform:"uppercase", letterSpacing:"0.05em" }}>Today — {todayStr}</div>
+                {dueTodayTasks.sort((a,b)=>{ const p={high:0,med:1,low:2}; return p[a.priority]-p[b.priority]; }).map(t=>(
+                  <TaskCard key={t.id} task={t} onToggle={()=>toggleTask(t.id)} onOpen={()=>setSelectedTask(t)} accent={PRIORITY_COLORS[t.priority]} />
+                ))}
+              </div>
+            )}
+
+            {todayTasks.length === 0 && (
+              <div style={{ textAlign:"center", padding:"48px 20px", color:T.muted }}>
+                <div style={{ fontSize:32, marginBottom:12 }}>✓</div>
+                <div style={{ fontSize:15, fontWeight:700, color:T.text, marginBottom:4 }}>All clear</div>
+                <div style={{ fontSize:13 }}>Nothing due today. Check All tasks for upcoming items.</div>
+              </div>
+            )}
+
+            {/* Quick add */}
+            {!adding ? (
+              <button onClick={()=>setAdding(true)} style={{ width:"100%", padding:"11px", borderRadius:12, border:`1px dashed ${T.border}`, background:"none", color:T.muted, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>+ Add task</button>
+            ) : <AddTaskForm onAdd={addTask} onCancel={()=>setAdding(false)} newText={newText} setNewText={setNewText} newCat={newCat} setNewCat={setNewCat} newPri={newPri} setNewPri={setNewPri} newDue={newDue} setNewDue={setNewDue} />}
+
+            {/* Upcoming — next 7 days not due today */}
+            {(() => {
+              const upcoming = tasks.filter(t => {
+                if (t.done || isToday(t.due) || isOverdue(t.due)) return false;
+                if (!t.due) return false;
+                const d = new Date(t.due); d.setHours(0,0,0,0);
+                const diff = (d - today) / 86400000;
+                return diff > 0 && diff <= 7;
+              }).sort((a,b)=>new Date(a.due)-new Date(b.due));
+              if (upcoming.length === 0) return null;
+              return (
+                <div>
+                  <div style={{ fontSize:11, fontWeight:700, color:T.muted, marginBottom:6, textTransform:"uppercase", letterSpacing:"0.05em" }}>Upcoming this week</div>
+                  {upcoming.map(t=>(
+                    <TaskCard key={t.id} task={t} onToggle={()=>toggleTask(t.id)} onOpen={()=>setSelectedTask(t)} accent={PRIORITY_COLORS[t.priority]} muted />
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         )}
 
-        {/* Task list */}
-        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-          {visible.map(t => (
-            <div key={t.id} style={{ background:T.card, borderRadius:12, padding:"12px 14px", border:`1px solid ${t.done?T.border:PRIORITY_COLORS[t.priority]+"33"}`, opacity:t.done?0.6:1, display:"flex", alignItems:"flex-start", gap:10 }}>
-              <button onClick={()=>toggleTask(t.id)} style={{ width:22, height:22, borderRadius:6, border:`2px solid ${t.done?T.green:PRIORITY_COLORS[t.priority]}`, background:t.done?T.green:"transparent", flexShrink:0, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", marginTop:1 }}>
-                {t.done && <Icon name="check" size={12} color="white" />}
-              </button>
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontSize:13, fontWeight:600, color:T.text, textDecoration:t.done?"line-through":"none", marginBottom:4 }}>{t.text}</div>
-                <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                  <span style={{ fontSize:9, fontWeight:700, padding:"2px 7px", borderRadius:999, background:`${CAT_COLORS[t.cat]||T.blue}22`, color:CAT_COLORS[t.cat]||T.blue }}>{t.cat}</span>
-                  {t.due && <span style={{ fontSize:9, color:T.muted }}>Due {formatDateDDMMYYYY(t.due)}</span>}
-                </div>
-              </div>
-              <button onClick={()=>deleteTask(t.id, t.text)} style={{ background:"none", border:"none", cursor:"pointer", padding:2, opacity:0.4, flexShrink:0 }}>
-                <Icon name="trash" size={14} color={T.muted} />
-              </button>
+        {/* ── ALL TASKS VIEW ── */}
+        {view==="all" && (
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {/* Category filter */}
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+              {CATS.map(c=>(
+                <button key={c} onClick={()=>setFilter(c)} style={{ fontSize:11, padding:"4px 10px", borderRadius:999, border:`1px solid ${filter===c?(CAT_COLORS[c]||T.blue):T.border}`, background:filter===c?`${CAT_COLORS[c]||T.blue}22`:T.elevated, color:filter===c?(CAT_COLORS[c]||T.blue):T.muted, cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>{c}</button>
+              ))}
             </div>
-          ))}
-          {visible.length===0 && <div style={{ textAlign:"center", padding:"32px 0", color:T.muted, fontSize:13 }}>{showDone?"No tasks":"No pending tasks"}</div>}
-        </div>
 
-        {/* Show/hide done */}
-        <button onClick={()=>setShowDone(v=>!v)} style={{ width:"100%", marginTop:12, padding:"9px", borderRadius:10, border:`1px solid ${T.border}`, background:"none", color:T.muted, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
-          {showDone?"Hide":"Show"} completed ({tasks.filter(t=>t.done).length})
-        </button>
+            {/* Add task */}
+            {!adding ? (
+              <button onClick={()=>setAdding(true)} style={{ width:"100%", padding:"11px", borderRadius:12, border:`1px dashed ${T.border}`, background:"none", color:T.muted, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>+ Add task</button>
+            ) : <AddTaskForm onAdd={addTask} onCancel={()=>setAdding(false)} newText={newText} setNewText={setNewText} newCat={newCat} setNewCat={setNewCat} newPri={newPri} setNewPri={setNewPri} newDue={newDue} setNewDue={setNewDue} />}
+
+            {allVisible.map(t=>(
+              <TaskCard key={t.id} task={t} onToggle={()=>toggleTask(t.id)} onOpen={()=>setSelectedTask(t)} accent={t.done?T.muted:PRIORITY_COLORS[t.priority]} />
+            ))}
+
+            {allVisible.length === 0 && <div style={{ textAlign:"center", padding:"32px 0", color:T.muted, fontSize:13 }}>No tasks</div>}
+
+            <button onClick={()=>setShowDone(v=>!v)} style={{ padding:"9px", borderRadius:10, border:`1px solid ${T.border}`, background:"none", color:T.muted, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
+              {showDone?"Hide":"Show"} completed ({tasks.filter(t=>t.done).length})
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── TaskCard — shared task row component ──────────────────────────────────────
+function TaskCard({ task:t, onToggle, onOpen, accent, muted }) {
+  const subDone = (t.subtasks||[]).filter(s=>s.done).length;
+  const subTotal = (t.subtasks||[]).length;
+  return (
+    <div style={{ background:T.card, borderRadius:12, padding:"12px 14px", border:`1px solid ${t.done?T.border:accent+"33"}`, opacity:muted?0.7:t.done?0.55:1, display:"flex", alignItems:"flex-start", gap:10, marginBottom:6 }}>
+      <button onClick={e=>{ e.stopPropagation(); onToggle(); }} style={{ width:22, height:22, borderRadius:6, border:`2px solid ${t.done?T.green:accent}`, background:t.done?T.green:"transparent", flexShrink:0, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", marginTop:1 }}>
+        {t.done && <Icon name="check" size={12} color="white" />}
+      </button>
+      <div onClick={onOpen} style={{ flex:1, minWidth:0, cursor:"pointer" }}>
+        <div style={{ fontSize:13, fontWeight:600, color:t.done?T.muted:T.text, textDecoration:t.done?"line-through":"none", marginBottom:4, lineHeight:1.3 }}>{t.text}</div>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
+          <span style={{ fontSize:9, fontWeight:700, padding:"2px 7px", borderRadius:999, background:`${CAT_COLORS[t.cat]||T.blue}22`, color:CAT_COLORS[t.cat]||T.blue }}>{t.cat}</span>
+          {t.due && <span style={{ fontSize:9, color:T.muted }}>{formatDateDDMMYYYY(t.due)}</span>}
+          {subTotal > 0 && <span style={{ fontSize:9, color:subDone===subTotal?T.green:T.muted }}>{subDone}/{subTotal} subtasks</span>}
+          {t.notes && <span style={{ fontSize:9, color:T.muted }}>📝</span>}
+        </div>
+      </div>
+      <button onClick={onOpen} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:16, padding:"0 2px", flexShrink:0, opacity:0.4 }}>›</button>
+    </div>
+  );
+}
+
+// ── AddTaskForm — shared add task form ────────────────────────────────────────
+function AddTaskForm({ onAdd, onCancel, newText, setNewText, newCat, setNewCat, newPri, setNewPri, newDue, setNewDue }) {
+  return (
+    <div style={{ background:T.card, borderRadius:14, padding:14, border:`1px solid ${T.border}`, marginBottom:4 }}>
+      <input value={newText} onChange={e=>setNewText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&onAdd()} placeholder="Task description..." autoFocus
+        style={{ width:"100%", padding:"9px 12px", borderRadius:9, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box", marginBottom:8 }} />
+      <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+        <select value={newCat} onChange={e=>setNewCat(e.target.value)} style={{ flex:1, padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit" }}>
+          {CATS.filter(c=>c!=="All").map(c=><option key={c}>{c}</option>)}
+        </select>
+        <select value={newPri} onChange={e=>setNewPri(e.target.value)} style={{ flex:1, padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit" }}>
+          <option value="high">High</option>
+          <option value="med">Medium</option>
+          <option value="low">Low</option>
+        </select>
+      </div>
+      <input type="date" value={newDue} onChange={e=>setNewDue(e.target.value)}
+        style={{ width:"100%", padding:"8px 12px", borderRadius:9, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box", marginBottom:8 }} />
+      <div style={{ display:"flex", gap:8 }}>
+        <button onClick={onAdd} style={{ flex:1, padding:"9px", borderRadius:9, background:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Add</button>
+        <button onClick={onCancel} style={{ flex:1, padding:"9px", borderRadius:9, background:T.elevated, color:T.muted, fontWeight:700, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>Cancel</button>
       </div>
     </div>
   );
@@ -4688,6 +4918,15 @@ export default function LifeApp() {
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const [tasks, setTasks] = usePersistentState("life_tasks", INIT_TASKS);
+
+  // ── Auto-migrate tasks to new schema ──
+  // If stored tasks are from the old schema (no notes/subtasks), reset to new
+  // prepopulated INIT_TASKS. Runs once on first load after this update.
+  useEffect(() => {
+    if (tasks.length > 0 && tasks[0].notes === undefined) {
+      setTasks(INIT_TASKS);
+    }
+  }, []);
 
   // ── HEALTH STATE (source of truth — TARS can write here) ───────────────────
   const [healthEntries, setHealthEntries] = usePersistentState("life_health_entries", [{
