@@ -2481,30 +2481,42 @@ function TarsScreen({ onBack, appState }) {
 
   const speak = async (text) => {
     if (!voiceEnabled) return;
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
-    const myRequestId = speakRequestId.current; // capture current id WITHOUT incrementing — only stopSpeaking() increments
+    const key = getElevenLabsKey();
+    if (!key) return;
+    // Stop any current audio
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = "";
+      audioRef.current = null;
+    }
+    const myRequestId = speakRequestId.current;
     setSpeaking(true);
     try {
-      const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
+      const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}/stream`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "xi-api-key": getElevenLabsKey() },
+        headers: { "Content-Type": "application/json", "xi-api-key": key },
         body: JSON.stringify({
           text,
           model_id: "eleven_turbo_v2",
           voice_settings: { stability: 0.85, similarity_boost: 0.75, style: 0.0, use_speaker_boost: false },
-          speed: 1.3,
+          output_format: "mp3_44100_128",
         }),
       });
-      if (!res.ok) throw new Error("ElevenLabs error");
+      if (!res.ok) { setSpeaking(false); return; }
+      if (myRequestId !== speakRequestId.current || !voiceEnabled) { setSpeaking(false); return; }
       const blob = await res.blob();
-      // Only skip playback if Stop/Mute was explicitly pressed while this fetch was in flight
       if (myRequestId !== speakRequestId.current || !voiceEnabled) { setSpeaking(false); return; }
       const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
+      const audio = new Audio();
+      audio.src = url;
       audioRef.current = audio;
-      audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(url); };
-      audio.onerror = () => setSpeaking(false);
-      audio.play();
+      audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(url); audioRef.current = null; };
+      audio.onerror = (e) => { setSpeaking(false); URL.revokeObjectURL(url); audioRef.current = null; };
+      // play() returns a promise on mobile — must catch rejection or it silently fails
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(() => { setSpeaking(false); });
+      }
     } catch { setSpeaking(false); }
   };
 
@@ -4011,19 +4023,24 @@ function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState 
     const key = localStorage.getItem("tars_elevenlabs_key") || "";
     if (!key) return;
     const myId = speakReqId.current;
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; audioRef.current = null; }
     try {
-      const res = await fetch("https://api.elevenlabs.io/v1/text-to-speech/JBFqnCBsd6RMkjVDRZzb", {
+      const res = await fetch("https://api.elevenlabs.io/v1/text-to-speech/JBFqnCBsd6RMkjVDRZzb/stream", {
         method:"POST",
         headers:{ "Content-Type":"application/json", "xi-api-key": key },
-        body: JSON.stringify({ text, model_id:"eleven_turbo_v2", voice_settings:{ stability:0.85, similarity_boost:0.75, style:0.0, use_speaker_boost:false }, speed:1.3 })
+        body: JSON.stringify({ text, model_id:"eleven_turbo_v2", voice_settings:{ stability:0.85, similarity_boost:0.75, style:0.0, use_speaker_boost:false }, output_format:"mp3_44100_128" })
       });
       if (!res.ok || myId !== speakReqId.current || !voiceEnabled) return;
-      const url = URL.createObjectURL(await res.blob());
-      const audio = new Audio(url);
+      const blob = await res.blob();
+      if (myId !== speakReqId.current || !voiceEnabled) return;
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio();
+      audio.src = url;
       audioRef.current = audio;
-      audio.onended = () => URL.revokeObjectURL(url);
-      audio.play();
+      audio.onended = () => { URL.revokeObjectURL(url); audioRef.current = null; };
+      audio.onerror = () => { URL.revokeObjectURL(url); audioRef.current = null; };
+      const p = audio.play();
+      if (p !== undefined) p.catch(() => {});
     } catch {}
   };
 
