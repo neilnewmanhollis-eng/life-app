@@ -2177,7 +2177,7 @@ const GistSync = {
     "meal_shopping", "meal_regulars", "meal_pantry",
     "tars_vault",
     "tars_memory_profile", "tars_memory_sessions",
-    "life_projects",
+    "life_projects", "tars_openai_tts_key",
   ],
 
   // Build the full data snapshot from localStorage
@@ -2401,7 +2401,7 @@ function TarsScreen({ onBack, appState }) {
 
   const saveKeys = () => {
     if (anthropicKeyInput.trim()) localStorage.setItem("tars_anthropic_key", anthropicKeyInput.trim());
-    if (elevenLabsKeyInput.trim()) localStorage.setItem("tars_elevenlabs_key", elevenLabsKeyInput.trim());
+    if (elevenLabsKeyInput.trim()) localStorage.setItem("tars_openai_tts_key", elevenLabsKeyInput.trim());
     if (githubTokenInput.trim()) localStorage.setItem(GIST_KEYS.token, githubTokenInput.trim());
     if (gistIdInput.trim()) localStorage.setItem(GIST_KEYS.gistId, gistIdInput.trim());
     setKeysSaved(true);
@@ -2475,14 +2475,15 @@ function TarsScreen({ onBack, appState }) {
     setNudgeLoading(false);
   }, []);
 
-  // ── ElevenLabs TTS ──
-  const getElevenLabsKey = () => localStorage.getItem("tars_elevenlabs_key") || "";
-  const ELEVENLABS_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb";
+  // ── OpenAI TTS ──
+  const getOpenAITTSKey = () => localStorage.getItem("tars_openai_tts_key") || localStorage.getItem("tars_anthropic_key") || "";
+  const TARS_VOICE = "onyx";   // Options: alloy, echo, fable, onyx, nova, shimmer, ash, coral
+  const TARS_SPEED = 1.3;      // 0.25–4.0. 1.0 = normal. 1.3 = 30% faster.
 
   const speak = async (text) => {
     if (!voiceEnabled) return;
-    const key = getElevenLabsKey();
-    if (!key) { console.error("TARS Voice: No ElevenLabs key"); return; }
+    const key = localStorage.getItem("tars_openai_tts_key") || "";
+    if (!key) { console.error("TARS Voice: No OpenAI TTS key"); return; }
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.src = "";
@@ -2491,16 +2492,17 @@ function TarsScreen({ onBack, appState }) {
     const myRequestId = speakRequestId.current;
     setSpeaking(true);
     try {
-      const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
+      const res = await fetch("https://api.openai.com/v1/audio/speech", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "xi-api-key": key },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
         body: JSON.stringify({
-          text,
-          model_id: "eleven_turbo_v2",
-          voice_settings: { stability: 0.85, similarity_boost: 0.75, style: 0.0, use_speaker_boost: false },
+          model: "tts-1",
+          voice: TARS_VOICE,
+          input: text,
+          speed: TARS_SPEED,
         }),
       });
-      if (!res.ok) { console.error("TARS Voice: ElevenLabs", res.status); setSpeaking(false); return; }
+      if (!res.ok) { console.error("TARS Voice: OpenAI TTS", res.status); setSpeaking(false); return; }
       const blob = await res.blob();
       if (myRequestId !== speakRequestId.current || !voiceEnabled) { setSpeaking(false); return; }
       const url = URL.createObjectURL(blob);
@@ -3701,12 +3703,12 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
               style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${hasAnthropicKey()?T.green:T.accent}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
           </div>
 
-          {/* ElevenLabs */}
+          {/* OpenAI TTS */}
           <div style={{ marginBottom:10 }}>
-            <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:4 }}>ElevenLabs API Key {hasElevenLabsKey() ? "✓" : "(optional — for voice)"}</div>
+            <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:4 }}>OpenAI TTS Key {localStorage.getItem("tars_openai_tts_key") ? "✓" : "(optional — for voice)"}</div>
             <input type="password" value={elevenLabsKeyInput} onChange={e=>setElevenLabsKeyInput(e.target.value)}
-              placeholder={hasElevenLabsKey() ? "sk-... (saved — paste to update)" : "sk-..."}
-              style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${hasElevenLabsKey()?T.green:T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+              placeholder={localStorage.getItem("tars_openai_tts_key") ? "sk-... (saved — paste to update)" : "sk-..."}
+              style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${localStorage.getItem("tars_openai_tts_key")?T.green:T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
           </div>
 
           {/* GitHub Gist sync */}
@@ -4032,15 +4034,15 @@ function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState 
 
   const speakProject = async (text) => {
     if (!voiceEnabled) return;
-    const key = localStorage.getItem("tars_elevenlabs_key") || "";
+    const key = localStorage.getItem("tars_openai_tts_key") || "";
     if (!key) return;
     const myId = speakReqId.current;
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; audioRef.current = null; }
     try {
-      const res = await fetch("https://api.elevenlabs.io/v1/text-to-speech/JBFqnCBsd6RMkjVDRZzb", {
+      const res = await fetch("https://api.openai.com/v1/audio/speech", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "xi-api-key": key },
-        body: JSON.stringify({ text, model_id:"eleven_turbo_v2", voice_settings:{ stability:0.85, similarity_boost:0.75, style:0.0, use_speaker_boost:false } })
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
+        body: JSON.stringify({ model:"tts-1", voice:"onyx", input:text, speed:1.3 })
       });
       if (!res.ok || myId !== speakReqId.current || !voiceEnabled) return;
       const blob = await res.blob();
