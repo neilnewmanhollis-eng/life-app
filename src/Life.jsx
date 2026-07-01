@@ -2150,7 +2150,129 @@ function loadMemory() { return MemoryStore.buildContext(); }
 function saveMemory(text) { MemoryStore.setProfile(text); }
 
 
-// ─── MODULE REGISTRY ──────────────────────────────────────────────────────────
+// ─── GIST SYNC — Cloud backup & restore ───────────────────────────────────────
+// Syncs all app data to a private GitHub Gist. Completely private — only the
+// account owner can access it. Free, no rate limits for this usage pattern.
+//
+// What gets synced: all app data (tasks, calendar, health, meals, vault, memory)
+// When: on every 💾 save + automatically once daily on app load
+// Keys stored: GitHub token and Gist ID in localStorage (never in code/repo)
+
+const GIST_KEYS = {
+  token:  "life_github_token",
+  gistId: "life_gist_id",
+  lastSync: "life_last_sync",
+};
+
+const GistSync = {
+  getToken()  { try { return localStorage.getItem(GIST_KEYS.token)  || ""; } catch { return ""; } },
+  getGistId() { try { return localStorage.getItem(GIST_KEYS.gistId) || ""; } catch { return ""; } },
+  isConfigured() { return !!(this.getToken() && this.getGistId()); },
+
+  // All localStorage keys that get synced to the Gist
+  DATA_KEYS: [
+    "life_tasks", "life_cal_events", "life_rotation_blocks",
+    "life_health_entries", "life_cal_log",
+    "meal_library", "meal_current", "meal_cooked",
+    "meal_shopping", "meal_regulars", "meal_pantry",
+    "tars_vault",
+    "tars_memory_profile", "tars_memory_sessions",
+    "life_projects",
+  ],
+
+  // Build the full data snapshot from localStorage
+  buildSnapshot() {
+    const snapshot = { _synced: new Date().toISOString(), _version: 1 };
+    this.DATA_KEYS.forEach(key => {
+      try {
+        const val = localStorage.getItem(key);
+        if (val) snapshot[key] = val; // store as raw strings — preserves JSON exactly
+      } catch {}
+    });
+    return snapshot;
+  },
+
+  // Push snapshot to Gist
+  async push() {
+    if (!this.isConfigured()) return { ok: false, reason: "not_configured" };
+    try {
+      const snapshot = this.buildSnapshot();
+      const response = await fetch(`https://api.github.com/gists/${this.getGistId()}`, {
+        method: "PATCH",
+        headers: {
+          "Authorization": `token ${this.getToken()}`,
+          "Content-Type": "application/json",
+          "Accept": "application/vnd.github.v3+json",
+        },
+        body: JSON.stringify({
+          files: {
+            "life-app-data.json": {
+              content: JSON.stringify(snapshot, null, 2)
+            }
+          }
+        })
+      });
+      if (response.ok) {
+        localStorage.setItem(GIST_KEYS.lastSync, new Date().toISOString());
+        return { ok: true };
+      }
+      return { ok: false, reason: `HTTP ${response.status}` };
+    } catch (err) {
+      return { ok: false, reason: err.message };
+    }
+  },
+
+  // Pull snapshot from Gist and restore to localStorage
+  async pull() {
+    if (!this.isConfigured()) return { ok: false, reason: "not_configured" };
+    try {
+      const response = await fetch(`https://api.github.com/gists/${this.getGistId()}`, {
+        headers: {
+          "Authorization": `token ${this.getToken()}`,
+          "Accept": "application/vnd.github.v3+json",
+        }
+      });
+      if (!response.ok) return { ok: false, reason: `HTTP ${response.status}` };
+      const data = await response.json();
+      const fileContent = data.files?.["life-app-data.json"]?.content;
+      if (!fileContent) return { ok: false, reason: "no_data" };
+
+      const snapshot = JSON.parse(fileContent);
+      let restored = 0;
+      this.DATA_KEYS.forEach(key => {
+        if (snapshot[key] !== undefined) {
+          try { localStorage.setItem(key, snapshot[key]); restored++; } catch {}
+        }
+      });
+      localStorage.setItem(GIST_KEYS.lastSync, new Date().toISOString());
+      return { ok: true, restored };
+    } catch (err) {
+      return { ok: false, reason: err.message };
+    }
+  },
+
+  // Check if daily auto-sync is due
+  isDailySyncDue() {
+    try {
+      const last = localStorage.getItem(GIST_KEYS.lastSync);
+      if (!last) return true;
+      const hoursSince = (Date.now() - new Date(last).getTime()) / (1000 * 60 * 60);
+      return hoursSince >= 22; // sync if 22+ hours since last sync
+    } catch { return true; }
+  },
+
+  getLastSyncLabel() {
+    try {
+      const last = localStorage.getItem(GIST_KEYS.lastSync);
+      if (!last) return "Never";
+      const d = new Date(last);
+      return d.toLocaleDateString("en-NZ", { day:"numeric", month:"short" }) + " " +
+             d.toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit" });
+    } catch { return "Unknown"; }
+  }
+};
+
+
 // This is the foundation of TARS's full app access. Every module Neil's data lives
 // in is declared here once — its fields, and how to read/write it. TARS works against
 // this registry with generic create/update/delete actions instead of needing bespoke
@@ -2266,18 +2388,44 @@ function TarsScreen({ onBack, appState }) {
   const [showSettings, setShowSettings] = useState(false);
   const [anthropicKeyInput, setAnthropicKeyInput] = useState("");
   const [elevenLabsKeyInput, setElevenLabsKeyInput] = useState("");
+  const [githubTokenInput, setGithubTokenInput] = useState("");
+  const [gistIdInput, setGistIdInput] = useState("");
   const [keysSaved, setKeysSaved] = useState(false);
   const [memorySaving, setMemorySaving] = useState(false);
   const [memoryJustSaved, setMemoryJustSaved] = useState(false);
+  const [syncStatus, setSyncStatus] = useState(""); // "syncing" | "ok" | "error" | ""
 
   const hasAnthropicKey = () => !!localStorage.getItem("tars_anthropic_key");
   const hasElevenLabsKey = () => !!localStorage.getItem("tars_elevenlabs_key");
+  const hasGistSync = () => GistSync.isConfigured();
 
   const saveKeys = () => {
     if (anthropicKeyInput.trim()) localStorage.setItem("tars_anthropic_key", anthropicKeyInput.trim());
     if (elevenLabsKeyInput.trim()) localStorage.setItem("tars_elevenlabs_key", elevenLabsKeyInput.trim());
+    if (githubTokenInput.trim()) localStorage.setItem(GIST_KEYS.token, githubTokenInput.trim());
+    if (gistIdInput.trim()) localStorage.setItem(GIST_KEYS.gistId, gistIdInput.trim());
     setKeysSaved(true);
     setTimeout(() => { setKeysSaved(false); setShowSettings(false); }, 1200);
+  };
+
+  const handleManualSync = async () => {
+    setSyncStatus("syncing");
+    const result = await GistSync.push();
+    setSyncStatus(result.ok ? "ok" : "error");
+    setTimeout(() => setSyncStatus(""), 3000);
+  };
+
+  const handleRestoreFromGist = async () => {
+    if (!window.confirm("Restore all app data from your Gist backup? This will overwrite current data on this device.")) return;
+    setSyncStatus("syncing");
+    const result = await GistSync.pull();
+    if (result.ok) {
+      setSyncStatus("ok");
+      setTimeout(() => { setSyncStatus(""); window.location.reload(); }, 1500);
+    } else {
+      setSyncStatus("error");
+      setTimeout(() => setSyncStatus(""), 3000);
+    }
   };
 
   const handleSaveSession = async () => {
@@ -2285,6 +2433,10 @@ function TarsScreen({ onBack, appState }) {
     setMemorySaving(true);
     const apiKey = getAnthropicKey();
     if (apiKey) await saveSessionMemory(messages, apiKey);
+    // Push to Gist after memory update — runs in background, doesn't block UI
+    if (GistSync.isConfigured()) {
+      GistSync.push().catch(() => {}); // silent fail — local save already done
+    }
     setMemorySaving(false);
     setMemoryJustSaved(true);
     setTimeout(() => setMemoryJustSaved(false), 2000);
@@ -3510,24 +3662,62 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
       {/* Settings panel */}
       {showSettings && (
         <div style={{ margin:"12px 16px 0", background:T.card, borderRadius:14, padding:"14px 16px", border:`1px solid ${T.border}` }}>
-          <div style={{ fontSize:13, fontWeight:700, color:T.text, marginBottom:12 }}>API Keys</div>
+          <div style={{ fontSize:13, fontWeight:700, color:T.text, marginBottom:12 }}>Settings</div>
           <div style={{ fontSize:11, color:T.muted, marginBottom:10, lineHeight:1.5 }}>Keys are saved to this device only. Never stored in the app code.</div>
+
+          {/* Anthropic */}
           <div style={{ marginBottom:10 }}>
             <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:4 }}>Anthropic API Key {hasAnthropicKey() ? "✓" : "⚠️ Required"}</div>
             <input type="password" value={anthropicKeyInput} onChange={e=>setAnthropicKeyInput(e.target.value)}
               placeholder={hasAnthropicKey() ? "sk-ant-... (saved — paste to update)" : "sk-ant-..."}
               style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${hasAnthropicKey()?T.green:T.accent}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
           </div>
-          <div style={{ marginBottom:12 }}>
+
+          {/* ElevenLabs */}
+          <div style={{ marginBottom:10 }}>
             <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:4 }}>ElevenLabs API Key {hasElevenLabsKey() ? "✓" : "(optional — for voice)"}</div>
             <input type="password" value={elevenLabsKeyInput} onChange={e=>setElevenLabsKeyInput(e.target.value)}
               placeholder={hasElevenLabsKey() ? "sk-... (saved — paste to update)" : "sk-..."}
               style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${hasElevenLabsKey()?T.green:T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
           </div>
-          <button onClick={saveKeys} style={{ width:"100%", padding:"9px", borderRadius:9, background:keysSaved?T.green:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit", transition:"background 0.2s" }}>
+
+          {/* GitHub Gist sync */}
+          <div style={{ marginBottom:10 }}>
+            <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:4 }}>GitHub Token {hasGistSync() ? "✓" : "(optional — for cloud backup)"}</div>
+            <input type="password" value={githubTokenInput} onChange={e=>setGithubTokenInput(e.target.value)}
+              placeholder={hasGistSync() ? "ghp_... (saved — paste to update)" : "ghp_..."}
+              style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${hasGistSync()?T.green:T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:4 }}>Gist ID {hasGistSync() ? "✓" : "(optional — for cloud backup)"}</div>
+            <input type="text" value={gistIdInput} onChange={e=>setGistIdInput(e.target.value)}
+              placeholder={hasGistSync() ? "abc123... (saved — paste to update)" : "abc123def456..."}
+              style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${hasGistSync()?T.green:T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+          </div>
+
+          <button onClick={saveKeys} style={{ width:"100%", padding:"9px", borderRadius:9, background:keysSaved?T.green:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit", transition:"background 0.2s", marginBottom:8 }}>
             {keysSaved ? "✓ Saved" : "Save Keys"}
           </button>
-          <div style={{ marginTop:12, paddingTop:12, borderTop:`1px solid ${T.border}` }}>
+
+          {/* Gist sync controls */}
+          {hasGistSync() && (
+            <div style={{ marginBottom:12 }}>
+              <div style={{ fontSize:10, color:T.muted, marginBottom:6 }}>
+                Last sync: {GistSync.getLastSyncLabel()} · Auto-syncs daily + on every 💾 save
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                <button onClick={handleManualSync} style={{ flex:1, padding:"7px", borderRadius:8, background:syncStatus==="ok"?`${T.green}22`:syncStatus==="error"?`${T.accent}22`:T.elevated, border:`1px solid ${syncStatus==="ok"?T.green:syncStatus==="error"?T.accent:T.border}`, color:syncStatus==="ok"?T.green:syncStatus==="error"?T.accent:T.muted, fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>
+                  {syncStatus==="syncing"?"Syncing...":syncStatus==="ok"?"✓ Synced":syncStatus==="error"?"✗ Error":"↑ Sync now"}
+                </button>
+                <button onClick={handleRestoreFromGist} style={{ flex:1, padding:"7px", borderRadius:8, background:T.elevated, border:`1px solid ${T.border}`, color:T.muted, fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>
+                  ↓ Restore backup
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Memory section */}
+          <div style={{ paddingTop:12, borderTop:`1px solid ${T.border}` }}>
             <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:6 }}>
               TARS Memory {MemoryStore.getProfile() ? "✓ Active" : "— None yet"}
             </div>
@@ -4177,7 +4367,6 @@ export default function LifeApp() {
     document.body.style.background = T.bg;
     document.documentElement.style.background = T.bg;
     document.documentElement.style.margin = "0";
-    // Also catch any wrapping container around the React mount point itself
     const root = document.getElementById("root") || document.getElementById("app");
     let prevRootStyle = null;
     if (root) {
@@ -4193,6 +4382,15 @@ export default function LifeApp() {
       document.documentElement.style.background = prevHtmlBg;
       if (root && prevRootStyle) Object.assign(root.style, prevRootStyle);
     };
+  }, []);
+
+  // ── Daily auto-sync to Gist — runs quietly on app load if 22+ hours since last sync.
+  // Silent fail so a GitHub outage or network issue never disrupts the app. ──
+  useEffect(() => {
+    if (GistSync.isConfigured() && GistSync.isDailySyncDue()) {
+      // Small delay so the app finishes loading first
+      setTimeout(() => GistSync.push().catch(() => {}), 3000);
+    }
   }, []);
 
   const [screen, setScreen] = useState("home");
