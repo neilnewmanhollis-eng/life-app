@@ -3068,7 +3068,7 @@ const GistSync = {
   DATA_KEYS: [
     "life_tasks", "life_cal_events", "life_rotation_blocks",
     "life_health_entries", "life_cal_log",
-    "life_steps_log", "life_workout_log",
+    "life_steps_log", "life_workout_log", "life_last_brief_date",
     "life_finance_entries", "life_finance_budgets",
     "meal_library", "meal_current", "meal_cooked",
     "meal_shopping", "meal_regulars", "meal_pantry",
@@ -3371,15 +3371,59 @@ function TarsScreen({ onBack, appState }) {
   const messagesEndRef = useRef(null);
   const speakRequestId = useRef(0);
   const lastUploadedFile = useRef(null); // { kind, base64/text, mediaType, name } — re-attached to follow-up questions until a new file is uploaded
+  const [lastBriefDate, setLastBriefDate] = usePersistentState("life_last_brief_date", "");
+
+  // ── Daily Brief — report-only summary of today, generated once per calendar day on
+  // first open, rotation-aware (skips home-life stuff like budget/meals while on rotation
+  // since work provides everything then; surfaces it once back off rotation). ──
+  const generateBrief = async () => {
+    const todayKey = new Date().toISOString().slice(0,10);
+    try {
+      const briefSystem = buildSystemPrompt() + `
+
+DAILY BRIEF MODE:
+Generate a short, report-only morning brief for Neil — this is the very first thing he sees when opening TARS today, not a response to a question.
+3-5 sentences maximum. No headers, no bullet points, just plain dry TARS prose.
+Report only — don't suggest, advise, or ask questions. Just tell him what's actually relevant today.
+Check his current rotation status first:
+- If he's ON rotation (aboard Man of Steel): work provides everything, so skip budget/meal/grocery content entirely — it's noise while he's mid-Pacific. Only mention tasks/calendar/deadlines that are genuinely relevant while away, if any exist. If nothing's relevant, say so briefly rather than padding it out.
+- If he's OFF rotation (home in Christchurch): cover what's actually on today — calendar events, tasks due/overdue, and only mention a Finance category if it's genuinely "ahead of pace" this month (skip Finance entirely if nothing's over pace).
+If there's genuinely nothing worth reporting in a section, skip that section silently — don't say "nothing on your calendar today," just omit it. Don't manufacture content to seem thorough.`;
+
+      const reply = await callClaude({ system: briefSystem, messages: [{ role:"user", content:"Generate today's brief." }] });
+      setLastBriefDate(todayKey);
+      return reply.trim();
+    } catch (err) {
+      console.error("Daily brief generation failed:", err);
+      return null; // caller falls back to the plain greeting
+    }
+  };
 
   // ── Opening greeting — only on a genuinely fresh session (empty messages), not every time
-  // Neil navigates back to TARS. Proactive nudge parked for now (too frequent/repetitive). ──
+  // Neil navigates back to TARS. Once per calendar day this is the Daily Brief instead of
+  // the plain greeting; if a brief's already been shown today, or generation fails, falls
+  // back to the plain greeting so opening TARS is never blocked or broken. ──
   useEffect(() => {
     if (messages.length === 0) {
       const now = new Date();
-      setMessages([{ role:"assistant", content:"TARS online. What do you need?", ts: now.toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) }]);
+      const ts = now.toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"});
+      const todayKey = now.toISOString().slice(0,10);
+      const plainGreeting = { role:"assistant", content:"TARS online. What do you need?", ts };
+
+      if (lastBriefDate !== todayKey) {
+        setNudgeLoading(true);
+        generateBrief().then(brief => {
+          setMessages([brief ? { role:"assistant", content:brief, ts } : plainGreeting]);
+          setNudgeLoading(false);
+          if (brief) speak(brief);
+        });
+      } else {
+        setMessages([plainGreeting]);
+        setNudgeLoading(false);
+      }
+    } else {
+      setNudgeLoading(false);
     }
-    setNudgeLoading(false);
   }, []);
 
   // ── TTS via Puter.js (routes to OpenAI server-side — avoids OpenAI's inconsistent
@@ -3546,6 +3590,9 @@ You have a search_vault tool. Use it whenever Neil asks about something that mig
 
 LOCATION / NEARBY SEARCH:
 You have a search_places tool for finding real places near Neil's current physical location — restaurants, cafes, pharmacies, shops, anything he asks is "nearby" or "within X minutes". It requests his device's live GPS location and searches Google Places around it, so the results are genuinely current, not guessed. If he gives a time instead of a distance (e.g. "within 5 minutes"), convert it yourself using the tool's guidance — don't ask him to convert it. If location permission was denied or the API key isn't set up, the tool will tell you plainly — pass that along to Neil honestly rather than inventing place names or addresses from training knowledge, which would be dangerously wrong for anything address- or hours-specific.
+
+DAILY BRIEF ON REQUEST:
+If Neil asks for his brief, daily brief, "what's today", or similar at any point (not just on first open), give the same style of summary: 3-5 sentences, report-only, no headers or bullets. Check rotation status first — skip budget/meal content entirely while on rotation, only mention Finance if a category is genuinely ahead of pace while off rotation. Skip empty sections silently rather than padding with "nothing today."
 
 VAULT-WORTHY DOCUMENTS — judgement call:
 When Neil uploads a file, decide if it belongs in the permanent vault or not. Reference material he'll want to come back to later belongs in the vault: flights, hotel bookings, leave planners, work certificates, qualifications, itineraries, official documents with dates or reference numbers. One-off in-the-moment tasks do NOT belong in the vault: a food photo for calorie logging, a Samsung Health screenshot for a single check-in — these get used once and discarded, no lasting value. If you're genuinely unsure which category something falls into, ask Neil rather than guessing either way.
