@@ -3818,10 +3818,36 @@ OTHER — anything else`,
       return { kind: "pdf", base64 };
     }
 
-    // Word doc — extract text via base64
-    if (name.endsWith(".docx") || name.endsWith(".doc") || type.includes("word")) {
-      const base64 = await toBase64(file);
-      return { kind: "pdf", base64 }; // treat same as PDF — send as document
+    // Word doc — extract real text via mammoth.js (docx is a zip/XML format, not a PDF —
+    // sending it as media_type:"application/pdf" fails Claude's server-side PDF validation
+    // every time. This was broken before multi-attach too, just never hit until now.)
+    if (name.endsWith(".docx") || type.includes("wordprocessingml")) {
+      const buffer = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result);
+        r.onerror = () => rej(new Error("Read failed"));
+        r.readAsArrayBuffer(file);
+      });
+      try {
+        if (!window.mammoth) {
+          await new Promise((res, rej) => {
+            const s = document.createElement("script");
+            s.src = "https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.11.0/mammoth.browser.min.js";
+            s.onload = res; s.onerror = rej;
+            document.head.appendChild(s);
+          });
+        }
+        const result = await window.mammoth.extractRawText({ arrayBuffer: buffer });
+        return { kind: "text", text: result.value.slice(0, 8000) };
+      } catch(err) {
+        return { kind: "text", text: `Word document: ${file.name}. Could not parse contents — ${err.message}` };
+      }
+    }
+
+    // Legacy .doc (pre-2007 binary format) — mammoth only handles .docx, no reliable
+    // browser-side text extraction available for the old binary format.
+    if (name.endsWith(".doc") || type === "application/msword") {
+      return { kind: "unknown", name: file.name, note: "Legacy .doc format isn't readable in-browser — save as .docx and re-upload." };
     }
 
     // Fallback — try reading as text
@@ -3871,7 +3897,7 @@ If multiple files were uploaded, treat them as related unless the content sugges
       } else if (extracted.kind === "text") {
         contentBlocks.push({ type:"text", text:`File: ${file.name}\n\nContents:\n${extracted.text}` });
       } else {
-        contentBlocks.push({ type:"text", text:`File uploaded: ${file.name}. Could not read the contents.` });
+        contentBlocks.push({ type:"text", text: extracted.note || `File uploaded: ${file.name}. Could not read the contents.` });
       }
     }
     contentBlocks.push({ type:"text", text: comment || "Read these and help me use them in the app." });
