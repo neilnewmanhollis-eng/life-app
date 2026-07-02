@@ -2866,7 +2866,7 @@ function TarsScreen({ onBack, appState }) {
     catch { return true; }
   });
   const [pendingAction, setPendingAction] = useState(null); // { type, payload, description }
-  const [pendingFile, setPendingFile] = useState(null); // { file, base64, fileType, preview }
+  const [pendingFiles, setPendingFiles] = useState([]); // [{ file, extracted }] — supports multiple attachments staged together
   const [fileComment, setFileComment] = useState("");
   const [vault, setVault] = usePersistentState("tars_vault", []);
   const [vaultLoading, setVaultLoading] = useState(false);
@@ -3838,45 +3838,45 @@ OTHER — anything else`,
     }
   };
 
-  // ── Send file to Claude with user comment ──
-  const sendFileToClaude = async (file, extracted, comment) => {
+  // ── Send staged file(s) to Claude with one shared user comment ──
+  const sendFilesToClaude = async (staged, comment) => {
     const ts = new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"});
-    const userContent = `[${file.name}]${comment ? ` — "${comment}"` : ""}`;
+    const names = staged.map(s => s.file.name).join(", ");
+    const userContent = `[${names}]${comment ? ` — "${comment}"` : ""}`;
+    const firstImage = staged.find(s => s.extracted.kind === "image");
     setMessages(prev => [...prev, { role:"user", content:userContent, ts,
-      ...(extracted.kind==="image" ? { isPhoto:true, photoUrl:URL.createObjectURL(file) } : {})
+      ...(firstImage ? { isPhoto:true, photoUrl:URL.createObjectURL(firstImage.file) } : {})
     }]);
 
-    // Remember this file's content so follow-up questions ("what time does it arrive")
-    // can still reference it — Claude has no memory of uploaded files beyond the single
-    // turn they were sent in, so we re-attach this on every subsequent message.
-    lastUploadedFile.current = { ...extracted, fileName: file.name, fileType: file.type };
+    // Remember the most recent file's content for follow-up questions
+    const last = staged[staged.length - 1];
+    lastUploadedFile.current = { ...last.extracted, fileName: last.file.name, fileType: last.file.type };
 
-    const systemAddendum = `The user has uploaded a file: ${file.name}.${comment ? ` Their instruction: "${comment}"` : " No specific instruction given — use your judgement."}
-Your job: understand the full content, then act on it. 
+    const systemAddendum = `The user has uploaded ${staged.length > 1 ? `${staged.length} files: ${names}` : `a file: ${names}`}.${comment ? ` Their instruction: "${comment}"` : " No specific instruction given — use your judgement."}
+Your job: understand the full content of each file, then act on it.
 If it contains dates, events, flights, hotel bookings, appointments or a leave schedule → extract them all and offer to add to the calendar one by one or all at once.
 If it contains health data, weight, steps, or fitness metrics → extract and offer to log to the health module.
 If it contains food or nutrition information → extract and offer to log calories and protein.
 If it is a certificate, qualification or work document → summarise key details including any expiry dates.
 If no specific action applies → summarise the key information clearly and ask what Neil wants to do with it.
-Be thorough. Read everything. Do not skip rows or entries. If it is a schedule or planner, list every entry you find.`;
+Be thorough. Read everything in every file. Do not skip rows or entries. If it is a schedule or planner, list every entry you find.
+If multiple files were uploaded, treat them as related unless the content suggests otherwise, and make clear in your reply which point relates to which file.`;
 
-    let apiMessages;
-
-    if (extracted.kind === "image") {
-      apiMessages = [{ role:"user", content:[
-        { type:"image", source:{ type:"base64", media_type:file.type, data:extracted.base64 }},
-        { type:"text", text:comment || "Read this and help me use it in the app." }
-      ]}];
-    } else if (extracted.kind === "pdf") {
-      apiMessages = [{ role:"user", content:[
-        { type:"document", source:{ type:"base64", media_type:"application/pdf", data:extracted.base64 }},
-        { type:"text", text:comment || "Read this and help me use it in the app." }
-      ]}];
-    } else if (extracted.kind === "text") {
-      apiMessages = [{ role:"user", content:`File: ${file.name}\n\nContents:\n${extracted.text}\n\nInstruction: ${comment || "Read this and help me use it in the app."}`}];
-    } else {
-      apiMessages = [{ role:"user", content:`File uploaded: ${file.name}. I could not read the contents. Can you advise?`}];
+    const contentBlocks = [];
+    for (const { file, extracted } of staged) {
+      if (extracted.kind === "image") {
+        contentBlocks.push({ type:"image", source:{ type:"base64", media_type:file.type, data:extracted.base64 } });
+      } else if (extracted.kind === "pdf") {
+        contentBlocks.push({ type:"document", source:{ type:"base64", media_type:"application/pdf", data:extracted.base64 } });
+      } else if (extracted.kind === "text") {
+        contentBlocks.push({ type:"text", text:`File: ${file.name}\n\nContents:\n${extracted.text}` });
+      } else {
+        contentBlocks.push({ type:"text", text:`File uploaded: ${file.name}. Could not read the contents.` });
+      }
     }
+    contentBlocks.push({ type:"text", text: comment || "Read these and help me use them in the app." });
+
+    const apiMessages = [{ role:"user", content: contentBlocks }];
 
     const reply = await callClaude({ system: buildSystemPrompt() + "\n\n" + systemAddendum, messages: apiMessages });
 
@@ -3887,56 +3887,59 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
     const action = parseActionFromReply(reply);
     if (action) setPendingAction(action);
 
-    // Auto-vault documents — store the FULL extracted content, not just a summary,
-    // so TARS can genuinely re-read the original later for specific follow-up questions
-    // (check-in times, addresses, booking references etc), not just recall what he
-    // said about it at upload time.
-    if (extracted.kind !== "image") {
-      setVault(prev => [{
-        id:Date.now(), name:file.name, type:file.type, size:file.size,
+    // Auto-vault each non-image document — store the FULL extracted content, not just a
+    // summary, so TARS can genuinely re-read the original later for specific follow-up
+    // questions (check-in times, addresses, booking references etc).
+    const vaultAdds = staged
+      .filter(s => s.extracted.kind !== "image")
+      .map(({ file, extracted }) => ({
+        id: Date.now() + Math.floor(Math.random()*1000), name:file.name, type:file.type, size:file.size,
         uploadedAt:new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}),
         docType:"Document", summary:reply.slice(0,300), keyPoints:[],
         fullContent: extracted.kind === "text" ? extracted.text : extracted.base64,
-        contentKind: extracted.kind, // "text" or "pdf" — tells the vault search how to re-attach it later
-      }, ...prev]);
-    }
+        contentKind: extracted.kind,
+      }));
+    if (vaultAdds.length > 0) setVault(prev => [...vaultAdds, ...prev]);
   };
 
-  // ── File upload handler — stage file, show comment input ──
+  // ── File upload handler — stage file(s), show comment input ──
   const handleFileUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
 
-    const isImage = file.type.startsWith("image/");
-
-    // Images with no comment — go straight to smart routing
-    if (isImage) {
-      await handleImageSmart(file, false);
+    // Single image with no other files selected — keep the fast smart-routing
+    // path unchanged (classify + act immediately, no extra tap needed).
+    if (files.length === 1 && files[0].type.startsWith("image/")) {
+      await handleImageSmart(files[0], false);
       e.target.value = "";
       return;
     }
 
-    // Non-image — stage it, show comment input
+    // Everything else — stage all selected files together under one shared comment
     try {
-      const extracted = await extractFileContent(file);
-      setPendingFile({ file, extracted });
+      const staged = [];
+      for (const file of files) {
+        const extracted = await extractFileContent(file);
+        staged.push({ file, extracted });
+      }
+      setPendingFiles(staged);
       setFileComment("");
     } catch(err) {
-      setMessages(prev => [...prev, { role:"assistant", content:`Could not read ${file.name} — ${err.message}`, ts:"", isError:true }]);
+      setMessages(prev => [...prev, { role:"assistant", content:`Could not read one of the files — ${err.message}`, ts:"", isError:true }]);
     }
     e.target.value = "";
   };
 
-  // ── Send staged file ──
-  const sendPendingFile = async () => {
-    if (!pendingFile || loading) return;
+  // ── Send staged files ──
+  const sendPendingFiles = async () => {
+    if (!pendingFiles.length || loading) return;
     setLoading(true);
     try {
-      await sendFileToClaude(pendingFile.file, pendingFile.extracted, fileComment);
+      await sendFilesToClaude(pendingFiles, fileComment);
     } catch(err) {
-      setMessages(prev => [...prev, { role:"assistant", content:`Error processing file — ${err.message}`, ts:"", isError:true }]);
+      setMessages(prev => [...prev, { role:"assistant", content:`Error processing files — ${err.message}`, ts:"", isError:true }]);
     }
-    setPendingFile(null);
+    setPendingFiles([]);
     setFileComment("");
     setLoading(false);
   };
@@ -4288,27 +4291,31 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
 
 
 
-          {/* Staged file — comment input */}
-          {pendingFile && (
+          {/* Staged file(s) — comment input */}
+          {pendingFiles.length > 0 && (
             <div style={{ margin:"0 16px 8px", background:T.elevated, border:`1px solid ${T.blue}44`, borderRadius:12, padding:"10px 14px" }}>
-              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
-                <span style={{ fontSize:18 }}>📎</span>
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontSize:12, fontWeight:700, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{pendingFile.file.name}</div>
-                  <div style={{ fontSize:10, color:T.muted }}>{pendingFile.extracted.kind === "text" ? "Ready to send" : pendingFile.extracted.kind === "image" ? "Image" : pendingFile.extracted.kind === "pdf" ? "PDF" : "File"}</div>
-                </div>
-                <button onClick={()=>{ setPendingFile(null); setFileComment(""); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:16, padding:"2px 6px" }}>✕</button>
+              <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:8 }}>
+                {pendingFiles.map((pf, i) => (
+                  <div key={i} style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <span style={{ fontSize:16 }}>{pf.extracted.kind==="image"?"🖼️":pf.extracted.kind==="pdf"?"📄":"📎"}</span>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:12, fontWeight:700, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{pf.file.name}</div>
+                      <div style={{ fontSize:10, color:T.muted }}>{pf.extracted.kind === "text" ? "Ready to send" : pf.extracted.kind === "image" ? "Image" : pf.extracted.kind === "pdf" ? "PDF" : "File"}</div>
+                    </div>
+                    <button onClick={()=>setPendingFiles(prev => prev.filter((_,j)=>j!==i))} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:16, padding:"2px 6px" }}>✕</button>
+                  </div>
+                ))}
               </div>
               <input
                 value={fileComment}
                 onChange={e=>setFileComment(e.target.value)}
-                onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); sendPendingFile(); }}}
-                placeholder="What do you need? e.g. add dates to calendar, what are my leave days..."
+                onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); sendPendingFiles(); }}}
+                placeholder={pendingFiles.length > 1 ? "What do you need with these? e.g. add all dates to calendar..." : "What do you need? e.g. add dates to calendar, what are my leave days..."}
                 style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.bg, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box", marginBottom:8 }}
                 autoFocus
               />
-              <button onClick={sendPendingFile} disabled={loading} style={{ width:"100%", padding:"9px", borderRadius:9, background:loading?T.elevated:T.blue, color:loading?T.muted:"white", fontWeight:700, fontSize:13, border:"none", cursor:loading?"not-allowed":"pointer", fontFamily:"inherit" }}>
-                {loading ? "Processing…" : "Send to TARS"}
+              <button onClick={sendPendingFiles} disabled={loading} style={{ width:"100%", padding:"9px", borderRadius:9, background:loading?T.elevated:T.blue, color:loading?T.muted:"white", fontWeight:700, fontSize:13, border:"none", cursor:loading?"not-allowed":"pointer", fontFamily:"inherit" }}>
+                {loading ? "Processing…" : pendingFiles.length > 1 ? `Send ${pendingFiles.length} files to TARS` : "Send to TARS"}
               </button>
             </div>
           )}
@@ -4325,7 +4332,7 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
               <label style={{ flex:1, padding:"7px 0", borderRadius:10, border:`1px solid ${T.border}`, background:T.elevated, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
                 <span style={{ fontSize:15 }}>📎</span>
                 <span style={{ fontSize:11, fontWeight:600, color:T.muted }}>File</span>
-                <input type="file" accept=".pdf,.txt,.md,.csv,.xlsx,.xls,.docx,.doc,image/*" onChange={handleFileUpload} style={{ display:"none" }} />
+                <input type="file" accept=".pdf,.txt,.md,.csv,.xlsx,.xls,.docx,.doc,image/*" multiple onChange={handleFileUpload} style={{ display:"none" }} />
               </label>
               <button onClick={()=>{
                 const next = !voiceEnabled;
