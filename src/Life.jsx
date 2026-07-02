@@ -3106,7 +3106,7 @@ function ProjectsListScreen({ onBack, projects, setProjects, onOpenProject }) {
 }
 
 function TarsScreen({ onBack, appState }) {
-  const { tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, setFinanceEntries } = appState;
+  const { tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, setFinanceEntries, financeBudgets } = appState;
 
   const [tarsTab, setTarsTab] = useState("chat");
   const [showSettings, setShowSettings] = useState(false);
@@ -5470,7 +5470,7 @@ export default function LifeApp() {
       case "health":   return <HealthScreen onBack={()=>setScreen("home")} entries={healthEntries} setEntries={setHealthEntries} calLog={calLog} setCalLog={setCalLog} />;
       case "finance":  return <FinanceScreen onBack={()=>setScreen("home")} entries={financeEntries} setEntries={setFinanceEntries} budgets={financeBudgets} setBudgets={setFinanceBudgets} />;
       case "work":     return <ComingSoon label="Work" icon="work" accent={T.blue} onBack={()=>setScreen("home")} />;
-      case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, setFinanceEntries }} />;
+      case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, setFinanceEntries, financeBudgets }} />;
       case "projects": return <ProjectsListScreen onBack={()=>setScreen("home")} projects={projects} setProjects={setProjects} onOpenProject={(id)=>{ setActiveProjectId(id); setScreen("projectChat"); }} />;
       case "projectChat": return <ProjectChatScreen onBack={()=>setScreen("projects")} projectId={activeProjectId} projects={projects} setProjects={setProjects} appState={{ tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, rotationBlocks, financeEntries, setFinanceEntries }} />;
       default:         return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} />;
