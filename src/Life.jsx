@@ -2408,7 +2408,7 @@ function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets }) {
                     disabled={historyMonthOffset >= 0}
                     style={{ background:"none", border:"none", cursor:historyMonthOffset>=0?"default":"pointer", color:historyMonthOffset>=0?T.border:T.text, fontSize:20, padding:"4px 10px" }}>›</button>
                 </div>
-                <button onClick={()=>{ setUseCustomRange(true); setHistoryExpandedCategory(null); if(!rangeEnd) setRangeEnd(today.toISOString().slice(0,10)); }}
+                <button onClick={()=>{ setUseCustomRange(true); setHistoryExpandedCategory(null); if(!rangeEnd) setRangeEnd(toISODate(today)); }}
                   style={{ marginTop:10, width:"100%", padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.muted, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>
                   Use custom date range instead
                 </button>
@@ -2574,7 +2574,7 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addCalEvent, remove
   const startOffset = (firstDay.getDay()+6)%7;
   const totalCells = Math.ceil((startOffset + lastDay.getDate()) / 7) * 7;
 
-  const todayStr = now.toISOString().split("T")[0];
+  const todayStr = toISODate(now); // local date, not UTC — was showing yesterday's date as "today" during NZ mornings
 
   const prevMonth = () => { if(viewMonth===0){setViewMonth(11);setViewYear(y=>y-1);}else setViewMonth(m=>m-1); };
   const nextMonth = () => { if(viewMonth===11){setViewMonth(0);setViewYear(y=>y+1);}else setViewMonth(m=>m+1); };
@@ -3383,7 +3383,7 @@ function TarsScreen({ onBack, appState }) {
   // first open, rotation-aware (skips home-life stuff like budget/meals while on rotation
   // since work provides everything then; surfaces it once back off rotation). ──
   const generateBrief = async () => {
-    const todayKey = new Date().toISOString().slice(0,10);
+    const todayKey = toISODate(new Date()); // local date, not UTC — was marking the brief "shown" a day early during NZ mornings
     try {
       const briefSystem = buildSystemPrompt() + `
 
@@ -3413,7 +3413,7 @@ If there's genuinely nothing worth reporting in a section, skip that section sil
     if (messages.length === 0) {
       const now = new Date();
       const ts = now.toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"});
-      const todayKey = now.toISOString().slice(0,10);
+      const todayKey = toISODate(now); // local date, not UTC — same fix as generateBrief
       const plainGreeting = { role:"assistant", content:"TARS online. What do you need?", ts };
 
       if (lastBriefDate !== todayKey) {
