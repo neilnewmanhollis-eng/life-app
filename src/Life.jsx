@@ -3394,7 +3394,8 @@ Report only — don't suggest, advise, or ask questions. Just tell him what's ac
 Check his current rotation status first:
 - If he's ON rotation (aboard Man of Steel): work provides everything, so skip budget/meal/grocery content entirely — it's noise while he's mid-Pacific. Only mention tasks/calendar/deadlines that are genuinely relevant while away, if any exist. If nothing's relevant, say so briefly rather than padding it out.
 - If he's OFF rotation (home in Christchurch): cover what's actually on today — calendar events, tasks due/overdue, and only mention a Finance category if it's genuinely "ahead of pace" this month (skip Finance entirely if nothing's over pace).
-If there's genuinely nothing worth reporting in a section, skip that section silently — don't say "nothing on your calendar today," just omit it. Don't manufacture content to seem thorough.`;
+If there's genuinely nothing worth reporting in a section, skip that section silently — don't say "nothing on your calendar today," just omit it. Don't manufacture content to seem thorough.
+If you mention how soon something today is (e.g. "in 15 minutes," "this afternoon"), calculate that properly from the current time given above — don't estimate or guess.`;
 
       const reply = await callClaude({ system: briefSystem, messages: [{ role:"user", content:"Generate today's brief." }] });
       setLastBriefDate(todayKey);
@@ -3475,6 +3476,7 @@ If there's genuinely nothing worth reporting in a section, skip that section sil
   const buildSystemPrompt = () => {
     const now = new Date();
     const today = now.toLocaleDateString("en-NZ", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
+    const currentTime = now.toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit", hour12:false }); // device's local clock — use this for any "in X minutes/hours" question, never guess or assume
 
     // Build a hard date-anchor table for the next 30 days so TARS never has to calculate
     // "this Friday" or "next Tuesday" itself — it just looks up the exact date.
@@ -3660,7 +3662,7 @@ IMPORTANT: Only include the ACTION line when you are proposing an action that ne
 
 
 LIVE DATA — right now:
-Today is ${today}.
+Today is ${today}. The current time on Neil's device is ${currentTime} (24-hour, local — this is his phone's actual clock, always trust it over any assumption). When he asks how long until something, or you're mentioning an upcoming event's timing yourself (like in the Daily Brief), calculate the actual gap between ${currentTime} and the event's time properly — same rule as dates: work it out precisely, don't estimate or guess at how much time has passed or is left.
 
 ${(() => {
   // ── STATE_SLICES REGISTRY ──────────────────────────────────────────────────
@@ -4958,6 +4960,7 @@ function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState 
   const buildProjectPrompt = () => {
     const now = new Date();
     const today = now.toLocaleDateString("en-NZ", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
+    const currentTime = now.toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit", hour12:false });
     const dateAnchor = [];
     for (let i = 0; i < 14; i++) {
       const d = new Date(now); d.setDate(now.getDate() + i);
@@ -4987,7 +4990,7 @@ DATE REFERENCE (today and next 13 days):
 ${dateAnchor.join("\n")}
 
 LIVE DATA:
-Today is ${today}.
+Today is ${today}. The current time on Neil's device is ${currentTime} (24-hour, local — always trust this over any assumption). Calculate actual time gaps precisely when relevant, don't estimate.
 Pending tasks: ${pendingTasks}
 Vault documents available (use search_vault to read one in full if relevant): ${vaultIndex}
 
