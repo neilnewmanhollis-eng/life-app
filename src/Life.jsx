@@ -842,6 +842,7 @@ function selectModel(userMessage, hasTools) {
     /meal.*week|shopping list|what.*eat/,
     /rotation|join.*ship|man of steel|leave/,
     /chief officer|cv|job|application/,
+    /near me|nearby|within.*(min|minute|km|kilometre|kilometer|mile)|close by|around here|what's around/,
   ];
 
   if (sonnetPatterns.some(p => p.test(msg))) return SONNET;
@@ -897,6 +898,82 @@ async function callClaudeWithTools({ system, messages, tools, toolHandlers, maxR
 // (unlike search_vault), and no separate API key — billed through the same Anthropic key.
 // Available to both main TARS chat and Projects.
 const WEB_SEARCH_TOOL = { type: "web_search_20250305", name: "web_search" };
+
+// ── Location — browser geolocation, no API cost (this is separate from the Places
+// API call itself; getting the coordinates is free, only the place search costs quota). ──
+const getCurrentLocation = () => {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) { reject(new Error("Geolocation isn't supported on this device or browser.")); return; }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (err) => {
+        const msg = err.code === 1 ? "Location permission was denied — enable it in browser/site settings to use this."
+          : err.code === 2 ? "Location unavailable right now — try again in a moment."
+          : "Location request timed out.";
+        reject(new Error(msg));
+      },
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 } // 5 min cache — avoids re-prompting on every message
+    );
+  });
+};
+
+const PLACES_SEARCH_TOOL = {
+  name: "search_places",
+  description: "Search for places (restaurants, cafes, shops, pharmacies, services etc) near Neil's current physical location. Use this whenever he asks what's nearby, asks for something within X minutes/km, or otherwise wants location-based results. Requires his device location — if permission was denied, tell him plainly rather than guessing at places.",
+  input_schema: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "What to search for, e.g. 'coffee shops', 'pharmacy', 'Thai restaurant'. Be specific to what he asked." },
+      radiusMeters: { type: "number", description: "Search radius in metres. If he gave a time instead of a distance, approximate it: walking ≈ 80m per minute, driving in an urban area ≈ 500-700m per minute. Default to 2000 (about a 5 minute drive) if he didn't specify either." }
+    },
+    required: ["query"]
+  }
+};
+
+const searchPlacesHandler = async (input) => {
+  const key = localStorage.getItem("tars_places_api_key") || "";
+  if (!key) return "Places search isn't set up yet — Neil needs to add a Google Places API key in TARS settings first.";
+
+  let loc;
+  try {
+    loc = await getCurrentLocation();
+  } catch (err) {
+    return `Couldn't get Neil's location: ${err.message}`;
+  }
+
+  const radius = Math.min(input.radiusMeters || 2000, 50000); // Places API hard-caps radius at 50km
+  try {
+    const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": key,
+        "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.rating,places.currentOpeningHours.openNow"
+      },
+      body: JSON.stringify({
+        textQuery: input.query,
+        locationBias: { circle: { center: { latitude: loc.lat, longitude: loc.lng }, radius } },
+        maxResultCount: 8
+      })
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      return `Places search failed (${res.status}): ${errText.slice(0, 200)}`;
+    }
+    const data = await res.json();
+    const places = data.places || [];
+    if (places.length === 0) return `No results found for "${input.query}" near Neil's current location within ${radius}m.`;
+    return places.map(p => {
+      const name = p.displayName?.text || "Unknown";
+      const addr = p.formattedAddress || "";
+      const rating = p.rating ? ` · ${p.rating}★` : "";
+      const open = p.currentOpeningHours?.openNow === true ? " · Open now" : p.currentOpeningHours?.openNow === false ? " · Closed now" : "";
+      return `${name} — ${addr}${rating}${open}`;
+    }).join("\n");
+  } catch (err) {
+    return `Places search error: ${err.message}`;
+  }
+};
 
 // ─── MEAL PLANNING SCREEN ─────────────────────────────────────────────────────
 function MealPlanScreen({ calLog, setCalLog, todayLabel }) {
@@ -2801,6 +2878,7 @@ function TarsScreen({ onBack, appState }) {
   const [elevenLabsKeyInput, setElevenLabsKeyInput] = useState("");
   const [githubTokenInput, setGithubTokenInput] = useState("");
   const [gistIdInput, setGistIdInput] = useState("");
+  const [placesKeyInput, setPlacesKeyInput] = useState("");
   const [keysSaved, setKeysSaved] = useState(false);
   const [memorySaving, setMemorySaving] = useState(false);
   const [memoryJustSaved, setMemoryJustSaved] = useState(false);
@@ -2808,6 +2886,7 @@ function TarsScreen({ onBack, appState }) {
 
   const hasAnthropicKey = () => !!localStorage.getItem("tars_anthropic_key");
   const hasOpenAITTSKey = () => !!localStorage.getItem("tars_openai_tts_key");
+  const hasPlacesKey = () => !!localStorage.getItem("tars_places_api_key");
   const hasGistSync = () => GistSync.isConfigured();
 
   const saveKeys = () => {
@@ -2815,6 +2894,7 @@ function TarsScreen({ onBack, appState }) {
     if (elevenLabsKeyInput.trim()) localStorage.setItem("tars_openai_tts_key", elevenLabsKeyInput.trim());
     if (githubTokenInput.trim()) localStorage.setItem(GIST_KEYS.token, githubTokenInput.trim());
     if (gistIdInput.trim()) localStorage.setItem(GIST_KEYS.gistId, gistIdInput.trim());
+    if (placesKeyInput.trim()) localStorage.setItem("tars_places_api_key", placesKeyInput.trim());
     setKeysSaved(true);
     setTimeout(() => { setKeysSaved(false); setShowSettings(false); }, 1200);
   };
@@ -3249,6 +3329,9 @@ Budget: $8-15 NZD per serving as a base. Meal planner generates 10-15 options, N
 
 VAULT USE — CRITICAL:
 You have a search_vault tool. Use it whenever Neil asks about something that might be in a previously uploaded document — flight times, hotel addresses, check-in times, booking references, certificate expiry dates, leave schedules — and you don't already have the specific detail in front of you. Don't guess from memory of what you said earlier; call the tool and read the real document. You'll be given a vault index showing what's available — match Neil's natural description (e.g. "my Brisbane hotel") against the index by reasoning about name, type, and summary, then retrieve the right one. If nothing in the index looks like a good match, say so plainly rather than guessing.
+
+LOCATION / NEARBY SEARCH:
+You have a search_places tool for finding real places near Neil's current physical location — restaurants, cafes, pharmacies, shops, anything he asks is "nearby" or "within X minutes". It requests his device's live GPS location and searches Google Places around it, so the results are genuinely current, not guessed. If he gives a time instead of a distance (e.g. "within 5 minutes"), convert it yourself using the tool's guidance — don't ask him to convert it. If location permission was denied or the API key isn't set up, the tool will tell you plainly — pass that along to Neil honestly rather than inventing place names or addresses from training knowledge, which would be dangerously wrong for anything address- or hours-specific.
 
 VAULT-WORTHY DOCUMENTS — judgement call:
 When Neil uploads a file, decide if it belongs in the permanent vault or not. Reference material he'll want to come back to later belongs in the vault: flights, hotel bookings, leave planners, work certificates, qualifications, itineraries, official documents with dates or reference numbers. One-off in-the-moment tasks do NOT belong in the vault: a food photo for calorie logging, a Samsung Health screenshot for a single check-in — these get used once and discarded, no lasting value. If you're genuinely unsure which category something falls into, ask Neil rather than guessing either way.
@@ -4045,7 +4128,8 @@ If multiple files were uploaded, treat them as related unless the content sugges
           }
           // Fallback — older vault entries from before fullContent was stored
           return `Document "${doc.name}" (${doc.docType}, uploaded ${doc.uploadedAt}). Only a summary is available for this older entry: ${doc.summary || "No summary available."}`;
-        }
+        },
+        search_places: searchPlacesHandler,
       };
 
       const systemWithVault = buildSystemPrompt()
@@ -4062,7 +4146,7 @@ If multiple files were uploaded, treat them as related unless the content sugges
       const reply = await callClaudeWithTools({
         system: systemWithVault,
         messages: apiMessages,
-        tools: needsTools ? [vaultTool, WEB_SEARCH_TOOL] : [],
+        tools: needsTools ? [vaultTool, WEB_SEARCH_TOOL, PLACES_SEARCH_TOOL] : [],
         toolHandlers: needsTools ? toolHandlers : {},
       });
 
@@ -4179,6 +4263,13 @@ If multiple files were uploaded, treat them as related unless the content sugges
             <input type="text" value={gistIdInput} onChange={e=>setGistIdInput(e.target.value)}
               placeholder={hasGistSync() ? "abc123... (saved — paste to update)" : "abc123def456..."}
               style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${hasGistSync()?T.green:T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:4 }}>Google Places API Key {hasPlacesKey() ? "✓" : "(optional — for 'near me' searches)"}</div>
+            <input type="text" value={placesKeyInput} onChange={e=>setPlacesKeyInput(e.target.value)}
+              placeholder={hasPlacesKey() ? "AIza... (saved — paste to update)" : "AIza..."}
+              autoCorrect="off" autoCapitalize="off" spellCheck="false"
+              style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${hasPlacesKey()?T.green:T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
           </div>
 
           <button onClick={saveKeys} style={{ width:"100%", padding:"9px", borderRadius:9, background:keysSaved?T.green:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit", transition:"background 0.2s", marginBottom:8 }}>
