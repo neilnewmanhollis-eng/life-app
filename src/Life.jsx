@@ -2882,39 +2882,27 @@ function TarsScreen({ onBack, appState }) {
     setNudgeLoading(false);
   }, []);
 
-  // ── OpenAI TTS ──
+  // ── TTS via Puter.js (routes to OpenAI server-side — avoids OpenAI's inconsistent
+  // browser CORS support on /v1/audio/speech, which is what was silently breaking TARS) ──
   const TARS_VOICE = "onyx";  // alloy | echo | fable | onyx | nova | shimmer | ash | coral
   const TARS_SPEED = 1.3;     // 0.25–4.0, 1.0 = normal
 
   const speak = async (text) => {
     if (!voiceEnabled) return;
-    const key = localStorage.getItem("tars_openai_tts_key") || "";
-    if (!key) { setVoiceError("No TTS key saved"); return; }
+    if (typeof window.puter === "undefined" || !window.puter?.ai?.txt2speech) {
+      setVoiceError("Puter.js not loaded — check index.html has the puter script tag");
+      return;
+    }
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; audioRef.current = null; }
     const myRequestId = speakRequestId.current;
     setSpeaking(true);
     setVoiceError(null);
     try {
-      const res = await fetch("https://api.openai.com/v1/audio/speech", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
-        body: JSON.stringify({ model:"tts-1", voice:TARS_VOICE, input:text, speed:TARS_SPEED }),
-      });
-      if (!res.ok) {
-        const errText = await res.text();
-        console.error("TARS Voice: OpenAI", res.status, errText);
-        setVoiceError(`OpenAI ${res.status}: ${errText.slice(0,120)}`);
-        setSpeaking(false);
-        return;
-      }
-      const blob = await res.blob();
+      const audio = await window.puter.ai.txt2speech(text, { provider:"openai", model:"tts-1", voice:TARS_VOICE, speed:TARS_SPEED });
       if (myRequestId !== speakRequestId.current || !voiceEnabled) { setSpeaking(false); return; }
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio();
-      audio.src = url;
       audioRef.current = audio;
-      audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(url); audioRef.current = null; };
-      audio.onerror = () => { setSpeaking(false); URL.revokeObjectURL(url); audioRef.current = null; };
+      audio.onended = () => { setSpeaking(false); audioRef.current = null; };
+      audio.onerror = () => { setSpeaking(false); audioRef.current = null; };
       const p = audio.play();
       if (p !== undefined) p.catch((err) => {
         console.error("TARS Voice: play() blocked", err);
@@ -4137,15 +4125,12 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
               style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${hasAnthropicKey()?T.green:T.accent}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
           </div>
 
-          {/* OpenAI TTS */}
+          {/* Voice — now via Puter.js, no key needed */}
           <div style={{ marginBottom:10 }}>
-            <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:4 }}>OpenAI TTS Key {localStorage.getItem("tars_openai_tts_key") ? `✓ (${localStorage.getItem("tars_openai_tts_key").length} chars)` : "(optional — for voice)"}</div>
-            <input type="text" value={elevenLabsKeyInput} onChange={e=>setElevenLabsKeyInput(e.target.value)}
-              placeholder={localStorage.getItem("tars_openai_tts_key") ? "paste new key to update" : "sk-proj-..."}
-              maxLength={300}
-              autoCorrect="off" autoCapitalize="off" spellCheck="false"
-              style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${localStorage.getItem("tars_openai_tts_key")?T.green:T.border}`, background:T.elevated, color:T.text, fontSize:11, fontFamily:"monospace", outline:"none", boxSizing:"border-box" }} />
-            {elevenLabsKeyInput.length > 0 && <div style={{ fontSize:10, color:T.muted, marginTop:3 }}>{elevenLabsKeyInput.length} characters entered</div>}
+            <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:4 }}>Voice (TARS TTS)</div>
+            <div style={{ fontSize:11, color:T.green, padding:"8px 10px", borderRadius:8, border:`1px solid ${T.green}44`, background:T.elevated }}>
+              ✓ Runs via Puter.js — no key needed
+            </div>
           </div>
 
           {/* GitHub Gist sync */}
@@ -4477,32 +4462,19 @@ function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState 
 
   const speakProject = async (text) => {
     if (!voiceEnabled) return;
-    const key = localStorage.getItem("tars_openai_tts_key") || "";
-    if (!key) { setVoiceError("No TTS key saved"); return; }
+    if (typeof window.puter === "undefined" || !window.puter?.ai?.txt2speech) {
+      setVoiceError("Puter.js not loaded — check index.html has the puter script tag");
+      return;
+    }
     const myId = speakReqId.current;
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; audioRef.current = null; }
     setVoiceError(null);
     try {
-      const res = await fetch("https://api.openai.com/v1/audio/speech", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
-        body: JSON.stringify({ model:"tts-1", voice:"onyx", input:text, speed:1.3 })
-      });
-      if (!res.ok) {
-        const errText = await res.text();
-        console.error("TARS Voice (project): OpenAI", res.status, errText);
-        setVoiceError(`OpenAI ${res.status}: ${errText.slice(0,120)}`);
-        return;
-      }
+      const audio = await window.puter.ai.txt2speech(text, { provider:"openai", model:"tts-1", voice:"onyx", speed:1.3 });
       if (myId !== speakReqId.current || !voiceEnabled) return;
-      const blob = await res.blob();
-      if (myId !== speakReqId.current || !voiceEnabled) return;
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio();
-      audio.src = url;
       audioRef.current = audio;
-      audio.onended = () => { URL.revokeObjectURL(url); audioRef.current = null; };
-      audio.onerror = () => { URL.revokeObjectURL(url); audioRef.current = null; };
+      audio.onended = () => { audioRef.current = null; };
+      audio.onerror = () => { audioRef.current = null; };
       const p = audio.play();
       if (p !== undefined) p.catch((err) => {
         console.error("TARS Voice (project): play() blocked", err);
@@ -4904,6 +4876,19 @@ const INIT_CAL_EVENTS = [];
 
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
 export default function LifeApp() {
+  // ── Load Puter.js at runtime for TARS voice — don't depend on index.html having
+  // the script tag (can't verify it's there, and this makes the app self-contained
+  // regardless of what's in the page shell). Safe to call once; no-ops if already present. ──
+  useEffect(() => {
+    if (typeof window.puter !== "undefined") return;
+    if (document.getElementById("puter-js-sdk")) return;
+    const script = document.createElement("script");
+    script.id = "puter-js-sdk";
+    script.src = "https://js.puter.com/v2/";
+    script.async = true;
+    document.head.appendChild(script);
+  }, []);
+
   // ── Fix the outer page white border — this isn't coming from anything inside this
   // component, it's the default browser body margin + white background on the page
   // shell outside React's control (index.html). This forces it to match the app at
