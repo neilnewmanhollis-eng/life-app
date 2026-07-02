@@ -1074,7 +1074,13 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
     const itemMap = {};
     selected.forEach(meal => {
       (meal.ingredients || []).forEach(ing => {
-        if (ing.type === "staple" || pantryNames.some(p => p.includes(ing.name.toLowerCase().split(" ")[0]))) return;
+        // Skip only if explicitly a staple ingredient, or if it genuinely matches a pantry
+        // staple by full name (not just a shared first word — "Ground lamb mince" and
+        // "Ground Cumin" both starting with "Ground" was previously enough to wrongly
+        // exclude the lamb entirely).
+        const ingName = ing.name.toLowerCase();
+        const matchesPantryStaple = pantryNames.some(p => p.length > 3 && (ingName.includes(p) || p.includes(ingName)));
+        if (ing.type === "staple" || matchesPantryStaple) return;
         const key = ing.name.toLowerCase();
         if (!itemMap[key]) itemMap[key] = { id: Date.now() + Math.random(), name: ing.name, qty: ing.qty, cat: ing.cat || "Other", checked: false, source: "meals" };
       });
