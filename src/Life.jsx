@@ -1587,6 +1587,10 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
   // Supplement reminder state
   const [suppPrompt, setSuppPrompt] = useState(null); // "Breakfast" | "Dinner" | null
 
+  // Workout log state — was missing entirely, causing Exercise tab to crash on render
+  const [workoutLog, setWorkoutLog] = usePersistentState("life_workout_log", {});
+  const [loggingWorkout, setLoggingWorkout] = useState(false);
+
   const saveActivity = () => {
     if (!stepsForm.steps && !stepsForm.sleep) return;
     setStepsLog(prev => ({ ...prev, [today]:{ steps:parseInt(stepsForm.steps)||0, sleep:stepsForm.sleep||"" } }));
@@ -2579,6 +2583,7 @@ const GistSync = {
   DATA_KEYS: [
     "life_tasks", "life_cal_events", "life_rotation_blocks",
     "life_health_entries", "life_cal_log",
+    "life_steps_log", "life_workout_log",
     "meal_library", "meal_current", "meal_cooked",
     "meal_shopping", "meal_regulars", "meal_pantry",
     "tars_vault",
@@ -2885,7 +2890,7 @@ function TarsScreen({ onBack, appState }) {
   // ── TTS via Puter.js (routes to OpenAI server-side — avoids OpenAI's inconsistent
   // browser CORS support on /v1/audio/speech, which is what was silently breaking TARS) ──
   const TARS_VOICE = "onyx";  // alloy | echo | fable | onyx | nova | shimmer | ash | coral
-  const TARS_SPEED = 1.3;     // 0.25–4.0, 1.0 = normal
+  const TARS_SPEED = 1.4;     // 0.25–4.0, 1.0 = normal
 
   const speak = async (text) => {
     if (!voiceEnabled) return;
@@ -4459,6 +4464,14 @@ function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState 
   const audioRef = useRef(null);
   const speakReqId = useRef(0);
   const [voiceError, setVoiceError] = useState(null);
+  const messagesEndRef = useRef(null);
+  const hasMountedRef = useRef(false);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: hasMountedRef.current ? "smooth" : "auto" });
+    hasMountedRef.current = true;
+  }, [messages]);
+
 
   const speakProject = async (text) => {
     if (!voiceEnabled) return;
@@ -4470,7 +4483,7 @@ function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState 
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; audioRef.current = null; }
     setVoiceError(null);
     try {
-      const audio = await window.puter.ai.txt2speech(text, { provider:"openai", model:"tts-1", voice:"onyx", speed:1.3 });
+      const audio = await window.puter.ai.txt2speech(text, { provider:"openai", model:"tts-1", voice:"onyx", speed:1.4 });
       if (myId !== speakReqId.current || !voiceEnabled) return;
       audioRef.current = audio;
       audio.onended = () => { audioRef.current = null; };
@@ -4772,6 +4785,7 @@ This project's conversation history below IS its memory — there's no separate 
             </div>
           </div>
         )}
+        <div ref={el=>{messagesEndRef.current=el;}}/>
       </div>
 
       {pendingAction && (
