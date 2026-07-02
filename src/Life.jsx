@@ -871,6 +871,105 @@ async function callClaudeWithTools({ system, messages, tools, toolHandlers, maxR
 // Available to both main TARS chat and Projects.
 const WEB_SEARCH_TOOL = { type: "web_search_20250305", name: "web_search" };
 
+// ── Streaming voice engine — shared by every TARS voice instance in the app (main chat,
+// Projects, anywhere else voice gets added later). Splits a reply into sentence-sized
+// chunks and pipelines their generation so playback starts on the first sentence almost
+// immediately, instead of waiting for the entire reply to be synthesized as one block —
+// that wait was the actual cause of the multi-second delay on longer messages. ──
+
+// Split on sentence boundaries, protecting common abbreviations and decimal numbers so
+// "Dr. Smith" or "$12.50" don't get cut mid-thought. Falls back to splitting an unusually
+// long sentence on a comma/semicolon near maxLen, rather than making the person wait
+// through one giant sentence before anything plays.
+function splitIntoSpeechChunks(text, maxLen = 200) {
+  const guarded = text
+    .replace(/\b(Mr|Mrs|Ms|Dr|Prof|Sr|Jr|vs|etc|approx|no)\.(?=\s|$)/gi, (m) => m.replace(".", "\u0001"))
+    .replace(/\b(e\.g|i\.e)\./gi, (m) => m.replace(/\./g, "\u0001"))
+    .replace(/(\d)\.(\d)/g, "$1\u0002$2"); // protect decimals like 12.50
+
+  const restore = (s) => s.replace(/\u0001/g, ".").replace(/\u0002/g, ".");
+
+  const rough = guarded.split(/(?<=[.!?])\s+/).map(s => restore(s.trim())).filter(Boolean);
+
+  const chunks = [];
+  for (const sentence of rough) {
+    if (sentence.length <= maxLen) { chunks.push(sentence); continue; }
+    let remaining = sentence;
+    while (remaining.length > maxLen) {
+      let cut = remaining.lastIndexOf(",", maxLen);
+      if (cut < 20) cut = remaining.lastIndexOf(";", maxLen);
+      if (cut < 20) cut = maxLen; // hard cut, no natural break found
+      chunks.push(remaining.slice(0, cut + 1).trim());
+      remaining = remaining.slice(cut + 1).trim();
+    }
+    if (remaining) chunks.push(remaining);
+  }
+  return chunks;
+}
+
+// Pipelined playback — keeps up to LOOKAHEAD chunks' audio generating ahead of what's
+// currently playing, so there's no gap between sentences, without firing every chunk of
+// a long reply at once (bounded concurrency, gentler on Puter/OpenAI and more predictable).
+const SPEECH_LOOKAHEAD = 2;
+
+async function speakQueued(text, { audioRef, requestIdRef, voiceEnabled, setSpeaking, setVoiceError, voice = "onyx", speed = 1.4 }) {
+  if (!voiceEnabled) return;
+  if (typeof window.puter === "undefined" || !window.puter?.ai?.txt2speech) {
+    setVoiceError("Puter.js not loaded — check index.html has the puter script tag");
+    return;
+  }
+  // A new speak() call always supersedes whatever this ref was doing — stop it immediately
+  // (both the audio itself and any in-flight loop still awaiting a chunk).
+  if (audioRef.current) { try { audioRef.current.pause(); } catch {} audioRef.current = null; }
+  const myId = ++requestIdRef.current;
+
+  const chunks = splitIntoSpeechChunks(text);
+  if (chunks.length === 0) return;
+
+  setSpeaking(true);
+  setVoiceError(null);
+
+  const pending = new Array(chunks.length);
+  const fetchChunk = (i) => {
+    pending[i] = window.puter.ai.txt2speech(chunks[i], { provider: "openai", model: "tts-1", voice, speed })
+      .catch(err => ({ __error: err }));
+  };
+  let nextToFetch = Math.min(SPEECH_LOOKAHEAD, chunks.length);
+  for (let i = 0; i < nextToFetch; i++) fetchChunk(i);
+
+  try {
+    for (let i = 0; i < chunks.length; i++) {
+      if (myId !== requestIdRef.current) return; // superseded — bail without touching state
+      if (nextToFetch < chunks.length) { fetchChunk(nextToFetch); nextToFetch++; }
+
+      const audio = await pending[i];
+      if (myId !== requestIdRef.current) return;
+
+      if (!audio || audio.__error) {
+        console.error("TARS Voice: chunk failed, skipping", audio?.__error);
+        continue; // one bad chunk shouldn't silence the rest of the reply
+      }
+
+      audioRef.current = audio;
+      await new Promise((resolve) => {
+        audio.onended = resolve;
+        audio.onerror = resolve;
+        audio.onpause = resolve; // catches an external stop (mute, or a newer speak() call) so this loop doesn't hang waiting for a chunk that was deliberately cut off
+        const p = audio.play();
+        if (p !== undefined) p.catch((err) => {
+          console.error("TARS Voice: play() blocked", err);
+          setVoiceError("Playback blocked — tap TARS once then retry");
+          resolve();
+        });
+      });
+      if (myId !== requestIdRef.current) return;
+    }
+  } finally {
+    if (myId === requestIdRef.current) { setSpeaking(false); audioRef.current = null; }
+  }
+}
+
+
 // ── Location — browser geolocation, no API cost (this is separate from the Places
 // API call itself; getting the coordinates is free, only the place search costs quota). ──
 const getCurrentLocation = () => {
@@ -3438,29 +3537,11 @@ If you mention how soon something today is (e.g. "in 15 minutes," "this afternoo
   const TARS_VOICE = "onyx";  // alloy | echo | fable | onyx | nova | shimmer | ash | coral
   const TARS_SPEED = 1.4;     // 0.25–4.0, 1.0 = normal
 
-  const speak = async (text) => {
-    if (!voiceEnabled) return;
-    if (typeof window.puter === "undefined" || !window.puter?.ai?.txt2speech) {
-      setVoiceError("Puter.js not loaded — check index.html has the puter script tag");
-      return;
-    }
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; audioRef.current = null; }
-    const myRequestId = speakRequestId.current;
-    setSpeaking(true);
-    setVoiceError(null);
-    try {
-      const audio = await window.puter.ai.txt2speech(text, { provider:"openai", model:"tts-1", voice:TARS_VOICE, speed:TARS_SPEED });
-      if (myRequestId !== speakRequestId.current || !voiceEnabled) { setSpeaking(false); return; }
-      audioRef.current = audio;
-      audio.onended = () => { setSpeaking(false); audioRef.current = null; };
-      audio.onerror = () => { setSpeaking(false); audioRef.current = null; };
-      const p = audio.play();
-      if (p !== undefined) p.catch((err) => {
-        console.error("TARS Voice: play() blocked", err);
-        setVoiceError("Playback blocked — tap TARS once then retry");
-        setSpeaking(false);
-      });
-    } catch(err) { console.error("TARS Voice:", err); setVoiceError(String(err.message||err)); setSpeaking(false); }
+  const speak = (text) => {
+    speakQueued(text, {
+      audioRef, requestIdRef: speakRequestId, voiceEnabled,
+      setSpeaking, setVoiceError, voice: TARS_VOICE, speed: TARS_SPEED,
+    });
   };
 
   const stopSpeaking = () => {
@@ -4917,27 +4998,11 @@ function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState 
   }, [messages]);
 
 
-  const speakProject = async (text) => {
-    if (!voiceEnabled) return;
-    if (typeof window.puter === "undefined" || !window.puter?.ai?.txt2speech) {
-      setVoiceError("Puter.js not loaded — check index.html has the puter script tag");
-      return;
-    }
-    const myId = speakReqId.current;
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; audioRef.current = null; }
-    setVoiceError(null);
-    try {
-      const audio = await window.puter.ai.txt2speech(text, { provider:"openai", model:"tts-1", voice:"onyx", speed:1.4 });
-      if (myId !== speakReqId.current || !voiceEnabled) return;
-      audioRef.current = audio;
-      audio.onended = () => { audioRef.current = null; };
-      audio.onerror = () => { audioRef.current = null; };
-      const p = audio.play();
-      if (p !== undefined) p.catch((err) => {
-        console.error("TARS Voice (project): play() blocked", err);
-        setVoiceError("Playback blocked — tap TARS once then retry");
-      });
-    } catch(err) { console.error("TARS Voice (project):", err); setVoiceError(String(err.message||err)); }
+  const speakProject = (text) => {
+    speakQueued(text, {
+      audioRef, requestIdRef: speakReqId, voiceEnabled,
+      setSpeaking: () => {}, setVoiceError, voice: "onyx", speed: 1.4,
+    });
   };
 
   const stopProjectSpeaking = () => {
