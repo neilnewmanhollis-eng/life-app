@@ -252,7 +252,7 @@ function CalHistory({ calLog }) {
 }
 
 // TodoScreen — full tasks screen
-function TodoScreen({ tasks, setTasks, onBack, addCalEvent }) {
+function TodoScreen({ tasks, setTasks, onBack }) {
   const [view, setView] = useState("today"); // "today" | "all"
   const [filter, setFilter] = useState("All");
   const [showDone, setShowDone] = useState(false);
@@ -262,8 +262,6 @@ function TodoScreen({ tasks, setTasks, onBack, addCalEvent }) {
   const [newCat, setNewCat] = useState("Admin");
   const [newPri, setNewPri] = useState("med");
   const [newDue, setNewDue] = useState("");
-  const [newRecurring, setNewRecurring] = useState("none");
-  const [newSyncCal, setNewSyncCal] = useState(false);
 
   const today = new Date();
   today.setHours(0,0,0,0);
@@ -283,41 +281,11 @@ function TodoScreen({ tasks, setTasks, onBack, addCalEvent }) {
 
   const addTask = () => {
     if (!newText.trim()) return;
-    const task = { id:Date.now(), text:newText.trim(), cat:newCat, priority:newPri, due:newDue, done:false, notes:"", subtasks:[], pinned:false, recurring:newRecurring||"none" };
-    setTasks(prev => [...prev, task]);
-    if (newSyncCal && newDue) syncToCalendar(task);
-    setNewText(""); setNewDue(""); setNewRecurring("none"); setNewSyncCal(false); setAdding(false);
+    setTasks(prev => [...prev, { id:Date.now(), text:newText.trim(), cat:newCat, priority:newPri, due:newDue, done:false, notes:"", subtasks:[], pinned:false }]);
+    setNewText(""); setNewDue(""); setAdding(false);
   };
 
-  // Get next due date for recurring tasks
-  const getNextDue = (due, recurring) => {
-    try {
-      const d = new Date(due);
-      if (recurring === "daily")   d.setDate(d.getDate() + 1);
-      if (recurring === "weekly")  d.setDate(d.getDate() + 7);
-      if (recurring === "monthly") d.setMonth(d.getMonth() + 1);
-      return d.toISOString().split("T")[0];
-    } catch { return null; }
-  };
-
-  const toggleTask = (id) => {
-    setTasks(prev => prev.map(t => {
-      if (t.id !== id) return t;
-      const completing = !t.done;
-      if (completing && t.recurring && t.recurring !== "none" && t.due) {
-        const nextDue = getNextDue(t.due, t.recurring);
-        if (nextDue) {
-          setTimeout(() => setTasks(p => [...p, { ...t, id:Date.now(), done:false, due:nextDue, subtasks:(t.subtasks||[]).map(s=>({...s,done:false})) }]), 100);
-        }
-      }
-      return { ...t, done: completing };
-    }));
-  };
-
-  const syncToCalendar = (task) => {
-    if (!task.due || !addCalEvent) return;
-    addCalEvent({ type:"reminder", date:task.due, title:task.text, notes:task.notes||"", time:"", location:"" });
-  };
+  const toggleTask = (id) => setTasks(prev => prev.map(t => t.id===id ? {...t, done:!t.done} : t));
   const updateTask = (id, changes) => {
     setTasks(prev => prev.map(t => t.id===id ? {...t,...changes} : t));
     if (selectedTask?.id === id) setSelectedTask(prev => ({...prev,...changes}));
@@ -393,16 +361,6 @@ function TodoScreen({ tasks, setTasks, onBack, addCalEvent }) {
                 <input type="date" value={t.due||""} onChange={e=>updateTask(t.id,{due:e.target.value})}
                   style={{ width:"100%", padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
               </div>
-              <div style={{ flex:1 }}>
-                <div style={{ fontSize:10, color:T.muted, fontWeight:600, marginBottom:4 }}>Repeats</div>
-                <select value={t.recurring||"none"} onChange={e=>updateTask(t.id,{recurring:e.target.value})}
-                  style={{ width:"100%", padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit" }}>
-                  <option value="none">One-off</option>
-                  <option value="daily">Daily</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="monthly">Monthly</option>
-                </select>
-              </div>
               <div style={{ display:"flex", alignItems:"flex-end" }}>
                 <button onClick={()=>toggleTask(t.id)} style={{ width:"100%", padding:"8px", borderRadius:8, border:`1px solid ${t.done?T.green:T.border}`, background:t.done?`${T.green}22`:T.elevated, color:t.done?T.green:T.muted, fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
                   {t.done ? "✓ Completed" : "Mark done"}
@@ -418,14 +376,6 @@ function TodoScreen({ tasks, setTasks, onBack, addCalEvent }) {
               placeholder="Add notes, context, or details..." rows={4}
               style={{ width:"100%", padding:"9px 10px", borderRadius:9, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", resize:"none", boxSizing:"border-box", lineHeight:1.5 }} />
           </Card>
-
-          {/* Calendar sync */}
-          {t.due && (
-            <button onClick={()=>{ syncToCalendar(t); alert(`"${t.text}" added to calendar on ${formatDateDDMMYYYY(t.due)}`); }}
-              style={{ width:"100%", padding:"11px", borderRadius:12, background:`${T.blue}18`, border:`1px solid ${T.blue}44`, color:T.blue, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>
-              📅 Add to Calendar
-            </button>
-          )}
 
           {/* Subtasks */}
           <Card>
@@ -500,7 +450,7 @@ function TodoScreen({ tasks, setTasks, onBack, addCalEvent }) {
             {/* Quick add */}
             {!adding ? (
               <button onClick={()=>setAdding(true)} style={{ width:"100%", padding:"11px", borderRadius:12, border:`1px dashed ${T.border}`, background:"none", color:T.muted, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>+ Add task</button>
-            ) : <AddTaskForm onAdd={addTask} onCancel={()=>setAdding(false)} newText={newText} setNewText={setNewText} newCat={newCat} setNewCat={setNewCat} newPri={newPri} setNewPri={setNewPri} newDue={newDue} setNewDue={setNewDue} newRecurring={newRecurring} setNewRecurring={setNewRecurring} newSyncCal={newSyncCal} setNewSyncCal={setNewSyncCal} />}
+            ) : <AddTaskForm onAdd={addTask} onCancel={()=>setAdding(false)} newText={newText} setNewText={setNewText} newCat={newCat} setNewCat={setNewCat} newPri={newPri} setNewPri={setNewPri} newDue={newDue} setNewDue={setNewDue} />}
 
             {/* Upcoming — next 7 days not due today */}
             {(() => {
@@ -537,7 +487,7 @@ function TodoScreen({ tasks, setTasks, onBack, addCalEvent }) {
             {/* Add task */}
             {!adding ? (
               <button onClick={()=>setAdding(true)} style={{ width:"100%", padding:"11px", borderRadius:12, border:`1px dashed ${T.border}`, background:"none", color:T.muted, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>+ Add task</button>
-            ) : <AddTaskForm onAdd={addTask} onCancel={()=>setAdding(false)} newText={newText} setNewText={setNewText} newCat={newCat} setNewCat={setNewCat} newPri={newPri} setNewPri={setNewPri} newDue={newDue} setNewDue={setNewDue} newRecurring={newRecurring} setNewRecurring={setNewRecurring} newSyncCal={newSyncCal} setNewSyncCal={setNewSyncCal} />}
+            ) : <AddTaskForm onAdd={addTask} onCancel={()=>setAdding(false)} newText={newText} setNewText={setNewText} newCat={newCat} setNewCat={setNewCat} newPri={newPri} setNewPri={setNewPri} newDue={newDue} setNewDue={setNewDue} />}
 
             {allVisible.map(t=>(
               <TaskCard key={t.id} task={t} onToggle={()=>toggleTask(t.id)} onOpen={()=>setSelectedTask(t)} accent={t.done?T.muted:PRIORITY_COLORS[t.priority]} />
@@ -571,7 +521,6 @@ function TaskCard({ task:t, onToggle, onOpen, accent, muted }) {
           {t.due && <span style={{ fontSize:9, color:T.muted }}>{formatDateDDMMYYYY(t.due)}</span>}
           {subTotal > 0 && <span style={{ fontSize:9, color:subDone===subTotal?T.green:T.muted }}>{subDone}/{subTotal} subtasks</span>}
           {t.notes && <span style={{ fontSize:9, color:T.muted }}>📝</span>}
-          {t.recurring && t.recurring !== "none" && <span style={{ fontSize:9, color:T.purple, fontWeight:700 }}>🔁 {t.recurring}</span>}
         </div>
       </div>
       <button onClick={onOpen} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:16, padding:"0 2px", flexShrink:0, opacity:0.4 }}>›</button>
@@ -580,7 +529,7 @@ function TaskCard({ task:t, onToggle, onOpen, accent, muted }) {
 }
 
 // ── AddTaskForm — shared add task form ────────────────────────────────────────
-function AddTaskForm({ onAdd, onCancel, newText, setNewText, newCat, setNewCat, newPri, setNewPri, newDue, setNewDue, newRecurring, setNewRecurring, newSyncCal, setNewSyncCal }) {
+function AddTaskForm({ onAdd, onCancel, newText, setNewText, newCat, setNewCat, newPri, setNewPri, newDue, setNewDue }) {
   return (
     <div style={{ background:T.card, borderRadius:14, padding:14, border:`1px solid ${T.border}`, marginBottom:4 }}>
       <input value={newText} onChange={e=>setNewText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&onAdd()} placeholder="Task description..." autoFocus
@@ -597,21 +546,6 @@ function AddTaskForm({ onAdd, onCancel, newText, setNewText, newCat, setNewCat, 
       </div>
       <input type="date" value={newDue} onChange={e=>setNewDue(e.target.value)}
         style={{ width:"100%", padding:"8px 12px", borderRadius:9, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box", marginBottom:8 }} />
-      <div style={{ display:"flex", gap:8, marginBottom:10 }}>
-        <select value={newRecurring||"none"} onChange={e=>setNewRecurring(e.target.value)}
-          style={{ flex:1, padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit" }}>
-          <option value="none">One-off</option>
-          <option value="daily">Repeats daily</option>
-          <option value="weekly">Repeats weekly</option>
-          <option value="monthly">Repeats monthly</option>
-        </select>
-        {newDue && (
-          <button onClick={()=>setNewSyncCal(!newSyncCal)}
-            style={{ padding:"8px 10px", borderRadius:8, border:`1px solid ${newSyncCal?T.blue:T.border}`, background:newSyncCal?`${T.blue}22`:T.elevated, color:newSyncCal?T.blue:T.muted, fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"inherit", whiteSpace:"nowrap" }}>
-            📅 {newSyncCal?"→ Calendar":"+ Calendar"}
-          </button>
-        )}
-      </div>
       <div style={{ display:"flex", gap:8 }}>
         <button onClick={onAdd} style={{ flex:1, padding:"9px", borderRadius:9, background:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Add</button>
         <button onClick={onCancel} style={{ flex:1, padding:"9px", borderRadius:9, background:T.elevated, color:T.muted, fontWeight:700, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>Cancel</button>
@@ -2920,6 +2854,7 @@ function TarsScreen({ onBack, appState }) {
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
+  const [voiceError, setVoiceError] = useState(null); // last voice failure reason, shown inline since mobile has no easy console access
   // Persist mute preference to localStorage so it survives navigating away and back
   const [voiceEnabled, setVoiceEnabled] = useState(() => {
     try { return localStorage.getItem("tars_voice_enabled") !== "false"; }
@@ -2954,17 +2889,24 @@ function TarsScreen({ onBack, appState }) {
   const speak = async (text) => {
     if (!voiceEnabled) return;
     const key = localStorage.getItem("tars_openai_tts_key") || "";
-    if (!key) return;
+    if (!key) { setVoiceError("No TTS key saved"); return; }
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; audioRef.current = null; }
     const myRequestId = speakRequestId.current;
     setSpeaking(true);
+    setVoiceError(null);
     try {
       const res = await fetch("https://api.openai.com/v1/audio/speech", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
         body: JSON.stringify({ model:"tts-1", voice:TARS_VOICE, input:text, speed:TARS_SPEED }),
       });
-      if (!res.ok) { console.error("TARS Voice: OpenAI", res.status, await res.text()); setSpeaking(false); return; }
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error("TARS Voice: OpenAI", res.status, errText);
+        setVoiceError(`OpenAI ${res.status}: ${errText.slice(0,120)}`);
+        setSpeaking(false);
+        return;
+      }
       const blob = await res.blob();
       if (myRequestId !== speakRequestId.current || !voiceEnabled) { setSpeaking(false); return; }
       const url = URL.createObjectURL(blob);
@@ -2974,8 +2916,12 @@ function TarsScreen({ onBack, appState }) {
       audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(url); audioRef.current = null; };
       audio.onerror = () => { setSpeaking(false); URL.revokeObjectURL(url); audioRef.current = null; };
       const p = audio.play();
-      if (p !== undefined) p.catch(() => setSpeaking(false));
-    } catch(err) { console.error("TARS Voice:", err); setSpeaking(false); }
+      if (p !== undefined) p.catch((err) => {
+        console.error("TARS Voice: play() blocked", err);
+        setVoiceError("Playback blocked — tap TARS once then retry");
+        setSpeaking(false);
+      });
+    } catch(err) { console.error("TARS Voice:", err); setVoiceError(String(err.message||err)); setSpeaking(false); }
   };
 
   const stopSpeaking = () => {
@@ -4401,6 +4347,11 @@ Be thorough. Read everything. Do not skip rows or entries. If it is a schedule o
                 <span style={{ fontSize:11, fontWeight:600, color:voiceEnabled?T.blue:T.muted }}>{voiceEnabled?"Voice on":"Muted"}</span>
               </button>
             </div>
+            {voiceError && (
+              <div onClick={()=>setVoiceError(null)} style={{ marginBottom:8, padding:"6px 10px", borderRadius:8, background:`${T.accent}18`, border:`1px solid ${T.accent}44`, fontSize:11, color:T.accent, cursor:"pointer" }}>
+                ⚠️ Voice failed: {voiceError} (tap to dismiss)
+              </div>
+            )}
             {/* Bottom row — mic, text input, send */}
             <div style={{ display:"flex", gap:8, alignItems:"center" }}>
               <button onClick={startListening} style={{
@@ -4522,20 +4473,28 @@ function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState 
   });
   const audioRef = useRef(null);
   const speakReqId = useRef(0);
+  const [voiceError, setVoiceError] = useState(null);
 
   const speakProject = async (text) => {
     if (!voiceEnabled) return;
     const key = localStorage.getItem("tars_openai_tts_key") || "";
-    if (!key) return;
+    if (!key) { setVoiceError("No TTS key saved"); return; }
     const myId = speakReqId.current;
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; audioRef.current = null; }
+    setVoiceError(null);
     try {
       const res = await fetch("https://api.openai.com/v1/audio/speech", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
         body: JSON.stringify({ model:"tts-1", voice:"onyx", input:text, speed:1.3 })
       });
-      if (!res.ok || myId !== speakReqId.current || !voiceEnabled) return;
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error("TARS Voice (project): OpenAI", res.status, errText);
+        setVoiceError(`OpenAI ${res.status}: ${errText.slice(0,120)}`);
+        return;
+      }
+      if (myId !== speakReqId.current || !voiceEnabled) return;
       const blob = await res.blob();
       if (myId !== speakReqId.current || !voiceEnabled) return;
       const url = URL.createObjectURL(blob);
@@ -4545,8 +4504,11 @@ function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState 
       audio.onended = () => { URL.revokeObjectURL(url); audioRef.current = null; };
       audio.onerror = () => { URL.revokeObjectURL(url); audioRef.current = null; };
       const p = audio.play();
-      if (p !== undefined) p.catch(() => {});
-    } catch {}
+      if (p !== undefined) p.catch((err) => {
+        console.error("TARS Voice (project): play() blocked", err);
+        setVoiceError("Playback blocked — tap TARS once then retry");
+      });
+    } catch(err) { console.error("TARS Voice (project):", err); setVoiceError(String(err.message||err)); }
   };
 
   const stopProjectSpeaking = () => {
@@ -4889,6 +4851,11 @@ This project's conversation history below IS its memory — there's no separate 
             <span style={{ fontSize:11, fontWeight:600, color:voiceEnabled?T.blue:T.muted }}>{voiceEnabled?"Voice on":"Muted"}</span>
           </button>
         </div>
+        {voiceError && (
+          <div onClick={()=>setVoiceError(null)} style={{ marginBottom:8, padding:"6px 10px", borderRadius:8, background:`${T.accent}18`, border:`1px solid ${T.accent}44`, fontSize:11, color:T.accent, cursor:"pointer" }}>
+            ⚠️ Voice failed: {voiceError} (tap to dismiss)
+          </div>
+        )}
         {/* Bottom row — mic, text input, send */}
         <div style={{ display:"flex", gap:8, alignItems:"center" }}>
         <button onClick={startListening} disabled={listening} style={{ width:40, height:40, borderRadius:"50%", background:listening?`${T.accent}22`:T.elevated, border:`1px solid ${listening?T.accent:T.border}`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
@@ -5083,8 +5050,9 @@ export default function LifeApp() {
           </div>
         </div>
       );
-      case "tasks":    return <TodoScreen tasks={tasks} setTasks={setTasks} onBack={()=>setScreen("home")} addCalEvent={addCalEvent} />;
+      case "tasks":    return <TodoScreen tasks={tasks} setTasks={setTasks} onBack={()=>setScreen("home")} />;
       case "calendar": return <CalendarScreen onBack={()=>setScreen("home")} calEvents={calEvents} rotationBlocks={rotationBlocks} addCalEvent={addCalEvent} removeCalEvent={removeCalEvent} addRotation={addRotation} removeRotation={removeRotation} tasks={tasks} />;
+      case "health":   return <HealthScreen onBack={()=>setScreen("home")} entries={healthEntries} setEntries={setHealthEntries} calLog={calLog} setCalLog={setCalLog} />;
       case "finance":  return <ComingSoon label="Finance" icon="finance" accent={T.purple} onBack={()=>setScreen("home")} />;
       case "work":     return <ComingSoon label="Work" icon="work" accent={T.blue} onBack={()=>setScreen("home")} />;
       case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks }} />;
