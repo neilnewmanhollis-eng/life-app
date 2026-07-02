@@ -842,7 +842,7 @@ function selectModel(userMessage, hasTools) {
     /meal.*week|shopping list|what.*eat/,
     /rotation|join.*ship|man of steel|leave/,
     /chief officer|cv|job|application/,
-    /near me|nearby|within.*(min|minute|km|kilometre|kilometer|mile)|close by|around here|what's around/,
+    /near me|nearby|within.*(min|minute|km|kilometre|kilometer|mile)|close by|around here|what's around|closest|nearest|where can i (find|get)|is there a.*near/,
   ];
 
   if (sonnetPatterns.some(p => p.test(msg))) return SONNET;
@@ -2078,6 +2078,232 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// ─── FINANCE SCREEN — expense tracking + monthly category budgets ─────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+const CATEGORY_ICONS = {
+  "Groceries": "🛒", "Dining & Takeaway": "🍽️", "Fuel & Transport": "⛽",
+  "Health & Supplements": "💊", "Subscriptions": "🔁", "Shopping": "🛍️",
+  "Home & Utilities": "🏠", "Insurance & Rates": "📋", "Entertainment": "🎬",
+  "Personal Care": "🧴", "Career & Certification": "🎓", "Other": "📎",
+};
+
+function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets }) {
+  const [tab, setTab] = useState("expenses");
+  const [form, setForm] = useState({ date:"", category:FINANCE_CATEGORIES[0], value:"", merchant:"", notes:"" });
+  const [budgetInputs, setBudgetInputs] = useState({}); // draft values while editing, keyed by category
+
+  const today = new Date();
+  const todayLabel = today.toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"});
+  const monthKey = `${today.getFullYear()}-${today.getMonth()}`;
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth()+1, 0).getDate();
+  const dayOfMonth = today.getDate();
+  const monthProgress = dayOfMonth / daysInMonth;
+
+  // Parse "2 Jul 2026" style dates back into a Date for month-matching
+  const parseEntryDate = (d) => {
+    const parsed = new Date(d);
+    return isNaN(parsed) ? null : parsed;
+  };
+  const isThisMonth = (d) => {
+    const parsed = parseEntryDate(d);
+    return parsed && parsed.getFullYear() === today.getFullYear() && parsed.getMonth() === today.getMonth();
+  };
+
+  const monthEntries = entries.filter(e => isThisMonth(e.date));
+  const monthTotal = monthEntries.reduce((s,e) => s + (e.value||0), 0);
+
+  const spendByCategory = {};
+  FINANCE_CATEGORIES.forEach(c => spendByCategory[c] = 0);
+  monthEntries.forEach(e => { spendByCategory[e.category] = (spendByCategory[e.category]||0) + (e.value||0); });
+
+  const addEntry = () => {
+    const val = parseFloat(form.value);
+    if (!val || val <= 0) return;
+    setEntries(prev => [...prev, {
+      id: Date.now(),
+      date: form.date ? new Date(form.date).toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}) : todayLabel,
+      category: form.category,
+      value: val,
+      merchant: form.merchant.trim(),
+      notes: form.notes.trim(),
+      source: "manual",
+    }]);
+    setForm({ date:"", category:FINANCE_CATEGORIES[0], value:"", merchant:"", notes:"" });
+  };
+
+  const removeEntry = (id) => setEntries(prev => prev.filter(e => e.id !== id));
+
+  const saveBudget = (category) => {
+    const val = parseFloat(budgetInputs[category]);
+    if (isNaN(val) || val < 0) return;
+    setBudgets(prev => prev.map(b => b.category === category ? { ...b, monthlyLimit: val } : b));
+    setBudgetInputs(prev => { const next = {...prev}; delete next[category]; return next; });
+  };
+
+  const financeTabs = [
+    { id:"expenses", label:"Expenses" },
+    { id:"budget", label:"Budget" },
+  ];
+
+  return (
+    <div>
+      <SectionHeader title="Finance" onBack={onBack} />
+
+      <div style={{ padding:"12px 16px", background:T.elevated, borderBottom:`1px solid ${T.border}` }}>
+        <div style={{ display:"flex", gap:20 }}>
+          <div>
+            <div style={{ fontSize:22, fontWeight:800, color:T.text }}>${monthTotal.toFixed(2)}</div>
+            <div style={{ fontSize:11, color:T.muted }}>Spent this month</div>
+          </div>
+          <div>
+            <div style={{ fontSize:22, fontWeight:800, color:T.purple }}>{monthEntries.length}</div>
+            <div style={{ fontSize:11, color:T.muted }}>Transactions</div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ padding:"12px 16px 24px" }}>
+        <SubTab tabs={financeTabs} active={tab} onChange={setTab} />
+
+        {/* EXPENSES TAB */}
+        {tab === "expenses" && (
+          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+            <Card>
+              <SectionLabel>Add Expense</SectionLabel>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
+                <div>
+                  <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Date</div>
+                  <input type="date" value={form.date} onChange={e=>setForm(p=>({...p,date:e.target.value}))}
+                    style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+                </div>
+                <div>
+                  <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Amount (NZD)</div>
+                  <input type="number" value={form.value} onChange={e=>setForm(p=>({...p,value:e.target.value}))}
+                    placeholder="0.00"
+                    style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+                </div>
+              </div>
+              <div style={{ marginBottom:8 }}>
+                <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Category</div>
+                <select value={form.category} onChange={e=>setForm(p=>({...p,category:e.target.value}))}
+                  style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }}>
+                  {FINANCE_CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_ICONS[c]} {c}</option>)}
+                </select>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:12 }}>
+                <div>
+                  <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Merchant (optional)</div>
+                  <input type="text" value={form.merchant} onChange={e=>setForm(p=>({...p,merchant:e.target.value}))}
+                    placeholder="e.g. New World Ilam"
+                    style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+                </div>
+                <div>
+                  <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Notes (optional)</div>
+                  <input type="text" value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))}
+                    style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+                </div>
+              </div>
+              <button onClick={addEntry} style={{ width:"100%", padding:"10px", borderRadius:10, background:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>
+                Add Expense
+              </button>
+            </Card>
+
+            {/* Category breakdown this month */}
+            {monthTotal > 0 && (
+              <Card>
+                <SectionLabel>This Month by Category</SectionLabel>
+                {FINANCE_CATEGORIES.filter(c => spendByCategory[c] > 0).sort((a,b)=>spendByCategory[b]-spendByCategory[a]).map(c => (
+                  <div key={c} style={{ marginBottom:10 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:4 }}>
+                      <span style={{ color:T.text }}>{CATEGORY_ICONS[c]} {c}</span>
+                      <span style={{ color:T.muted, fontWeight:600 }}>${spendByCategory[c].toFixed(2)}</span>
+                    </div>
+                    <div style={{ height:6, background:T.elevated, borderRadius:999, overflow:"hidden" }}>
+                      <div style={{ height:"100%", width:`${Math.min(100,(spendByCategory[c]/monthTotal)*100)}%`, background:T.purple, borderRadius:999 }} />
+                    </div>
+                  </div>
+                ))}
+              </Card>
+            )}
+
+            {/* Recent transactions */}
+            <Card>
+              <SectionLabel>Recent Transactions</SectionLabel>
+              {entries.length === 0 ? (
+                <div style={{ fontSize:12, color:T.muted, textAlign:"center", padding:"20px 0" }}>No expenses logged yet.</div>
+              ) : (
+                entries.slice().reverse().slice(0,30).map(e => (
+                  <div key={e.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 0", borderBottom:`1px solid ${T.border}` }}>
+                    <span style={{ fontSize:18, flexShrink:0 }}>{CATEGORY_ICONS[e.category]||"📎"}</span>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:600, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{e.merchant || e.category}</div>
+                      <div style={{ fontSize:10, color:T.muted }}>{e.date} · {e.category}{e.source==="receipt"||e.source==="tars" ? " · via TARS" : ""}</div>
+                    </div>
+                    <div style={{ fontSize:13, fontWeight:700, color:T.text, flexShrink:0 }}>${e.value.toFixed(2)}</div>
+                    <button onClick={()=>removeEntry(e.id)} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, padding:4, flexShrink:0 }}>
+                      <Icon name="trash" size={14} color={T.muted} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </Card>
+          </div>
+        )}
+
+        {/* BUDGET TAB */}
+        {tab === "budget" && (
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            <div style={{ background:"#f0f4ff11", borderRadius:12, padding:12, fontSize:11, color:T.muted, border:`1px solid ${T.border}` }}>
+              Set a monthly cap per category. The bar fills as you spend; the pale marker shows how far through the month you are — if spending is ahead of that marker, you're pacing to go over.
+            </div>
+            {budgets.map(b => {
+              const spent = spendByCategory[b.category] || 0;
+              const limit = b.monthlyLimit || 0;
+              const pct = limit > 0 ? Math.min(100, (spent/limit)*100) : 0;
+              const pacePct = monthProgress * 100;
+              const overPace = limit > 0 && (spent/limit) > monthProgress && pct > 5;
+              const barColor = limit === 0 ? T.border : pct >= 100 ? T.accent : overPace ? T.gold : T.green;
+              const editing = budgetInputs[b.category] !== undefined;
+              return (
+                <Card key={b.category}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                    <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{CATEGORY_ICONS[b.category]} {b.category}</div>
+                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                      <span style={{ fontSize:11, color:T.muted }}>$</span>
+                      <input
+                        type="number"
+                        value={editing ? budgetInputs[b.category] : (b.monthlyLimit || "")}
+                        onChange={e=>setBudgetInputs(prev=>({...prev, [b.category]: e.target.value}))}
+                        onBlur={()=>editing && saveBudget(b.category)}
+                        onKeyDown={e=>{ if(e.key==="Enter"){ e.target.blur(); } }}
+                        placeholder="0"
+                        style={{ width:70, padding:"5px 8px", borderRadius:6, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", textAlign:"right" }} />
+                      <span style={{ fontSize:10, color:T.muted }}>/mo</span>
+                    </div>
+                  </div>
+                  {limit > 0 && (
+                    <>
+                      <div style={{ position:"relative", height:8, background:T.elevated, borderRadius:999, overflow:"hidden", marginBottom:6 }}>
+                        <div style={{ position:"absolute", top:0, left:0, height:"100%", width:`${pct}%`, background:barColor, borderRadius:999, transition:"width 0.2s" }} />
+                        <div style={{ position:"absolute", top:0, width:2, height:"100%", left:`${Math.min(100,pacePct)}%`, background:"rgba(255,255,255,0.5)" }} />
+                      </div>
+                      <div style={{ display:"flex", justifyContent:"space-between", fontSize:10, color:T.muted }}>
+                        <span>${spent.toFixed(2)} spent</span>
+                        <span style={{ color: overPace ? T.gold : T.muted }}>{overPace ? "Ahead of pace" : `${Math.round(pct)}% used`}</span>
+                      </div>
+                    </>
+                  )}
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // ─── HOME SCREEN ──────────────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
 function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo }) {
@@ -2661,6 +2887,7 @@ const GistSync = {
     "life_tasks", "life_cal_events", "life_rotation_blocks",
     "life_health_entries", "life_cal_log",
     "life_steps_log", "life_workout_log",
+    "life_finance_entries", "life_finance_budgets",
     "meal_library", "meal_current", "meal_cooked",
     "meal_shopping", "meal_regulars", "meal_pantry",
     "tars_vault",
@@ -2770,6 +2997,12 @@ const GistSync = {
 //
 // Each module needs: a getter (returns the live array from state) and a setter style
 // (how new/updated/deleted records get written back). idField defaults to "id".
+const FINANCE_CATEGORIES = [
+  "Groceries", "Dining & Takeaway", "Fuel & Transport", "Health & Supplements",
+  "Subscriptions", "Shopping", "Home & Utilities", "Insurance & Rates",
+  "Entertainment", "Personal Care", "Career & Certification", "Other"
+];
+
 const MODULE_REGISTRY = {
   tasks: {
     label: "Tasks", idField: "id",
@@ -2791,11 +3024,14 @@ const MODULE_REGISTRY = {
     label: "Document vault", idField: "id",
     fields: "id, name, docType, summary, uploadedAt — read-only via search_vault tool, not editable via create/update/delete",
   },
+  finance: {
+    label: "Finance — expenses", idField: "id",
+    fields: `id, date (DD MMM YYYY), category (must be exactly one of: ${FINANCE_CATEGORIES.join(", ")}), value (number, NZD, always positive), merchant (optional), notes (optional), source (manual/receipt/tars)`,
+  },
   // Placeholder modules — not yet built in the UI, but registered now so the pattern
-  // is proven and TARS can be told about them ahead of time. When Work/Finance get
-  // real screens, they slot into this same generic system with zero new action types.
+  // is proven and TARS can be told about them ahead of time. When Work gets a real
+  // screen, it slots into this same generic system with zero new action types.
   // certificates: { label: "Work certificates", idField: "id", fields: "id, name, issueDate, expiryDate, notes" },
-  // expenses: { label: "Finance / expenses", idField: "id", fields: "id, description, amount, date, category" },
 };
 
 // ─── PROJECTS — TOPIC LIST SCREEN ──────────────────────────────────────────────
@@ -2870,7 +3106,7 @@ function ProjectsListScreen({ onBack, projects, setProjects, onOpenProject }) {
 }
 
 function TarsScreen({ onBack, appState }) {
-  const { tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks } = appState;
+  const { tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, setFinanceEntries } = appState;
 
   const [tarsTab, setTarsTab] = useState("chat");
   const [showSettings, setShowSettings] = useState(false);
@@ -3491,9 +3727,33 @@ ${(() => {
       format: (meals) => meals.length === 0 ? "none yet" : meals.map(m=>`  "${m.name}" — ${m.rating>0?`${m.rating}★`:"unrated"}${m.ratingNotes?` — "${m.ratingNotes}"`:""}${m.cookedDates?.length?` — cooked ${m.cookedDates.join(", ")}`:""}${m.saved?" — ★ SAVED FAVOURITE":""}`).join("\n"),
       skipIfEmpty: true
     },
-    // ── FUTURE MODULES — add entries here as Work, Finance etc get built ──────
+    {
+      label: "FINANCE (recent expenses and budget status — use exact id when editing/deleting an entry)",
+      data: (() => {
+        const now = new Date();
+        const monthEntries = financeEntries.filter(e => {
+          const d = new Date(e.date);
+          return !isNaN(d) && d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+        });
+        const byCategory = {};
+        monthEntries.forEach(e => { byCategory[e.category] = (byCategory[e.category]||0) + (e.value||0); });
+        return { monthEntries, byCategory, recent: financeEntries.slice(-10).reverse() };
+      })(),
+      format: ({ monthEntries, byCategory, recent }) => {
+        if (financeEntries.length === 0) return "No expenses logged yet.";
+        const monthTotal = monthEntries.reduce((s,e)=>s+(e.value||0),0);
+        const catLines = Object.entries(byCategory).map(([c,v]) => {
+          const budget = financeBudgets.find(b => b.category === c);
+          const limit = budget?.monthlyLimit || 0;
+          return `  ${c}: $${v.toFixed(2)}${limit>0 ? ` of $${limit} budget (${Math.round((v/limit)*100)}%)` : " (no budget set)"}`;
+        }).join("\n");
+        const recentLines = recent.map(e => `  id:${e.id} | ${e.date} | ${e.category} | $${e.value.toFixed(2)}${e.merchant?` | ${e.merchant}`:""}${e.source!=="manual"?` | logged via ${e.source}`:""}`).join("\n");
+        return `This month total: $${monthTotal.toFixed(2)}\nBy category:\n${catLines}\n\nMost recent entries:\n${recentLines}`;
+      },
+      skipIfEmpty: false
+    },
+    // ── FUTURE MODULES — add entries here as Work etc get built ──────
     // { label: "WORK CERTIFICATES", data: certificates, format: (c) => c.map(...).join("\n") },
-    // { label: "FINANCE", data: expenses, format: (e) => ... },
   ];
 
   return STATE_SLICES
@@ -3572,6 +3832,24 @@ ${(() => {
           setCalLog(prev => ({ ...prev, [todayLabel]: [...(prev[todayLabel]||[]), entry] }));
         } else if (op === "delete") {
           setCalLog(prev => ({ ...prev, [todayLabel]: (prev[todayLabel]||[]).filter(e => String(e.id)!==String(id)) }));
+        }
+        break;
+      }
+      case "finance": {
+        if (op === "create") {
+          setFinanceEntries(prev => [...prev, {
+            id: Date.now(),
+            date: fields.date || todayLabel,
+            category: FINANCE_CATEGORIES.includes(fields.category) ? fields.category : "Other",
+            value: parseFloat(fields.value) || 0,
+            merchant: fields.merchant || "",
+            notes: fields.notes || "",
+            source: fields.source || "tars",
+          }]);
+        } else if (op === "update") {
+          setFinanceEntries(prev => prev.map(e => String(e.id)===String(id) ? {...e, ...fields} : e));
+        } else if (op === "delete") {
+          setFinanceEntries(prev => prev.filter(e => String(e.id)!==String(id)));
         }
         break;
       }
@@ -3768,7 +4046,8 @@ ${(() => {
         system: `You are an image classifier. Look at this image and respond with exactly one word only:
 FOOD — if it shows food, a meal, a drink, a snack, or anything edible
 HEALTH — if it shows a Samsung Health screenshot, fitness app data, steps, sleep, weight, heart rate, or any health metrics
-DOCUMENT — if it shows a document, certificate, letter, form, or text-heavy page
+RECEIPT — if it shows a purchase receipt, invoice, or till slip with a merchant name and a total amount
+DOCUMENT — if it shows any other document, certificate, letter, form, or text-heavy page
 OTHER — anything else`,
         messages: [{ role:"user", content:[
           { type:"image", source:{ type:"base64", media_type:file.type, data:base64 }},
@@ -3778,6 +4057,7 @@ OTHER — anything else`,
 
       const imageType = classifyReply.trim().toUpperCase().includes("FOOD") ? "FOOD"
         : classifyReply.trim().toUpperCase().includes("HEALTH") ? "HEALTH"
+        : classifyReply.trim().toUpperCase().includes("RECEIPT") ? "RECEIPT"
         : classifyReply.trim().toUpperCase().includes("DOCUMENT") ? "DOCUMENT"
         : "OTHER";
 
@@ -3791,6 +4071,9 @@ OTHER — anything else`,
       } else if (imageType === "HEALTH") {
         systemAddendum = `The user has sent a Samsung Health screenshot or fitness data. Extract all visible health metrics — steps, distance, active time, sleep duration, sleep score, weight, heart rate, calories burned, or any other metrics shown. Present what you found clearly then ask which metrics to log to the health module.`;
         userPrompt = "Extract all health metrics from this screenshot.";
+      } else if (imageType === "RECEIPT") {
+        systemAddendum = `The user has sent a photo of a purchase receipt. Read the merchant name and the TOTAL amount (not subtotal, not individual line items — the final amount paid, including any tax). Pick exactly ONE category from this list that best fits the overall purchase: ${FINANCE_CATEGORIES.join(", ")}. If the receipt has mixed items spanning categories (e.g. a supermarket run with both groceries and household items), just pick the dominant one — don't split it. State what you found plainly: "That's [merchant], $[total], I'd file that under [category]. Shall I log it?" Then emit an ACTION block: ACTION:{"type":"generic","module":"finance","op":"create","fields":{"date":"YYYY-MM-DD","category":"<exact category from the list>","value":<number>,"merchant":"<name>","notes":"","source":"receipt"}} — use today's date unless the receipt clearly shows a different date. If you can't read the total or merchant clearly, say so and ask Neil rather than guessing at numbers — a wrong dollar figure silently logged is worse than asking.`;
+        userPrompt = "Read this receipt — merchant, total, and the best category for it.";
       } else if (imageType === "DOCUMENT") {
         systemAddendum = `The user has sent a document image. Summarise the key information. If it contains dates, events, flights, or appointments, identify them and offer to add to the calendar. If it is a certificate or qualification, note the expiry date if visible and suggest adding to the Work module when built.`;
         userPrompt = "Summarise this document and identify anything worth adding to the app.";
@@ -3966,6 +4249,7 @@ Your job: understand the full content of each file, then act on it.
 If it contains dates, events, flights, hotel bookings, appointments or a leave schedule → extract them all and offer to add to the calendar one by one or all at once.
 If it contains health data, weight, steps, or fitness metrics → extract and offer to log to the health module.
 If it contains food or nutrition information → extract and offer to log calories and protein.
+If it is a purchase receipt or invoice → read the merchant and TOTAL amount (not subtotal or line items), pick exactly one category from: ${FINANCE_CATEGORIES.join(", ")}, and offer to log it to Finance using ACTION:{"type":"generic","module":"finance","op":"create","fields":{"date":"YYYY-MM-DD","category":"<category>","value":<number>,"merchant":"<name>","notes":"","source":"receipt"}}. Ask rather than guess if the total isn't clearly readable.
 If it is a certificate, qualification or work document → summarise key details including any expiry dates.
 If no specific action applies → summarise the key information clearly and ask what Neil wants to do with it.
 Be thorough. Read everything in every file. Do not skip rows or entries. If it is a schedule or planner, list every entry you find.
@@ -4137,17 +4421,15 @@ If multiple files were uploaded, treat them as related unless the content sugges
           ? `\n\nVAULT INDEX — documents Neil has previously uploaded (use the search_vault tool to retrieve full details for any of these when relevant to his question):\n${vaultIndex}`
           : "\n\nVault is currently empty — no documents uploaded yet.");
 
-      // ── Smart model routing — Haiku for simple everyday queries (~12x cheaper),
-      // Sonnet+tools only when the message genuinely needs complex reasoning, web
-      // search, vault retrieval, or multi-source planning. Invisible to Neil. ──
-      const chosenModel = selectModel(text, false);
-      const needsTools = chosenModel === SONNET;
-
+      // ── Tools are always attached here — callClaudeWithTools uses Sonnet
+      // regardless of this flag (see its definition), so gating tools by message
+      // content saved nothing and risked Claude narrating a tool call as plain text
+      // when the pattern-match missed a phrasing (e.g. "closest X" vs "X near me"). ──
       const reply = await callClaudeWithTools({
         system: systemWithVault,
         messages: apiMessages,
-        tools: needsTools ? [vaultTool, WEB_SEARCH_TOOL, PLACES_SEARCH_TOOL] : [],
-        toolHandlers: needsTools ? toolHandlers : {},
+        tools: [vaultTool, WEB_SEARCH_TOOL, PLACES_SEARCH_TOOL],
+        toolHandlers,
       });
 
       const displayReply = stripAction(reply);
@@ -4570,7 +4852,7 @@ If multiple files were uploaded, treat them as related unless the content sugges
 // step needed, given Neil's projects are expected to stay small: the conversation itself
 // IS the memory, persisted directly, read back in full next time the project is opened.
 function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState }) {
-  const { tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, rotationBlocks } = appState;
+  const { tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, rotationBlocks, financeEntries, setFinanceEntries } = appState;
   const project = projects.find(p => p.id === projectId);
 
   const [messages, setMessages] = usePersistentState(`project_chat_${projectId}`, []);
@@ -4875,6 +5157,10 @@ This project's conversation history below IS its memory — there's no separate 
     } else if (module === "health") {
       const latest = healthEntries[healthEntries.length-1] || {};
       setHealthEntries(prev => [...prev, { date:new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}), weight:fields.weight||latest.weight, bodyFat:fields.bodyFat||latest.bodyFat, fatMass:fields.fatMass||latest.fatMass, muscle:fields.muscle||latest.muscle, bp:fields.bp||latest.bp, waist:fields.waist||latest.waist||null }]);
+    } else if (module === "finance") {
+      if (op === "create") setFinanceEntries(prev => [...prev, { id:Date.now(), date:fields.date||todayLabel, category:FINANCE_CATEGORIES.includes(fields.category)?fields.category:"Other", value:parseFloat(fields.value)||0, merchant:fields.merchant||"", notes:fields.notes||"", source:fields.source||"tars" }]);
+      else if (op === "update") setFinanceEntries(prev => prev.map(e => String(e.id)===String(id) ? {...e, ...fields} : e));
+      else if (op === "delete") setFinanceEntries(prev => prev.filter(e => String(e.id)!==String(id)));
     }
     setPendingAction(null);
   };
@@ -5092,6 +5378,12 @@ export default function LifeApp() {
   const todayLabel = new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"});
   const [calLog, setCalLog] = usePersistentState("life_cal_log", {});
 
+  // ── FINANCE STATE (source of truth — TARS can write here) ───────────────────
+  const [financeEntries, setFinanceEntries] = usePersistentState("life_finance_entries", []);
+  const [financeBudgets, setFinanceBudgets] = usePersistentState("life_finance_budgets",
+    FINANCE_CATEGORIES.map(c => ({ category: c, monthlyLimit: 0, notes: "" }))
+  );
+
   // ── TARS CHAT STATE — lives here (not inside TarsScreen) so it survives navigating
   // away and back, but resets naturally when the app is fully closed since it's plain
   // in-memory state, not localStorage. This matches the "stays while I'm working,
@@ -5176,11 +5468,11 @@ export default function LifeApp() {
       case "tasks":    return <TodoScreen tasks={tasks} setTasks={setTasks} onBack={()=>setScreen("home")} />;
       case "calendar": return <CalendarScreen onBack={()=>setScreen("home")} calEvents={calEvents} rotationBlocks={rotationBlocks} addCalEvent={addCalEvent} removeCalEvent={removeCalEvent} addRotation={addRotation} removeRotation={removeRotation} tasks={tasks} />;
       case "health":   return <HealthScreen onBack={()=>setScreen("home")} entries={healthEntries} setEntries={setHealthEntries} calLog={calLog} setCalLog={setCalLog} />;
-      case "finance":  return <ComingSoon label="Finance" icon="finance" accent={T.purple} onBack={()=>setScreen("home")} />;
+      case "finance":  return <FinanceScreen onBack={()=>setScreen("home")} entries={financeEntries} setEntries={setFinanceEntries} budgets={financeBudgets} setBudgets={setFinanceBudgets} />;
       case "work":     return <ComingSoon label="Work" icon="work" accent={T.blue} onBack={()=>setScreen("home")} />;
-      case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks }} />;
+      case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, setFinanceEntries }} />;
       case "projects": return <ProjectsListScreen onBack={()=>setScreen("home")} projects={projects} setProjects={setProjects} onOpenProject={(id)=>{ setActiveProjectId(id); setScreen("projectChat"); }} />;
-      case "projectChat": return <ProjectChatScreen onBack={()=>setScreen("projects")} projectId={activeProjectId} projects={projects} setProjects={setProjects} appState={{ tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, rotationBlocks }} />;
+      case "projectChat": return <ProjectChatScreen onBack={()=>setScreen("projects")} projectId={activeProjectId} projects={projects} setProjects={setProjects} appState={{ tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, rotationBlocks, financeEntries, setFinanceEntries }} />;
       default:         return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} />;
     }
   };
