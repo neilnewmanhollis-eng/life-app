@@ -1590,19 +1590,11 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
     // Calorie tracking state
   const today = new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"});
   // calLog state now managed by LifeApp
-    const [calForm, setCalForm] = useState({ name:"", kcal:"", protein:"" });
   const [calView, setCalView] = useState("today"); // today | history
 
   const todayEntries = calLog[today] || [];
   const todayKcal = todayEntries.reduce((s,e)=>s+e.kcal,0);
   const todayProtein = todayEntries.reduce((s,e)=>s+e.protein,0);
-
-  const addCalEntry = () => {
-    if (!calForm.name || !calForm.kcal) return;
-    const entry = { id:Date.now(), name:calForm.name, kcal:parseInt(calForm.kcal)||0, protein:parseInt(calForm.protein)||0, time:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) };
-    setCalLog(prev => ({ ...prev, [today]: [...(prev[today]||[]), entry] }));
-    setCalForm({ name:"", kcal:"", protein:"" });
-  };
 
   const removeCalEntry = (id) => {
     setCalLog(prev => ({ ...prev, [today]: prev[today].filter(e=>e.id!==id) }));
@@ -1726,8 +1718,57 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
         {tab==="history" && (
           <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
             <div style={{ background:`${T.blue}18`, borderRadius:12, padding:12, fontSize:12, color:T.blue, border:`1px solid ${T.blue}33` }}>
-              ⌚ Upload a Samsung Health screenshot via TARS (top bar) to auto-update your stats.
+              ⌚ Upload a Samsung Health screenshot via TARS (top bar) to auto-update your stats, or log a check-in manually below.
             </div>
+            <Card>
+              <SectionLabel>Add Check-in</SectionLabel>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
+                <div>
+                  <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Date</div>
+                  <input type="date" value={form.date} onChange={e=>setForm(p=>({...p,date:e.target.value}))}
+                    style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+                </div>
+                <div>
+                  <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Weight (kg)</div>
+                  <input type="number" value={form.weight} onChange={e=>setForm(p=>({...p,weight:e.target.value}))} placeholder={String(latest?.weight ?? "")}
+                    style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+                </div>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
+                <div>
+                  <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Body Fat (%)</div>
+                  <input type="number" value={form.bodyFat} onChange={e=>setForm(p=>({...p,bodyFat:e.target.value}))} placeholder={String(latest?.bodyFat ?? "")}
+                    style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+                </div>
+                <div>
+                  <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Fat Mass (kg)</div>
+                  <input type="number" value={form.fatMass} onChange={e=>setForm(p=>({...p,fatMass:e.target.value}))} placeholder={String(latest?.fatMass ?? "")}
+                    style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+                </div>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
+                <div>
+                  <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Muscle (kg)</div>
+                  <input type="number" value={form.muscle} onChange={e=>setForm(p=>({...p,muscle:e.target.value}))} placeholder={String(latest?.muscle ?? "")}
+                    style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+                </div>
+                <div>
+                  <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Waist (cm)</div>
+                  <input type="number" value={form.waist} onChange={e=>setForm(p=>({...p,waist:e.target.value}))} placeholder={latest?.waist ? String(latest.waist) : "optional"}
+                    style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+                </div>
+              </div>
+              <div style={{ marginBottom:12 }}>
+                <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Blood Pressure (optional)</div>
+                <input type="text" value={form.bp} onChange={e=>setForm(p=>({...p,bp:e.target.value}))} placeholder={latest?.bp || "e.g. 127/75"}
+                  style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+              </div>
+              <button onClick={()=>{ addEntry(); }} disabled={!form.date || !form.weight}
+                style={{ width:"100%", padding:"10px", borderRadius:10, background:(!form.date||!form.weight)?T.elevated:T.blue, color:(!form.date||!form.weight)?T.muted:"white", fontWeight:700, fontSize:13, border:"none", cursor:(!form.date||!form.weight)?"not-allowed":"pointer", fontFamily:"inherit" }}>
+                Save Check-in
+              </button>
+              <div style={{ fontSize:10, color:T.muted, marginTop:6 }}>Date and weight are required — everything else fills from your last check-in if left blank.</div>
+            </Card>
             <Card>
               <div style={{ fontSize:13, fontWeight:700, color:T.text, marginBottom:12 }}>Check-in History</div>
               <div style={{ overflowX:"auto" }}>
@@ -2715,30 +2756,65 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addCalEvent, remove
 
         {/* ADD EVENT */}
         {calTab==="add" && (
-          <Card>
-            <SectionLabel>Add Event</SectionLabel>
-            <div style={{ marginBottom:8 }}>
-              <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Type</div>
-              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                {Object.entries(EVENT_COLORS).map(([type,c])=>(
-                  <button key={type} onClick={()=>setAddForm(p=>({...p,type}))} style={{ padding:"5px 10px", borderRadius:999, border:"none", cursor:"pointer", fontFamily:"inherit", fontSize:11, fontWeight:600, background:addForm.type===type?c.bg:T.elevated, color:addForm.type===type?"white":T.muted }}>
-                    {c.label}
-                  </button>
-                ))}
+          <>
+            <Card>
+              <SectionLabel>Upload a Document</SectionLabel>
+              <div style={{ fontSize:11, color:T.muted, marginBottom:10 }}>Flight confirmation, hotel booking, itinerary — TARS reads it and pulls out the events for you to review before anything's added.</div>
+              <input type="file" id="cal-doc-upload" accept=".pdf,image/*,.txt" onChange={handleFileUpload} style={{ display:"none" }} />
+              <label htmlFor="cal-doc-upload" style={{ display:"block", width:"100%", padding:"10px", borderRadius:10, background:uploadLoading?T.elevated:T.purple, color:uploadLoading?T.muted:"white", fontWeight:700, fontSize:13, border:"none", cursor:uploadLoading?"not-allowed":"pointer", fontFamily:"inherit", textAlign:"center", boxSizing:"border-box" }}>
+                {uploadLoading ? "Reading document…" : "📄 Choose Document"}
+              </label>
+              {uploadError && (
+                <div style={{ marginTop:10, padding:"8px 10px", borderRadius:8, background:`${T.accent}18`, border:`1px solid ${T.accent}44`, fontSize:11, color:T.accent }}>{uploadError}</div>
+              )}
+              {uploadResult && (
+                <div style={{ marginTop:12 }}>
+                  <div style={{ fontSize:12, color:T.muted, marginBottom:8 }}>{uploadResult.summary}</div>
+                  {uploadResult.events.map((ev, i) => (
+                    <div key={i} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 0", borderTop:`1px solid ${T.border}` }}>
+                      <span style={{ fontSize:16 }}>{ev.type==="flight"?"✈️":ev.type==="hotel"?"🏨":"📌"}</span>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:12, fontWeight:600, color:T.text }}>{ev.title}</div>
+                        <div style={{ fontSize:10, color:T.muted }}>{formatDateDDMMYYYY(ev.date)}{ev.endDate?` – ${formatDateDDMMYYYY(ev.endDate)}`:""}{ev.time?` · ${ev.time}`:""}</div>
+                      </div>
+                      <button onClick={()=>setUploadResult(prev=>({...prev, events:prev.events.filter((_,j)=>j!==i)}))} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:16, padding:"2px 6px" }}>✕</button>
+                    </div>
+                  ))}
+                  <div style={{ display:"flex", gap:8, marginTop:12 }}>
+                    <button onClick={confirmUpload} disabled={uploadResult.events.length===0} style={{ flex:1, padding:"9px", borderRadius:9, background:uploadResult.events.length===0?T.elevated:T.green, color:uploadResult.events.length===0?T.muted:"white", fontWeight:700, fontSize:12, border:"none", cursor:uploadResult.events.length===0?"not-allowed":"pointer", fontFamily:"inherit" }}>
+                      ✓ Add {uploadResult.events.length} to Calendar
+                    </button>
+                    <button onClick={()=>{ setUploadResult(null); setUploadError(null); }} style={{ padding:"9px 14px", borderRadius:9, background:T.elevated, color:T.muted, fontWeight:700, fontSize:12, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>Cancel</button>
+                  </div>
+                </div>
+              )}
+            </Card>
+
+            <Card>
+              <SectionLabel>Or Add Manually</SectionLabel>
+              <div style={{ marginBottom:8 }}>
+                <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Type</div>
+                <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                  {Object.entries(EVENT_COLORS).map(([type,c])=>(
+                    <button key={type} onClick={()=>setAddForm(p=>({...p,type}))} style={{ padding:"5px 10px", borderRadius:999, border:"none", cursor:"pointer", fontFamily:"inherit", fontSize:11, fontWeight:600, background:addForm.type===type?c.bg:T.elevated, color:addForm.type===type?"white":T.muted }}>
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-            <input value={addForm.title} onChange={e=>setAddForm(p=>({...p,title:e.target.value}))} placeholder="Title" style={inputSt} />
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-              <div><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Date</div><input type="date" value={addForm.date} onChange={e=>setAddForm(p=>({...p,date:e.target.value}))} style={inputSt} /></div>
-              <div><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Time (optional)</div><input type="time" value={addForm.time} onChange={e=>setAddForm(p=>({...p,time:e.target.value}))} style={inputSt} /></div>
-            </div>
-            <div style={{ marginBottom:8 }}><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Location (optional — leave blank for Christchurch/local time)</div><input value={addForm.location||""} onChange={e=>setAddForm(p=>({...p,location:e.target.value}))} placeholder="e.g. Brisbane" style={inputSt} /></div>
-            {(addForm.type==="hotel"||addForm.type==="other") && (
-              <div><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>End date (optional)</div><input type="date" value={addForm.endDate} onChange={e=>setAddForm(p=>({...p,endDate:e.target.value}))} style={inputSt} /></div>
-            )}
-            <input value={addForm.notes} onChange={e=>setAddForm(p=>({...p,notes:e.target.value}))} placeholder="Notes (optional)" style={inputSt} />
-            <button onClick={addManualEvent} style={{ width:"100%", padding:"10px", borderRadius:10, background:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Add to Calendar</button>
-          </Card>
+              <input value={addForm.title} onChange={e=>setAddForm(p=>({...p,title:e.target.value}))} placeholder="Title" style={inputSt} />
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                <div><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Date</div><input type="date" value={addForm.date} onChange={e=>setAddForm(p=>({...p,date:e.target.value}))} style={inputSt} /></div>
+                <div><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Time (optional)</div><input type="time" value={addForm.time} onChange={e=>setAddForm(p=>({...p,time:e.target.value}))} style={inputSt} /></div>
+              </div>
+              <div style={{ marginBottom:8 }}><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Location (optional — leave blank for Christchurch/local time)</div><input value={addForm.location||""} onChange={e=>setAddForm(p=>({...p,location:e.target.value}))} placeholder="e.g. Brisbane" style={inputSt} /></div>
+              {(addForm.type==="hotel"||addForm.type==="other") && (
+                <div><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>End date (optional)</div><input type="date" value={addForm.endDate} onChange={e=>setAddForm(p=>({...p,endDate:e.target.value}))} style={inputSt} /></div>
+              )}
+              <input value={addForm.notes} onChange={e=>setAddForm(p=>({...p,notes:e.target.value}))} placeholder="Notes (optional)" style={inputSt} />
+              <button onClick={addManualEvent} style={{ width:"100%", padding:"10px", borderRadius:10, background:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Add to Calendar</button>
+            </Card>
+          </>
         )}
 
         {/* ROTATION */}
