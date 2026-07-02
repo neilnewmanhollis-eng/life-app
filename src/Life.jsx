@@ -2087,10 +2087,74 @@ const CATEGORY_ICONS = {
   "Personal Care": "🧴", "Career & Certification": "🎓", "Other": "📎",
 };
 
+// Shared row list — used wherever a category's individual entries are shown (expanded
+// budget category, expanded history/expenses category). One implementation, one place to fix.
+function CategoryEntryRows({ entries, onDelete }) {
+  if (entries.length === 0) return <div style={{ fontSize:11, color:T.muted, textAlign:"center", padding:"8px 0" }}>No entries.</div>;
+  return entries.map(e => (
+    <div key={e.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 0" }}>
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ fontSize:12, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{e.merchant || e.notes || e.category}</div>
+        <div style={{ fontSize:10, color:T.muted }}>{e.date}{e.source!=="manual" ? " · via TARS" : ""}</div>
+      </div>
+      <div style={{ fontSize:12, fontWeight:700, color:T.text, flexShrink:0 }}>${e.value.toFixed(2)}</div>
+      <button onClick={()=>onDelete(e.id)} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, padding:2, flexShrink:0 }}>
+        <Icon name="trash" size={12} color={T.muted} />
+      </button>
+    </div>
+  ));
+}
+
+// Shared category-breakdown card with click-to-expand — used by Expenses tab (this month)
+// and History tab (any month or custom range). Budget tab keeps its own card since it also
+// carries the editable limit + pace bar, but reuses CategoryEntryRows for the expanded list.
+function CategoryBreakdownCard({ entries, total, expandedCategory, setExpandedCategory, onDelete, title, emptyLabel }) {
+  const byCategory = {};
+  entries.forEach(e => { byCategory[e.category] = (byCategory[e.category]||0) + (e.value||0); });
+  const cats = FINANCE_CATEGORIES.filter(c => byCategory[c] > 0).sort((a,b)=>byCategory[b]-byCategory[a]);
+  return (
+    <Card>
+      <SectionLabel>{title}</SectionLabel>
+      {cats.length === 0 ? (
+        <div style={{ fontSize:12, color:T.muted, textAlign:"center", padding:"12px 0" }}>{emptyLabel || "No expenses in this period."}</div>
+      ) : cats.map(c => {
+        const isExpanded = expandedCategory === c;
+        const catEntries = entries.filter(e => e.category === c).slice().sort((x,y)=>new Date(y.date)-new Date(x.date));
+        return (
+          <div key={c} style={{ marginBottom:10 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontSize:12, marginBottom:4, cursor:"pointer" }}
+              onClick={()=>setExpandedCategory(prev => prev === c ? null : c)}>
+              <span style={{ color:T.text, display:"flex", alignItems:"center", gap:6 }}>
+                <span style={{ fontSize:9, color:T.muted, transform:isExpanded?"rotate(90deg)":"none", transition:"transform 0.15s", display:"inline-block" }}>▶</span>
+                {CATEGORY_ICONS[c]} {c}
+              </span>
+              <span style={{ color:T.muted, fontWeight:600 }}>${byCategory[c].toFixed(2)}</span>
+            </div>
+            <div style={{ height:6, background:T.elevated, borderRadius:999, overflow:"hidden" }}>
+              <div style={{ height:"100%", width:`${Math.min(100,(byCategory[c]/total)*100)}%`, background:T.purple, borderRadius:999 }} />
+            </div>
+            {isExpanded && (
+              <div style={{ marginTop:8, paddingTop:8, borderTop:`1px solid ${T.border}` }}>
+                <CategoryEntryRows entries={catEntries} onDelete={onDelete} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </Card>
+  );
+}
+
 function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets }) {
   const [tab, setTab] = useState("expenses");
   const [form, setForm] = useState({ date:"", category:FINANCE_CATEGORIES[0], value:"", merchant:"", notes:"" });
   const [budgetInputs, setBudgetInputs] = useState({}); // draft values while editing, keyed by category
+  const [expandedCategory, setExpandedCategory] = useState(null);
+  const [historyExpandedCategory, setHistoryExpandedCategory] = useState(null);
+  const [historyMonthOffset, setHistoryMonthOffset] = useState(0); // 0 = current month, -1 = last month, etc.
+  const [useCustomRange, setUseCustomRange] = useState(false);
+  const [rangeStart, setRangeStart] = useState("");
+  const [rangeEnd, setRangeEnd] = useState("");
 
   const today = new Date();
   const todayLabel = today.toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"});
@@ -2108,6 +2172,23 @@ function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets }) {
     const parsed = parseEntryDate(d);
     return parsed && parsed.getFullYear() === today.getFullYear() && parsed.getMonth() === today.getMonth();
   };
+
+  // ── History tab — either a browsable month, or a custom date range ──
+  const historyMonthDate = new Date(today.getFullYear(), today.getMonth() + historyMonthOffset, 1);
+  const historyMonthLabel = historyMonthDate.toLocaleDateString("en-NZ",{month:"long",year:"numeric"});
+  const historyEntries = useCustomRange
+    ? entries.filter(e => {
+        const d = parseEntryDate(e.date);
+        if (!d) return false;
+        if (rangeStart && d < new Date(rangeStart)) return false;
+        if (rangeEnd) { const endOfDay = new Date(rangeEnd); endOfDay.setHours(23,59,59,999); if (d > endOfDay) return false; }
+        return true;
+      })
+    : entries.filter(e => {
+        const d = parseEntryDate(e.date);
+        return d && d.getFullYear() === historyMonthDate.getFullYear() && d.getMonth() === historyMonthDate.getMonth();
+      });
+  const historyTotal = historyEntries.reduce((s,e) => s + (e.value||0), 0);
 
   const monthEntries = entries.filter(e => isThisMonth(e.date));
   const monthTotal = monthEntries.reduce((s,e) => s + (e.value||0), 0);
@@ -2143,6 +2224,7 @@ function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets }) {
   const financeTabs = [
     { id:"expenses", label:"Expenses" },
     { id:"budget", label:"Budget" },
+    { id:"history", label:"History" },
   ];
 
   return (
@@ -2210,20 +2292,10 @@ function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets }) {
 
             {/* Category breakdown this month */}
             {monthTotal > 0 && (
-              <Card>
-                <SectionLabel>This Month by Category</SectionLabel>
-                {FINANCE_CATEGORIES.filter(c => spendByCategory[c] > 0).sort((a,b)=>spendByCategory[b]-spendByCategory[a]).map(c => (
-                  <div key={c} style={{ marginBottom:10 }}>
-                    <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:4 }}>
-                      <span style={{ color:T.text }}>{CATEGORY_ICONS[c]} {c}</span>
-                      <span style={{ color:T.muted, fontWeight:600 }}>${spendByCategory[c].toFixed(2)}</span>
-                    </div>
-                    <div style={{ height:6, background:T.elevated, borderRadius:999, overflow:"hidden" }}>
-                      <div style={{ height:"100%", width:`${Math.min(100,(spendByCategory[c]/monthTotal)*100)}%`, background:T.purple, borderRadius:999 }} />
-                    </div>
-                  </div>
-                ))}
-              </Card>
+              <CategoryBreakdownCard
+                entries={monthEntries} total={monthTotal}
+                expandedCategory={expandedCategory} setExpandedCategory={setExpandedCategory}
+                onDelete={removeEntry} title="This Month by Category" />
             )}
 
             {/* Recent transactions */}
@@ -2264,11 +2336,17 @@ function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets }) {
               const overPace = limit > 0 && (spent/limit) > monthProgress && pct > 5;
               const barColor = limit === 0 ? T.border : pct >= 100 ? T.accent : overPace ? T.gold : T.green;
               const editing = budgetInputs[b.category] !== undefined;
+              const isExpanded = expandedCategory === b.category;
+              const categoryEntries = monthEntries.filter(e => e.category === b.category).slice().sort((x,y) => new Date(y.date) - new Date(x.date));
               return (
                 <Card key={b.category}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
-                    <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{CATEGORY_ICONS[b.category]} {b.category}</div>
-                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8, cursor:"pointer" }}
+                    onClick={()=>setExpandedCategory(prev => prev === b.category ? null : b.category)}>
+                    <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:13, fontWeight:600, color:T.text }}>
+                      <span style={{ fontSize:10, color:T.muted, transform:isExpanded?"rotate(90deg)":"none", transition:"transform 0.15s", display:"inline-block" }}>▶</span>
+                      {CATEGORY_ICONS[b.category]} {b.category}
+                    </div>
+                    <div style={{ display:"flex", alignItems:"center", gap:6 }} onClick={e=>e.stopPropagation()}>
                       <span style={{ fontSize:11, color:T.muted }}>$</span>
                       <input
                         type="number"
@@ -2293,9 +2371,73 @@ function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets }) {
                       </div>
                     </>
                   )}
+                  {isExpanded && (
+                    <div style={{ marginTop:10, paddingTop:10, borderTop:`1px solid ${T.border}` }}>
+                      <CategoryEntryRows entries={categoryEntries} onDelete={removeEntry} />
+                    </div>
+                  )}
                 </Card>
               );
             })}
+          </div>
+        )}
+
+        {/* HISTORY TAB */}
+        {tab === "history" && (
+          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+            {!useCustomRange ? (
+              <Card>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                  <button onClick={()=>{ setHistoryMonthOffset(o=>o-1); setHistoryExpandedCategory(null); }}
+                    style={{ background:"none", border:"none", cursor:"pointer", color:T.text, fontSize:20, padding:"4px 10px" }}>‹</button>
+                  <div style={{ fontSize:14, fontWeight:700, color:T.text }}>{historyMonthLabel}</div>
+                  <button onClick={()=>{ if (historyMonthOffset < 0) { setHistoryMonthOffset(o=>o+1); setHistoryExpandedCategory(null); } }}
+                    disabled={historyMonthOffset >= 0}
+                    style={{ background:"none", border:"none", cursor:historyMonthOffset>=0?"default":"pointer", color:historyMonthOffset>=0?T.border:T.text, fontSize:20, padding:"4px 10px" }}>›</button>
+                </div>
+                <button onClick={()=>{ setUseCustomRange(true); setHistoryExpandedCategory(null); if(!rangeEnd) setRangeEnd(today.toISOString().slice(0,10)); }}
+                  style={{ marginTop:10, width:"100%", padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.muted, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>
+                  Use custom date range instead
+                </button>
+              </Card>
+            ) : (
+              <Card>
+                <SectionLabel>Custom Range</SectionLabel>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:10 }}>
+                  <div>
+                    <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>From</div>
+                    <input type="date" value={rangeStart} onChange={e=>{ setRangeStart(e.target.value); setHistoryExpandedCategory(null); }}
+                      style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>To</div>
+                    <input type="date" value={rangeEnd} onChange={e=>{ setRangeEnd(e.target.value); setHistoryExpandedCategory(null); }}
+                      style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+                  </div>
+                </div>
+                <button onClick={()=>{ setUseCustomRange(false); setHistoryExpandedCategory(null); }}
+                  style={{ width:"100%", padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.muted, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>
+                  Back to monthly view
+                </button>
+              </Card>
+            )}
+
+            <div style={{ padding:"12px 16px", background:T.elevated, borderRadius:12, border:`1px solid ${T.border}`, display:"flex", gap:24 }}>
+              <div>
+                <div style={{ fontSize:20, fontWeight:800, color:T.text }}>${historyTotal.toFixed(2)}</div>
+                <div style={{ fontSize:11, color:T.muted }}>Total{useCustomRange ? " in range" : ""}</div>
+              </div>
+              <div>
+                <div style={{ fontSize:20, fontWeight:800, color:T.purple }}>{historyEntries.length}</div>
+                <div style={{ fontSize:11, color:T.muted }}>Transactions</div>
+              </div>
+            </div>
+
+            <CategoryBreakdownCard
+              entries={historyEntries} total={historyTotal}
+              expandedCategory={historyExpandedCategory} setExpandedCategory={setHistoryExpandedCategory}
+              onDelete={removeEntry} title="By Category"
+              emptyLabel={useCustomRange ? "No expenses in that range." : "No expenses that month."} />
           </div>
         )}
       </div>
@@ -3728,7 +3870,7 @@ ${(() => {
       skipIfEmpty: true
     },
     {
-      label: "FINANCE (recent expenses and budget status — use exact id when editing/deleting an entry)",
+      label: "FINANCE — THIS MONTH SUMMARY & BUDGET STATUS (use exact id when editing/deleting an entry)",
       data: (() => {
         const now = new Date();
         const monthEntries = financeEntries.filter(e => {
@@ -3737,9 +3879,9 @@ ${(() => {
         });
         const byCategory = {};
         monthEntries.forEach(e => { byCategory[e.category] = (byCategory[e.category]||0) + (e.value||0); });
-        return { monthEntries, byCategory, recent: financeEntries.slice(-10).reverse() };
+        return { monthEntries, byCategory };
       })(),
-      format: ({ monthEntries, byCategory, recent }) => {
+      format: ({ monthEntries, byCategory }) => {
         if (financeEntries.length === 0) return "No expenses logged yet.";
         const monthTotal = monthEntries.reduce((s,e)=>s+(e.value||0),0);
         const catLines = Object.entries(byCategory).map(([c,v]) => {
@@ -3747,9 +3889,14 @@ ${(() => {
           const limit = budget?.monthlyLimit || 0;
           return `  ${c}: $${v.toFixed(2)}${limit>0 ? ` of $${limit} budget (${Math.round((v/limit)*100)}%)` : " (no budget set)"}`;
         }).join("\n");
-        const recentLines = recent.map(e => `  id:${e.id} | ${e.date} | ${e.category} | $${e.value.toFixed(2)}${e.merchant?` | ${e.merchant}`:""}${e.source!=="manual"?` | logged via ${e.source}`:""}`).join("\n");
-        return `This month total: $${monthTotal.toFixed(2)}\nBy category:\n${catLines}\n\nMost recent entries:\n${recentLines}`;
+        return `This month total: $${monthTotal.toFixed(2)}\nBy category:\n${catLines}`;
       },
+      skipIfEmpty: false
+    },
+    {
+      label: "FINANCE — FULL EXPENSE HISTORY (every entry ever logged — use this for any date-range or historical spending question, e.g. \"expenses between 1 May and 17 June\". Filter it yourself by date rather than asking Neil to narrow it down.)",
+      data: financeEntries.slice().sort((a,b)=>new Date(a.date)-new Date(b.date)),
+      format: (list) => list.length === 0 ? "none" : list.map(e => `  id:${e.id} | ${e.date} | ${e.category} | $${e.value.toFixed(2)}${e.merchant?` | ${e.merchant}`:""}${e.source!=="manual"?` | via ${e.source}`:""}`).join("\n"),
       skipIfEmpty: false
     },
     // ── FUTURE MODULES — add entries here as Work etc get built ──────
