@@ -1733,6 +1733,7 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
     if (!form.date || !form.weight) return;
     const l = latest;
     setEntries(prev => [...prev, {
+      id: Date.now(),
       date: form.date, // <input type="date"> already gives YYYY-MM-DD — store as-is
       weight:  parseFloat(form.weight)||l.weight,
       bodyFat: parseFloat(form.bodyFat)||l.bodyFat,
@@ -3970,6 +3971,7 @@ ${(() => {
         // Append-only — always creates a new check-in entry, filling gaps from the latest entry
         const latest = getLatestHealthEntry(healthEntries);
         setHealthEntries(prev => [...prev, {
+          id: Date.now(),
           date: toISODate(new Date()),
           weight: fields.weight || latest.weight, bodyFat: fields.bodyFat || latest.bodyFat,
           fatMass: fields.fatMass || latest.fatMass, muscle: fields.muscle || latest.muscle, bp: fields.bp || latest.bp,
@@ -4058,6 +4060,7 @@ ${(() => {
       case "log_health": {
         const latest = getLatestHealthEntry(healthEntries);
         const entry = {
+          id: Date.now(),
           date: toISODate(new Date()),
           weight: action.payload.weight || latest.weight,
           bodyFat: action.payload.bodyFat || latest.bodyFat,
@@ -5300,7 +5303,7 @@ This project's conversation history below IS its memory — there's no separate 
       if (op === "create") { const entry={id:Date.now(),name:fields.name,kcal:fields.kcal||0,protein:fields.protein||0,time:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"})}; setCalLog(prev=>({...prev,[todayLabel]:[...(prev[todayLabel]||[]),entry]})); }
     } else if (module === "health") {
       const latest = getLatestHealthEntry(healthEntries);
-      setHealthEntries(prev => [...prev, { date:toISODate(new Date()), weight:fields.weight||latest.weight, bodyFat:fields.bodyFat||latest.bodyFat, fatMass:fields.fatMass||latest.fatMass, muscle:fields.muscle||latest.muscle, bp:fields.bp||latest.bp, waist:fields.waist||latest.waist||null }]);
+      setHealthEntries(prev => [...prev, { id:Date.now(), date:toISODate(new Date()), weight:fields.weight||latest.weight, bodyFat:fields.bodyFat||latest.bodyFat, fatMass:fields.fatMass||latest.fatMass, muscle:fields.muscle||latest.muscle, bp:fields.bp||latest.bp, waist:fields.waist||latest.waist||null }]);
     } else if (module === "finance") {
       if (op === "create") setFinanceEntries(prev => [...prev, { id:Date.now(), date:fields.date||toISODate(new Date()), category:FINANCE_CATEGORIES.includes(fields.category)?fields.category:"Other", value:parseFloat(fields.value)||0, merchant:fields.merchant||"", notes:fields.notes||"", source:fields.source||"tars" }]);
       else if (op === "update") setFinanceEntries(prev => prev.map(e => String(e.id)===String(id) ? {...e, ...fields} : e));
@@ -5503,9 +5506,20 @@ export default function LifeApp() {
 
   // ── HEALTH STATE (source of truth — TARS can write here) ───────────────────
   const [healthEntries, setHealthEntries] = usePersistentState("life_health_entries", [{
-    date:"26 Jun 2026", weight:USER.health.weight, bodyFat:USER.health.bodyFat,
+    id: 1, date:"26 Jun 2026", weight:USER.health.weight, bodyFat:USER.health.bodyFat,
     fatMass:USER.health.fatMass, muscle:USER.health.muscle, bp:USER.health.bp,
   }]);
+  // ── One-time migration: Health entries never had unique IDs (they were "append-only,
+  // no edit/delete" by design). That's changing — every entry needs a real id before generic
+  // edit/delete can work on Health. Runs once, is a no-op on every subsequent load once
+  // everything's migrated, and never touches entries that already have an id. ──
+  useEffect(() => {
+    setHealthEntries(prev => {
+      if (prev.every(e => e.id != null)) return prev; // already migrated — no-op, no re-render even
+      const base = Date.now();
+      return prev.map((e, i) => e.id != null ? e : { ...e, id: base + i });
+    });
+  }, []);
   const todayLabel = new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"});
   const [calLog, setCalLog] = usePersistentState("life_cal_log", {});
 
