@@ -3322,35 +3322,106 @@ const FINANCE_CATEGORIES = [
   "Entertainment", "Personal Care", "Career & Certification", "Other"
 ];
 
+// Generates the plain-English field list TARS reads, directly from each module's
+// structured fieldsSchema — one source of truth, so the description TARS sees and the
+// schema a future edit UI reads from can't quietly drift apart the way hand-written
+// text and actual behaviour did for Health (waist) and Finance (date format) before.
+function describeModuleFields(fieldsSchema) {
+  return fieldsSchema.map(f => {
+    if (f.type === "id") return f.name;
+    const bits = [];
+    if (f.type === "select" && f.options) bits.push(`must be one of: ${f.options.join("/")}`);
+    else if (f.unit) bits.push(f.unit);
+    else if (f.type === "date") bits.push("date");
+    else if (f.type === "time") bits.push("time");
+    else if (f.type === "boolean") bits.push("boolean");
+    else if (f.type === "textarea") bits.push("text");
+    else if (f.type === "array") bits.push("array");
+    if (!f.required) bits.push("optional");
+    return bits.length ? `${f.name} (${bits.join(", ")})` : f.name;
+  }).join(", ");
+}
+
+// Builds a module's full registry entry from its structured schema + any hand-written
+// extra guidance that a generic field list can't capture (e.g. Health's "don't carry
+// forward" rule, Calendar's "only set location outside Christchurch" note).
+function buildModuleEntry(label, idField, fieldsSchema, notes) {
+  return {
+    label, idField, fieldsSchema,
+    fields: describeModuleFields(fieldsSchema) + (notes ? ` ${notes}` : ""),
+  };
+}
+
 const MODULE_REGISTRY = {
-  tasks: {
-    label: "Tasks", idField: "id",
-    fields: "id, text, cat (category), priority (low/med/high), due (date), done (boolean)",
-  },
-  calendar: {
-    label: "Calendar events", idField: "id",
-    fields: "id, type (reminder/flight/hotel/travel), title, date (YYYY-MM-DD), time (HH:MM, optional), location (city, optional — only for events outside Christchurch), notes",
-  },
-  health: {
-    label: "Health check-ins", idField: null, // entries have real IDs now (Stage 1 migration), but update/delete via chat isn't wired up yet — that's Stage 5. Still append-only for now.
-    fields: "id, date, weight (kg), bodyFat (%), fatMass (kg), muscle (kg), bp, waist (cm, optional). Only include a field if Neil actually gave you a fresh number for it — never carry forward an old value into a new entry just to fill a gap. Missing/unmeasured fields should be left out entirely.",
-  },
-  calorieLog: {
-    label: "Calorie log", idField: "id", // nested under date key — handled specially
-    fields: "id, name, kcal, protein (g), time — stored under today's date key",
-  },
-  vault: {
-    label: "Document vault", idField: "id",
-    fields: "id, name, docType, summary, uploadedAt — read-only via search_vault tool, not editable via create/update/delete",
-  },
-  finance: {
-    label: "Finance — expenses", idField: "id",
-    fields: `id, date (YYYY-MM-DD), category (must be exactly one of: ${FINANCE_CATEGORIES.join(", ")}), value (number, NZD, always positive), merchant (optional), notes (optional), source (manual/receipt/tars)`,
-  },
+  tasks: buildModuleEntry("Tasks", "id", [
+    { name:"id", type:"id" },
+    { name:"text", label:"Task", type:"text", required:true },
+    { name:"cat", label:"Category", type:"text", required:true },
+    { name:"priority", label:"Priority", type:"select", options:["low","med","high"], required:true },
+    { name:"due", label:"Due date", type:"date", required:false },
+    { name:"done", label:"Completed", type:"boolean", required:true },
+    { name:"completedAt", label:"Completed on", type:"date", required:false, editable:false },
+    { name:"notes", label:"Notes", type:"textarea", required:false },
+    { name:"pinned", label:"Pinned", type:"boolean", required:false },
+    { name:"subtasks", label:"Subtasks", type:"array", required:false, editable:false },
+  ]),
+
+  calendar: buildModuleEntry("Calendar events", "id", [
+    { name:"id", type:"id" },
+    { name:"type", label:"Event type", type:"select", options:["reminder","flight","hotel","travel"], required:true },
+    { name:"title", label:"Title", type:"text", required:true },
+    { name:"date", label:"Date", type:"date", required:true },
+    { name:"time", label:"Time", type:"time", required:false },
+    { name:"location", label:"Location", type:"text", required:false },
+    { name:"notes", label:"Notes", type:"textarea", required:false },
+  ], "location should only be set for events outside Christchurch — leave blank for local events."),
+
+  health: buildModuleEntry("Health check-ins", null, [ // idField null: entries have real IDs (Stage 1), but update/delete via chat isn't wired up yet — that's Stage 5. Still append-only for now.
+    { name:"id", type:"id" },
+    { name:"date", label:"Date", type:"date", required:true },
+    { name:"weight", label:"Weight", type:"number", unit:"kg", required:false },
+    { name:"bodyFat", label:"Body fat", type:"number", unit:"%", required:false },
+    { name:"fatMass", label:"Fat mass", type:"number", unit:"kg", required:false },
+    { name:"muscle", label:"Muscle", type:"number", unit:"kg", required:false },
+    { name:"bp", label:"Blood pressure", type:"text", required:false },
+    { name:"waist", label:"Waist", type:"number", unit:"cm", required:false },
+  ], "Only include a field if Neil actually gave you a fresh number for it — never carry forward an old value into a new entry just to fill a gap. Missing/unmeasured fields should be left out entirely."),
+
+  calorieLog: buildModuleEntry("Calorie log", "id", [ // nested under date key — handled specially
+    { name:"id", type:"id" },
+    { name:"name", label:"Food", type:"text", required:true },
+    { name:"kcal", label:"Calories", type:"number", required:true },
+    { name:"protein", label:"Protein", type:"number", unit:"g", required:true },
+    { name:"time", label:"Time logged", type:"time", required:false, editable:false },
+  ], "Stored under today's date key, not a flat list."),
+
+  vault: buildModuleEntry("Document vault", "id", [
+    { name:"id", type:"id" },
+    { name:"name", label:"File name", type:"text", required:true, editable:false },
+    { name:"docType", label:"Document type", type:"text", required:false, editable:false },
+    { name:"summary", label:"Summary", type:"textarea", required:false, editable:false },
+    { name:"uploadedAt", label:"Uploaded", type:"date", required:true, editable:false },
+  ], "Read-only via search_vault tool — not editable or creatable via create/update/delete."),
+
+  finance: buildModuleEntry("Finance — expenses", "id", [
+    { name:"id", type:"id" },
+    { name:"date", label:"Date", type:"date", required:true },
+    { name:"category", label:"Category", type:"select", options:FINANCE_CATEGORIES, required:true },
+    { name:"value", label:"Amount", type:"number", unit:"NZD", required:true },
+    { name:"merchant", label:"Merchant", type:"text", required:false },
+    { name:"notes", label:"Notes", type:"textarea", required:false },
+    { name:"source", label:"Source", type:"select", options:["manual","receipt","tars"], required:false, editable:false },
+  ], "value must always be positive."),
+
   // Placeholder modules — not yet built in the UI, but registered now so the pattern
   // is proven and TARS can be told about them ahead of time. When Work gets a real
   // screen, it slots into this same generic system with zero new action types.
-  // certificates: { label: "Work certificates", idField: "id", fields: "id, name, issueDate, expiryDate, notes" },
+  // certificates: buildModuleEntry("Work certificates", "id", [
+  //   { name:"id", type:"id" }, { name:"name", label:"Name", type:"text", required:true },
+  //   { name:"issueDate", label:"Issued", type:"date", required:false },
+  //   { name:"expiryDate", label:"Expires", type:"date", required:false },
+  //   { name:"notes", label:"Notes", type:"textarea", required:false },
+  // ]),
 };
 
 // ─── PROJECTS — TOPIC LIST SCREEN ──────────────────────────────────────────────
