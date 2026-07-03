@@ -193,7 +193,7 @@ function CalHistory({ calLog }) {
 }
 
 // TodoScreen — full tasks screen
-function TodoScreen({ tasks, setTasks, onBack }) {
+function TodoScreen({ tasks, setTasks, writeRecord, onBack }) {
   const [view, setView] = useState("today"); // "today" | "all"
   const [filter, setFilter] = useState("All");
   const [showDone, setShowDone] = useState(false);
@@ -222,16 +222,16 @@ function TodoScreen({ tasks, setTasks, onBack }) {
 
   const addTask = () => {
     if (!newText.trim()) return;
-    setTasks(prev => [...prev, { id:Date.now(), text:newText.trim(), cat:newCat, priority:newPri, due:newDue, done:false, notes:"", subtasks:[], pinned:false }]);
+    writeRecord("tasks", "create", null, { text:newText.trim(), cat:newCat, priority:newPri, due:newDue });
     setNewText(""); setNewDue(""); setAdding(false);
   };
 
-  const toggleTask = (id) => setTasks(prev => prev.map(t => t.id===id ? {...t, done:!t.done, completedAt: !t.done ? toISODate(new Date()) : null} : t));
+  const toggleTask = (id) => writeRecord("tasks", "toggle", id);
   const updateTask = (id, changes) => {
-    setTasks(prev => prev.map(t => t.id===id ? {...t,...changes} : t));
+    writeRecord("tasks", "update", id, changes);
     if (selectedTask?.id === id) setSelectedTask(prev => ({...prev,...changes}));
   };
-  const deleteTask = (id, text) => { if(window.confirm(`Delete "${text}"?`)) { setTasks(prev => prev.filter(t => t.id!==id)); setSelectedTask(null); }};
+  const deleteTask = (id, text) => { if(window.confirm(`Delete "${text}"?`)) { writeRecord("tasks", "delete", id); setSelectedTask(null); }};
   const toggleSubtask = (taskId, subId) => {
     setTasks(prev => prev.map(t => t.id===taskId ? {...t, subtasks:t.subtasks.map(s=>s.id===subId?{...s,done:!s.done}:s)} : t));
     if (selectedTask?.id===taskId) setSelectedTask(prev=>({...prev,subtasks:prev.subtasks.map(s=>s.id===subId?{...s,done:!s.done}:s)}));
@@ -1066,7 +1066,7 @@ const searchPlacesHandler = async (input) => {
 };
 
 // ─── MEAL PLANNING SCREEN ─────────────────────────────────────────────────────
-function MealPlanScreen({ calLog, setCalLog, todayLabel }) {
+function MealPlanScreen({ calLog, setCalLog, todayLabel, writeRecord }) {
   // ── Persistent state ──
   const [mealLibrary, setMealLibrary]       = usePersistentState("meal_library", []);
   const [currentMeals, setCurrentMeals]     = usePersistentState("meal_current", []);
@@ -1239,8 +1239,7 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
     setCookedMeals(prev => [cooked, ...prev.filter(m => m.id !== meal.id)]);
     setCurrentMeals(prev => prev.filter(m => m.id !== meal.id));
     // Log to calorie tracker
-    const entry = { id: Date.now(), name: meal.name, kcal: meal.kcal, protein: meal.protein, time: new Date().toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit" }) };
-    setCalLog(prev => ({ ...prev, [todayLabel]: [...(prev[todayLabel] || []), entry] }));
+    writeRecord("calorieLog", "create", null, { name: meal.name, kcal: meal.kcal, protein: meal.protein });
     setCurrentMealView(null);
     setRatingTarget(cooked);
   };
@@ -1627,7 +1626,7 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
                 <button onClick={()=>setRatingTarget(meal)} style={{ flex:1, padding:"7px", borderRadius:9, border:`1px solid ${T.gold}44`, background:`${T.gold}18`, color:T.gold, fontWeight:600, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>
                   {meal.rating>0?"Edit rating":"Rate it"}
                 </button>
-                <button onClick={()=>{ const entry={id:Date.now(),name:meal.name,kcal:meal.kcal,protein:meal.protein,time:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"})}; setCalLog(prev=>({...prev,[todayLabel]:[...(prev[todayLabel]||[]),entry]})); }} style={{ flex:1, padding:"7px", borderRadius:9, border:`1px solid ${T.blue}44`, background:`${T.blue}18`, color:T.blue, fontWeight:600, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>+ Log calories</button>
+                <button onClick={()=>{ writeRecord("calorieLog", "create", null, { name:meal.name, kcal:meal.kcal, protein:meal.protein }); }} style={{ flex:1, padding:"7px", borderRadius:9, border:`1px solid ${T.blue}44`, background:`${T.blue}18`, color:T.blue, fontWeight:600, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>+ Log calories</button>
               </div>
             </div>
           ))}
@@ -1705,7 +1704,7 @@ function WorkoutLogger({ today, exercises, onSave, onCancel }) {
   );
 }
 
-function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
+function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRecord }) {
   const [tab, setTab] = useState("overview");
   // entries and calLog now passed in from LifeApp (TARS can write to them)
   const [suppChecked, setSuppChecked] = useState({});
@@ -1721,7 +1720,7 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
   const todayProtein = todayEntries.reduce((s,e)=>s+e.protein,0);
 
   const removeCalEntry = (id) => {
-    setCalLog(prev => ({ ...prev, [today]: prev[today].filter(e=>e.id!==id) }));
+    writeRecord("calorieLog", "delete", id);
   };
 
 
@@ -1742,8 +1741,7 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
   };
   const addEntry = () => {
     if (!form.date || !form.weight) return;
-    setEntries(prev => [...prev, {
-      id: Date.now(),
+    writeRecord("health", "create", null, {
       date: form.date, // <input type="date"> already gives YYYY-MM-DD — store as-is
       weight:  parseFloat(form.weight),
       bodyFat: form.bodyFat ? parseFloat(form.bodyFat) : null,
@@ -1751,7 +1749,7 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
       muscle:  form.muscle ? parseFloat(form.muscle) : null,
       bp:      form.bp || null,
       waist:   form.waist ? parseFloat(form.waist) : null,
-    }]);
+    });
     setForm({ date:"", weight:"", bodyFat:"", fatMass:"", muscle:"", bp:"", waist:"" });
   };
 
@@ -2171,7 +2169,7 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
 
               {/* Add entry — AI powered */}
               <AICalLogger onAdd={(entry) => {
-                setCalLog(prev => ({ ...prev, [today]: [...(prev[today]||[]), {...entry, id:Date.now(), time:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"})} ] }));
+                writeRecord("calorieLog", "create", null, { name: entry.name, kcal: entry.kcal, protein: entry.protein });
                 // Supplement reminder — check if it's a meal time (not just a snack/coffee)
                 const h = new Date().getHours();
                 const isMealTime = entry.kcal > 200; // only prompt for substantial meals
@@ -2294,7 +2292,7 @@ function CategoryBreakdownCard({ entries, total, expandedCategory, setExpandedCa
   );
 }
 
-function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets }) {
+function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets, writeRecord }) {
   const [tab, setTab] = useState("expenses");
   const [form, setForm] = useState({ date:"", category:FINANCE_CATEGORIES[0], value:"", merchant:"", notes:"" });
   const [budgetInputs, setBudgetInputs] = useState({}); // draft values while editing, keyed by category
@@ -2344,19 +2342,18 @@ function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets }) {
   const addEntry = () => {
     const val = parseFloat(form.value);
     if (!val || val <= 0) return;
-    setEntries(prev => [...prev, {
-      id: Date.now(),
+    writeRecord("finance", "create", null, {
       date: form.date || toISODate(today), // <input type="date"> already gives YYYY-MM-DD — store as-is
       category: form.category,
       value: val,
       merchant: form.merchant.trim(),
       notes: form.notes.trim(),
       source: "manual",
-    }]);
+    });
     setForm({ date:"", category:FINANCE_CATEGORIES[0], value:"", merchant:"", notes:"" });
   };
 
-  const removeEntry = (id) => setEntries(prev => prev.filter(e => e.id !== id));
+  const removeEntry = (id) => writeRecord("finance", "delete", id);
 
   const saveBudget = (category) => {
     const val = parseFloat(budgetInputs[category]);
@@ -2684,7 +2681,7 @@ function getDayType(dateStr, rotationBlocks, calEvents) {
   return { inRotation, isUnconfirmed, hasFlight, hasHotel, events:dayEvents };
 }
 
-function CalendarScreen({ onBack, calEvents, rotationBlocks, addCalEvent, removeCalEvent, addRotation, removeRotation, tasks }) {
+function CalendarScreen({ onBack, calEvents, rotationBlocks, addRotation, removeRotation, tasks, writeRecord }) {
   const now = new Date();
   const [viewMonth, setViewMonth] = useState(now.getMonth());
   const [viewYear,  setViewYear]  = useState(now.getFullYear());
@@ -2745,14 +2742,14 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addCalEvent, remove
 
   const confirmUpload = () => {
     if (!uploadResult?.events) return;
-    uploadResult.events.forEach(ev => addCalEvent(ev));
+    uploadResult.events.forEach(ev => writeRecord("calendar", "create", null, ev));
     setUploadResult(null);
     setCalTab("month");
   };
 
   const addManualEvent = () => {
     if (!addForm.date || !addForm.title) return;
-    addCalEvent({ type:addForm.type, date:addForm.date, endDate:addForm.endDate||null, title:addForm.title, notes:addForm.notes, time:addForm.time, location:addForm.location||"" });
+    writeRecord("calendar", "create", null, { type:addForm.type, date:addForm.date, endDate:addForm.endDate||null, title:addForm.title, notes:addForm.notes, time:addForm.time, location:addForm.location||"" });
     setAddForm({ type:"reminder", date:"", title:"", notes:"", time:"", endDate:"", location:"" });
     setCalTab("month");
   };
@@ -2875,7 +2872,7 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addCalEvent, remove
                 {ev.notes && <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{ev.notes}</div>}
                 {ev.endDate && <div style={{ fontSize:10, color:T.gold }}>Until {ev.endDate}</div>}
               </div>
-              <button onClick={()=>{ if(window.confirm(`Delete "${ev.title}"?`)) removeCalEvent(ev.id); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:14, padding:2 }}>✕</button>
+              <button onClick={()=>{ if(window.confirm(`Delete "${ev.title}"?`)) writeRecord("calendar", "delete", ev.id); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:14, padding:2 }}>✕</button>
             </div>
           ))}
           {selectedTasks.map(t=>(
@@ -3496,7 +3493,7 @@ function ProjectsListScreen({ onBack, projects, setProjects, onOpenProject }) {
 }
 
 function TarsScreen({ onBack, appState }) {
-  const { tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, setFinanceEntries, financeBudgets } = appState;
+  const { tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord } = appState;
 
   const [tarsTab, setTarsTab] = useState("chat");
   const [showSettings, setShowSettings] = useState(false);
@@ -4062,26 +4059,26 @@ ${(() => {
     switch (module) {
       case "tasks": {
         if (op === "create") {
-          setTasks(prev => [...prev, { id:Date.now(), text:fields.text, cat:fields.cat||"Admin", priority:fields.priority||"med", due:fields.due||"", done:false }]);
+          writeRecord("tasks", "create", null, { text:fields.text, cat:fields.cat||"Admin", priority:fields.priority||"med", due:fields.due||"" });
         } else if (op === "update") {
-          setTasks(prev => prev.map(t => String(t.id)===String(id) ? {...t, ...fields} : t));
+          writeRecord("tasks", "update", id, fields);
         } else if (op === "delete") {
-          setTasks(prev => prev.filter(t => String(t.id)!==String(id)));
+          writeRecord("tasks", "delete", id);
         }
         break;
       }
       case "calendar": {
         if (op === "create") {
-          addCalEvent({ type:fields.type||"reminder", date:fields.date, title:fields.title, notes:fields.notes||"", time:fields.time||"", location:fields.location||"" });
+          writeRecord("calendar", "create", null, { type:fields.type||"reminder", date:fields.date, title:fields.title, notes:fields.notes||"", time:fields.time||"", location:fields.location||"" });
         } else if (op === "update") {
-          const target = calEvents.find(e => String(e.id)===String(id));
-          if (target) { removeCalEvent(target.id); addCalEvent({ ...target, ...fields }); }
+          writeRecord("calendar", "update", id, fields);
         } else if (op === "delete") {
-          if (id) { removeCalEvent(id); }
-          else {
+          if (id) {
+            writeRecord("calendar", "delete", id);
+          } else {
             // Fallback fuzzy match by title+date for cases where TARS doesn't have the exact id
             const target = calEvents.find(e => e.date===fields.date && e.title.toLowerCase().includes((fields.title||"").toLowerCase().slice(0,15)));
-            if (target) removeCalEvent(target.id);
+            if (target) writeRecord("calendar", "delete", target.id);
           }
         }
         break;
@@ -4090,39 +4087,28 @@ ${(() => {
         // Append-only — creates a new check-in entry with ONLY the fields Neil actually gave
         // fresh numbers for. No carry-forward — a partial update (e.g. just weight) should
         // never duplicate old body-fat/muscle/etc numbers as if they were re-measured today.
-        setHealthEntries(prev => [...prev, {
-          id: Date.now(),
-          date: toISODate(new Date()),
+        writeRecord("health", "create", null, {
           weight: fields.weight ?? null, bodyFat: fields.bodyFat ?? null,
           fatMass: fields.fatMass ?? null, muscle: fields.muscle ?? null, bp: fields.bp ?? null,
           waist: fields.waist ?? null,
-        }]);
+        });
         break;
       }
       case "calorieLog": {
         if (op === "create") {
-          const entry = { id:Date.now(), name:fields.name, kcal:fields.kcal||0, protein:fields.protein||0, time:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) };
-          setCalLog(prev => ({ ...prev, [todayLabel]: [...(prev[todayLabel]||[]), entry] }));
+          writeRecord("calorieLog", "create", null, { name:fields.name, kcal:fields.kcal||0, protein:fields.protein||0 });
         } else if (op === "delete") {
-          setCalLog(prev => ({ ...prev, [todayLabel]: (prev[todayLabel]||[]).filter(e => String(e.id)!==String(id)) }));
+          writeRecord("calorieLog", "delete", id);
         }
         break;
       }
       case "finance": {
         if (op === "create") {
-          setFinanceEntries(prev => [...prev, {
-            id: Date.now(),
-            date: fields.date || toISODate(new Date()),
-            category: FINANCE_CATEGORIES.includes(fields.category) ? fields.category : "Other",
-            value: parseFloat(fields.value) || 0,
-            merchant: fields.merchant || "",
-            notes: fields.notes || "",
-            source: fields.source || "tars",
-          }]);
+          writeRecord("finance", "create", null, { ...fields, source: fields.source || "tars" });
         } else if (op === "update") {
-          setFinanceEntries(prev => prev.map(e => String(e.id)===String(id) ? {...e, ...fields} : e));
+          writeRecord("finance", "update", id, fields);
         } else if (op === "delete") {
-          setFinanceEntries(prev => prev.filter(e => String(e.id)!==String(id)));
+          writeRecord("finance", "delete", id);
         }
         break;
       }
@@ -4132,7 +4118,6 @@ ${(() => {
   };
 
   const executeAction = (action) => {
-    const now = new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"});
     if (action.type === "multi") {
       (action.payload.actions||[]).filter(sub => sub.type === "generic").forEach(sub => {
         executeGenericAction(sub.payload.module, sub.payload.op, sub.payload.id, sub.payload.fields || {});
@@ -4147,26 +4132,26 @@ ${(() => {
     }
     switch(action.type) {
       case "log_food": {
-        const entry = { id:Date.now(), name:action.payload.name, kcal:action.payload.kcal, protein:action.payload.protein, time:now };
-        setCalLog(prev => ({ ...prev, [todayLabel]: [...(prev[todayLabel]||[]), entry] }));
+        writeRecord("calorieLog", "create", null, { name:action.payload.name, kcal:action.payload.kcal, protein:action.payload.protein });
         break;
       }
       case "add_task": {
-        const task = { id:Date.now(), text:action.payload.text, cat:action.payload.cat||"Admin", priority:action.payload.priority||"med", due:action.payload.due||"", done:false };
-        setTasks(prev => [...prev, task]);
+        writeRecord("tasks", "create", null, { text:action.payload.text, cat:action.payload.cat||"Admin", priority:action.payload.priority||"med", due:action.payload.due||"" });
         break;
       }
       case "complete_task": {
-        setTasks(prev => prev.map(t => String(t.id) === String(action.payload.id) ? {...t, done:true} : t));
+        // Explicit "mark done", not a toggle — sets completedAt too, so it shows up in
+        // Stage 2's 90-day completed-tasks window like every other completion path does.
+        writeRecord("tasks", "update", action.payload.id, { done:true, completedAt: toISODate(new Date()) });
         break;
       }
       case "add_cal_event": {
-        addCalEvent({ type:action.payload.type||"reminder", date:action.payload.date, title:action.payload.title, notes:action.payload.notes||"", time:action.payload.time||"", location:action.payload.location||"" });
+        writeRecord("calendar", "create", null, { type:action.payload.type||"reminder", date:action.payload.date, title:action.payload.title, notes:action.payload.notes||"", time:action.payload.time||"", location:action.payload.location||"" });
         break;
       }
       case "add_cal_events": {
         (action.payload.events||[]).forEach(ev => {
-          addCalEvent({ type:ev.eventType||ev.type||"reminder", date:ev.date, title:ev.title, notes:ev.notes||"", time:ev.time||"", location:ev.location||"" });
+          writeRecord("calendar", "create", null, { type:ev.eventType||ev.type||"reminder", date:ev.date, title:ev.title, notes:ev.notes||"", time:ev.time||"", location:ev.location||"" });
         });
         break;
       }
@@ -4175,21 +4160,18 @@ ${(() => {
           e.date === action.payload.date &&
           e.title.toLowerCase().includes((action.payload.title||"").toLowerCase().slice(0,15))
         );
-        if (target) removeCalEvent(target.id);
+        if (target) writeRecord("calendar", "delete", target.id);
         break;
       }
       case "log_health": {
-        const entry = {
-          id: Date.now(),
-          date: toISODate(new Date()),
+        writeRecord("health", "create", null, {
           weight: action.payload.weight ?? null,
           bodyFat: action.payload.bodyFat ?? null,
           fatMass: action.payload.fatMass ?? null,
           muscle: action.payload.muscle ?? null,
           bp: action.payload.bp ?? null,
           waist: action.payload.waist ?? null,
-        };
-        setHealthEntries(prev => [...prev, entry]);
+        });
         break;
       }
       default: break;
@@ -5127,7 +5109,7 @@ If multiple files were uploaded, treat them as related unless the content sugges
 // step needed, given Neil's projects are expected to stay small: the conversation itself
 // IS the memory, persisted directly, read back in full next time the project is opened.
 function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState }) {
-  const { tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, rotationBlocks, financeEntries, setFinanceEntries } = appState;
+  const { tasks, writeRecord } = appState;
   const project = projects.find(p => p.id === projectId);
 
   const [messages, setMessages] = usePersistentState(`project_chat_${projectId}`, []);
@@ -5409,25 +5391,26 @@ This project's conversation history below IS its memory — there's no separate 
     recognition.start();
   };
 
-  // Reuse the same generic executor logic as TarsScreen, scoped to this component's setters
+  // Delegates every write to the same unified writeRecord LifeApp uses — Project chat
+  // no longer has its own separate copy of this logic to drift out of sync with TARS's.
   const executeProjectAction = (action) => {
     const { module, op, id, fields } = action;
     if (module === "tasks") {
-      if (op === "create") setTasks(prev => [...prev, { id:Date.now(), text:fields.text, cat:fields.cat||"Admin", priority:fields.priority||"med", due:fields.due||"", done:false }]);
-      else if (op === "update") setTasks(prev => prev.map(t => String(t.id)===String(id) ? {...t, ...fields} : t));
-      else if (op === "delete") setTasks(prev => prev.filter(t => String(t.id)!==String(id)));
+      if (op === "create") writeRecord("tasks", "create", null, { text:fields.text, cat:fields.cat||"Admin", priority:fields.priority||"med", due:fields.due||"" });
+      else if (op === "update") writeRecord("tasks", "update", id, fields);
+      else if (op === "delete") writeRecord("tasks", "delete", id);
     } else if (module === "calendar") {
-      if (op === "create") addCalEvent({ type:fields.type||"reminder", date:fields.date, title:fields.title, notes:fields.notes||"", time:fields.time||"", location:fields.location||"" });
-      else if (op === "update") { const target = calEvents.find(e=>String(e.id)===String(id)); if(target){ removeCalEvent(target.id); addCalEvent({...target, ...fields}); } }
-      else if (op === "delete") { if(id) removeCalEvent(id); }
+      if (op === "create") writeRecord("calendar", "create", null, { type:fields.type||"reminder", date:fields.date, title:fields.title, notes:fields.notes||"", time:fields.time||"", location:fields.location||"" });
+      else if (op === "update") writeRecord("calendar", "update", id, fields);
+      else if (op === "delete") { if (id) writeRecord("calendar", "delete", id); }
     } else if (module === "calorieLog") {
-      if (op === "create") { const entry={id:Date.now(),name:fields.name,kcal:fields.kcal||0,protein:fields.protein||0,time:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"})}; setCalLog(prev=>({...prev,[todayLabel]:[...(prev[todayLabel]||[]),entry]})); }
+      if (op === "create") writeRecord("calorieLog", "create", null, { name:fields.name, kcal:fields.kcal||0, protein:fields.protein||0 });
     } else if (module === "health") {
-      setHealthEntries(prev => [...prev, { id:Date.now(), date:toISODate(new Date()), weight:fields.weight??null, bodyFat:fields.bodyFat??null, fatMass:fields.fatMass??null, muscle:fields.muscle??null, bp:fields.bp??null, waist:fields.waist??null }]);
+      writeRecord("health", "create", null, { weight:fields.weight??null, bodyFat:fields.bodyFat??null, fatMass:fields.fatMass??null, muscle:fields.muscle??null, bp:fields.bp??null, waist:fields.waist??null });
     } else if (module === "finance") {
-      if (op === "create") setFinanceEntries(prev => [...prev, { id:Date.now(), date:fields.date||toISODate(new Date()), category:FINANCE_CATEGORIES.includes(fields.category)?fields.category:"Other", value:parseFloat(fields.value)||0, merchant:fields.merchant||"", notes:fields.notes||"", source:fields.source||"tars" }]);
-      else if (op === "update") setFinanceEntries(prev => prev.map(e => String(e.id)===String(id) ? {...e, ...fields} : e));
-      else if (op === "delete") setFinanceEntries(prev => prev.filter(e => String(e.id)!==String(id)));
+      if (op === "create") writeRecord("finance", "create", null, { ...fields, source: fields.source || "tars" });
+      else if (op === "update") writeRecord("finance", "update", id, fields);
+      else if (op === "delete") writeRecord("finance", "delete", id);
     }
     setPendingAction(null);
   };
@@ -5665,10 +5648,74 @@ export default function LifeApp() {
   const [calEvents, setCalEvents] = usePersistentState("life_cal_events", INIT_CAL_EVENTS);
   const [rotationBlocks, setRotationBlocks] = usePersistentState("life_rotation_blocks", INIT_ROTATION);
 
-  const addCalEvent    = (ev)  => setCalEvents(prev=>[...prev, {...ev, id:Date.now()}]);
-  const removeCalEvent = (id)  => setCalEvents(prev=>prev.filter(e=>e.id!==id));
   const addRotation    = (blk) => setRotationBlocks(prev=>[...prev, {...blk, id:Date.now()}]);
   const removeRotation = (id)  => setRotationBlocks(prev=>prev.filter(b=>b.id!==id));
+
+  // ── writeRecord — THE unified write path (Stage 4). Every create/update/delete for
+  // every module, regardless of whether it came from TARS chat, Project chat, or a
+  // manual UI form, goes through here. This is what makes the exact bug class we've
+  // hit repeatedly (a fix landing in one entry point but not the others — the Health
+  // carry-forward bug existed in four separate places before this) structurally
+  // impossible going forward: there's only one place left to get it right or wrong. ──
+  const writeRecord = (module, op, id, fields = {}) => {
+    if (module === "tasks") {
+      if (op === "create") {
+        setTasks(prev => [...prev, { id: Date.now(), text:"", cat:"Admin", priority:"med", due:"", done:false, notes:"", subtasks:[], pinned:false, ...fields }]);
+      } else if (op === "update") {
+        setTasks(prev => prev.map(t => String(t.id)===String(id) ? {...t, ...fields} : t));
+      } else if (op === "delete") {
+        setTasks(prev => prev.filter(t => String(t.id)!==String(id)));
+      } else if (op === "toggle") {
+        // Flips done and stamps/clears completedAt in one step — needs the current value,
+        // so it reads via the functional update rather than taking fields from the caller.
+        setTasks(prev => prev.map(t => String(t.id)===String(id) ? {...t, done:!t.done, completedAt: !t.done ? toISODate(new Date()) : null} : t));
+      }
+    } else if (module === "calendar") {
+      if (op === "create") {
+        setCalEvents(prev => [...prev, { id: Date.now(), type:"reminder", date:"", title:"", notes:"", time:"", location:"", ...fields }]);
+      } else if (op === "update") {
+        // Previously this module's "update" was done/delete+recreate, which silently
+        // assigned the event a brand new id every time — a real bug, not just a style
+        // choice. This preserves the original id.
+        setCalEvents(prev => prev.map(e => String(e.id)===String(id) ? {...e, ...fields} : e));
+      } else if (op === "delete") {
+        setCalEvents(prev => prev.filter(e => String(e.id)!==String(id)));
+      }
+    } else if (module === "health") {
+      if (op === "create") {
+        setHealthEntries(prev => [...prev, { id: Date.now(), date: toISODate(new Date()), weight:null, bodyFat:null, fatMass:null, muscle:null, bp:null, waist:null, ...fields }]);
+      } else if (op === "update") {
+        setHealthEntries(prev => prev.map(e => String(e.id)===String(id) ? {...e, ...fields} : e));
+      } else if (op === "delete") {
+        setHealthEntries(prev => prev.filter(e => String(e.id)!==String(id)));
+      }
+    } else if (module === "finance") {
+      if (op === "create") {
+        const category = FINANCE_CATEGORIES.includes(fields.category) ? fields.category : (fields.category || "Other");
+        const value = fields.value !== undefined ? (parseFloat(fields.value) || 0) : 0;
+        setFinanceEntries(prev => [...prev, {
+          id: Date.now(), date: toISODate(new Date()), merchant: "", notes: "", source: "manual",
+          ...fields, category, value,
+        }]);
+      } else if (op === "update") {
+        setFinanceEntries(prev => prev.map(e => String(e.id)===String(id) ? {...e, ...fields} : e));
+      } else if (op === "delete") {
+        setFinanceEntries(prev => prev.filter(e => String(e.id)!==String(id)));
+      }
+    } else if (module === "calorieLog") {
+      // Nested under a date key rather than a flat array — defaults to today, but a
+      // caller (e.g. "log this meal I cooked yesterday") can pass fields.dateKey to
+      // target a specific day instead.
+      const dateKey = fields.dateKey || todayLabel;
+      if (op === "create") {
+        const { dateKey: _drop, ...entryFields } = fields;
+        const entry = { id: Date.now(), time: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}), ...entryFields };
+        setCalLog(prev => ({ ...prev, [dateKey]: [...(prev[dateKey]||[]), entry] }));
+      } else if (op === "delete") {
+        setCalLog(prev => ({ ...prev, [dateKey]: (prev[dateKey]||[]).filter(e => String(e.id)!==String(id)) }));
+      }
+    }
+  };
 
   // Derive next flight and rotation status for home screen
   const today = new Date(); today.setHours(0,0,0,0);
@@ -5696,7 +5743,7 @@ export default function LifeApp() {
     daysLeft: Math.ceil((new Date(nextRotation.start)-today)/(1000*60*60*24)),
   } : { isOn:false, phase:"Off Rotation", daysLeft:0 };
 
-  const toggleTask = (id) => setTasks(prev => prev.map(t => t.id===id ? {...t, done:!t.done, completedAt: !t.done ? toISODate(new Date()) : null} : t));
+  const toggleTask = (id) => writeRecord("tasks", "toggle", id);
 
   const renderScreen = () => {
     switch(screen) {
@@ -5726,18 +5773,18 @@ export default function LifeApp() {
         <div>
           <SectionHeader title="Meal Planning" onBack={()=>setScreen("home")} />
           <div style={{ padding:"0 16px 24px" }}>
-            <MealPlanScreen calLog={calLog} setCalLog={setCalLog} todayLabel={todayLabel} />
+            <MealPlanScreen calLog={calLog} setCalLog={setCalLog} todayLabel={todayLabel} writeRecord={writeRecord} />
           </div>
         </div>
       );
-      case "tasks":    return <TodoScreen tasks={tasks} setTasks={setTasks} onBack={()=>setScreen("home")} />;
-      case "calendar": return <CalendarScreen onBack={()=>setScreen("home")} calEvents={calEvents} rotationBlocks={rotationBlocks} addCalEvent={addCalEvent} removeCalEvent={removeCalEvent} addRotation={addRotation} removeRotation={removeRotation} tasks={tasks} />;
-      case "health":   return <HealthScreen onBack={()=>setScreen("home")} entries={healthEntries} setEntries={setHealthEntries} calLog={calLog} setCalLog={setCalLog} />;
-      case "finance":  return <FinanceScreen onBack={()=>setScreen("home")} entries={financeEntries} setEntries={setFinanceEntries} budgets={financeBudgets} setBudgets={setFinanceBudgets} />;
+      case "tasks":    return <TodoScreen tasks={tasks} setTasks={setTasks} writeRecord={writeRecord} onBack={()=>setScreen("home")} />;
+      case "calendar": return <CalendarScreen onBack={()=>setScreen("home")} calEvents={calEvents} rotationBlocks={rotationBlocks} addRotation={addRotation} removeRotation={removeRotation} tasks={tasks} writeRecord={writeRecord} />;
+      case "health":   return <HealthScreen onBack={()=>setScreen("home")} entries={healthEntries} setEntries={setHealthEntries} calLog={calLog} setCalLog={setCalLog} writeRecord={writeRecord} />;
+      case "finance":  return <FinanceScreen onBack={()=>setScreen("home")} entries={financeEntries} setEntries={setFinanceEntries} budgets={financeBudgets} setBudgets={setFinanceBudgets} writeRecord={writeRecord} />;
       case "work":     return <ComingSoon label="Work" icon="work" accent={T.blue} onBack={()=>setScreen("home")} />;
-      case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, setFinanceEntries, financeBudgets }} />;
+      case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord }} />;
       case "projects": return <ProjectsListScreen onBack={()=>setScreen("home")} projects={projects} setProjects={setProjects} onOpenProject={(id)=>{ setActiveProjectId(id); setScreen("projectChat"); }} />;
-      case "projectChat": return <ProjectChatScreen onBack={()=>setScreen("projects")} projectId={activeProjectId} projects={projects} setProjects={setProjects} appState={{ tasks, setTasks, calLog, setCalLog, calEvents, addCalEvent, removeCalEvent, healthEntries, setHealthEntries, todayLabel, rotationBlocks, financeEntries, setFinanceEntries }} />;
+      case "projectChat": return <ProjectChatScreen onBack={()=>setScreen("projects")} projectId={activeProjectId} projects={projects} setProjects={setProjects} appState={{ tasks, writeRecord }} />;
       default:         return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} />;
     }
   };
