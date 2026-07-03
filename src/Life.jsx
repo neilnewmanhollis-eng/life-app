@@ -4117,6 +4117,7 @@ ${(() => {
 
   // ── Voice input — auto-send on pause ──
   const startListening = () => {
+    stopSpeaking(); // if TARS is mid-reply, talking over him means he should stop, not keep going under your voice
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) { alert("Speech recognition not supported. Use Chrome."); return; }
     const recognition = new SpeechRecognition();
@@ -5230,6 +5231,7 @@ This project's conversation history below IS its memory — there's no separate 
     setLoading(false);
   };
   const startListening = () => {
+    stopProjectSpeaking(); // if TARS is mid-reply, talking over him means he should stop, not keep going under your voice
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) { alert("Speech recognition not supported. Use Chrome."); return; }
     const recognition = new SpeechRecognition();
