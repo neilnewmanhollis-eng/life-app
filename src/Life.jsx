@@ -226,7 +226,7 @@ function TodoScreen({ tasks, setTasks, onBack }) {
     setNewText(""); setNewDue(""); setAdding(false);
   };
 
-  const toggleTask = (id) => setTasks(prev => prev.map(t => t.id===id ? {...t, done:!t.done} : t));
+  const toggleTask = (id) => setTasks(prev => prev.map(t => t.id===id ? {...t, done:!t.done, completedAt: !t.done ? toISODate(new Date()) : null} : t));
   const updateTask = (id, changes) => {
     setTasks(prev => prev.map(t => t.id===id ? {...t,...changes} : t));
     if (selectedTask?.id === id) setSelectedTask(prev => ({...prev,...changes}));
@@ -3784,6 +3784,23 @@ ${(() => {
   // Format: { label, data, format, skipIfEmpty }
   const STATE_SLICES = [
     {
+      label: "HEALTH — FULL CHECK-IN HISTORY (every entry ever logged, oldest first — use this for any trend or date-range question, e.g. \"how has my weight changed over 2 months\" or \"what was my body fat in early June\". Filter/compare it yourself rather than asking Neil to narrow it down. Entries are sparse — only fields actually measured that day are present, don't assume a blank field means zero.)",
+      data: healthEntries.slice().sort((a,b) => parseFlexibleDate(a.date) - parseFlexibleDate(b.date)),
+      format: (sorted) => {
+        if (sorted.length === 0) return "none";
+        return sorted.map(e => {
+          const parts = [];
+          if (e.weight != null) parts.push(`weight ${e.weight}kg`);
+          if (e.bodyFat != null) parts.push(`body fat ${e.bodyFat}%`);
+          if (e.fatMass != null) parts.push(`fat mass ${e.fatMass}kg`);
+          if (e.muscle != null) parts.push(`muscle ${e.muscle}kg`);
+          if (e.waist != null) parts.push(`waist ${e.waist}cm`);
+          if (e.bp) parts.push(`BP ${e.bp}`);
+          return `  ${e.date}: ${parts.length ? parts.join(", ") : "(no fields recorded)"}`;
+        }).join("\n");
+      }
+    },
+    {
       label: "HEALTH (each metric shows its own most recent measurement and when it was taken — they may be from different dates since Neil only logs what he actually measured each time, never assume a metric is current just because another one was updated today)",
       data: healthEntries,
       format: (entries) => {
@@ -3857,9 +3874,15 @@ ${(() => {
       skipIfEmpty: false
     },
     {
-      label: "RECENTLY COMPLETED TASKS",
-      data: tasks.filter(t=>t.done).slice(-5),
-      format: (t) => t.length === 0 ? "none" : t.map(x=>`  "${x.text}"`).join(", "),
+      label: "COMPLETED TASKS (last 90 days, most recent first — older completions aren't kept here to avoid this growing unbounded over a year of use; tasks completed before completion-date tracking existed have no date and aren't included)",
+      data: (() => {
+        const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
+        return tasks
+          .filter(t => t.done && t.completedAt && parseFlexibleDate(t.completedAt) >= cutoff)
+          .slice()
+          .sort((a,b) => parseFlexibleDate(b.completedAt) - parseFlexibleDate(a.completedAt));
+      })(),
+      format: (t) => t.length === 0 ? "none" : t.map(x=>`  "${x.text}" (completed ${x.completedAt})`).join("\n"),
       skipIfEmpty: true
     },
     {
@@ -5602,7 +5625,7 @@ export default function LifeApp() {
     daysLeft: Math.ceil((new Date(nextRotation.start)-today)/(1000*60*60*24)),
   } : { isOn:false, phase:"Off Rotation", daysLeft:0 };
 
-  const toggleTask = (id) => setTasks(prev => prev.map(t => t.id===id ? {...t, done:!t.done} : t));
+  const toggleTask = (id) => setTasks(prev => prev.map(t => t.id===id ? {...t, done:!t.done, completedAt: !t.done ? toISODate(new Date()) : null} : t));
 
   const renderScreen = () => {
     switch(screen) {
