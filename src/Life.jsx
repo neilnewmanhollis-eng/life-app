@@ -641,9 +641,9 @@ function TrendsCharts({ entries }) {
               })}
             </svg>
             <div style={{ display:"flex", justifyContent:"space-between", fontSize:10, color:T.muted, marginTop:4 }}>
-              <span>{entries[0].date}</span>
+              <span>{formatDateDDMMYYYY(entries[0].date)}</span>
               <span style={{ fontWeight:700, color }}>{vals[vals.length-1]} {key==="bodyFat"?"%":"kg"}</span>
-              <span>{entries[entries.length-1].date}</span>
+              <span>{formatDateDDMMYYYY(entries[entries.length-1].date)}</span>
             </div>
           </Card>
         );
@@ -770,6 +770,14 @@ function toISODate(d) {
   const m = String(dt.getMonth() + 1).padStart(2, "0");
   const day = String(dt.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+// Real date order, not array/insertion order — used everywhere a "latest health entry"
+// fallback is needed (filling in weight/bodyFat/etc when TARS logs a partial check-in).
+// A backdated entry logged out of order should never be mistaken for the most recent one.
+function getLatestHealthEntry(healthEntries) {
+  if (!healthEntries || healthEntries.length === 0) return {};
+  return healthEntries.slice().sort((a,b) => parseFlexibleDate(a.date) - parseFlexibleDate(b.date)).pop();
 }
 
 function formatDateDDMMYYYY(date) {
@@ -1717,10 +1725,13 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
 
 
   const toggleSupp = (id) => setSuppChecked(p => ({...p, [id]:!p[id]}));
-  const latest = entries[entries.length - 1];
+  // Sorted by real date, not array/insertion order — logging a backdated entry no longer
+  // wrongly becomes "latest" just because it was added most recently.
+  const entriesByDate = entries.slice().sort((a,b) => parseFlexibleDate(a.date) - parseFlexibleDate(b.date));
+  const latest = entriesByDate[entriesByDate.length - 1] || entries[entries.length - 1];
   const addEntry = () => {
     if (!form.date || !form.weight) return;
-    const l = entries[entries.length-1];
+    const l = latest;
     setEntries(prev => [...prev, {
       date: form.date, // <input type="date"> already gives YYYY-MM-DD — store as-is
       weight:  parseFloat(form.weight)||l.weight,
@@ -1889,8 +1900,8 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
               <div style={{ overflowX:"auto" }}>
                 <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11 }}>
                   <thead><tr>{["Date","Weight","Fat%","Fat kg","Muscle","Waist","BP"].map(h=><th key={h} style={{ textAlign:"left", padding:"4px 8px", color:T.muted, fontWeight:600, whiteSpace:"nowrap" }}>{h}</th>)}</tr></thead>
-                  <tbody>{entries.map((e,i)=>(
-                    <tr key={i} style={{ borderTop:`1px solid ${T.border}` }}>
+                  <tbody>{entriesByDate.slice().reverse().map((e,i)=>(
+                    <tr key={e.date+i} style={{ borderTop:`1px solid ${T.border}` }}>
                       <td style={{ padding:"6px 8px", fontWeight:i===0?700:400, color:T.text }}>{formatDateDDMMYYYY(e.date)}{i===0?" ★":""}</td>
                       <td style={{ padding:"6px 8px", color:T.text }}>{e.weight}</td>
                       <td style={{ padding:"6px 8px", color:T.text }}>{e.bodyFat}%</td>
@@ -1912,7 +1923,7 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
             <div style={{ background:`${T.blue}18`, borderRadius:12, padding:12, fontSize:12, color:T.blue, border:`1px solid ${T.blue}33` }}>
               📈 Charts update as you add check-ins via Samsung Health screenshots. Baseline is 26 Jun 2026.
             </div>
-            <TrendsCharts entries={entries} />
+            <TrendsCharts entries={entriesByDate} />
           </div>
         )}
 
@@ -3593,7 +3604,9 @@ If you mention how soon something today is (e.g. "in 15 minutes," "this afternoo
     const todayEntries = calLog[todayLabel] || [];
     const todayKcal = todayEntries.reduce((s,e)=>s+e.kcal,0);
     const todayProtein = todayEntries.reduce((s,e)=>s+e.protein,0);
-    const latestHealth = healthEntries[healthEntries.length-1] || {};
+    // Real date order, not array/insertion order — a backdated entry shouldn't make TARS
+    // think it's the most recent check-in just because it happened to be added last.
+    const latestHealth = getLatestHealthEntry(healthEntries);
     return `You are TARS. Not an AI assistant, not Claude, not a chatbot. You are TARS — the dry, deadpan AI unit from Interstellar, now hardwired into Neil's Life app as his personal AI.
 
 IDENTITY: Never say you are Claude or mention Anthropic. You are TARS. You are fully integrated into Neil's app and can log food, add tasks, add calendar events, and update health stats. Never claim you cannot do something the app supports.
@@ -3805,8 +3818,15 @@ ${(() => {
       format: (s) => s.map(x=>`  - ${x.name} — ${x.when} (${x.phase})`).join("\n")
     },
     {
-      label: "PENDING TASKS (use exact id when marking complete)",
-      data: tasks.filter(t=>!t.done),
+      label: "PENDING TASKS (use exact id when marking complete) — sorted by due date, soonest first; tasks with no due date listed last",
+      data: tasks.filter(t=>!t.done).slice().sort((a,b) => {
+        const da = a.due ? parseFlexibleDate(a.due) : null;
+        const db = b.due ? parseFlexibleDate(b.due) : null;
+        if (!da && !db) return 0;
+        if (!da) return 1;  // no due date sorts last
+        if (!db) return -1;
+        return da - db;
+      }),
       format: (t) => t.length === 0 ? "none" : t.map(x=>`  id:${x.id} "${x.text}" (${x.cat}, ${x.priority} priority${x.due?`, due ${x.due}`:""})`).join("\n"),
       skipIfEmpty: false
     },
@@ -3948,7 +3968,7 @@ ${(() => {
       }
       case "health": {
         // Append-only — always creates a new check-in entry, filling gaps from the latest entry
-        const latest = healthEntries[healthEntries.length-1] || {};
+        const latest = getLatestHealthEntry(healthEntries);
         setHealthEntries(prev => [...prev, {
           date: toISODate(new Date()),
           weight: fields.weight || latest.weight, bodyFat: fields.bodyFat || latest.bodyFat,
@@ -4036,7 +4056,7 @@ ${(() => {
         break;
       }
       case "log_health": {
-        const latest = healthEntries[healthEntries.length-1] || {};
+        const latest = getLatestHealthEntry(healthEntries);
         const entry = {
           date: toISODate(new Date()),
           weight: action.payload.weight || latest.weight,
@@ -5044,7 +5064,14 @@ function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState 
       const label = i === 0 ? "Today" : i === 1 ? "Tomorrow" : d.toLocaleDateString("en-NZ", { weekday:"long" });
       dateAnchor.push(`${label}: ${d.toLocaleDateString("en-CA")} (${d.toLocaleDateString("en-NZ",{weekday:"long",day:"numeric",month:"long"})})`);
     }
-    const pendingTasks = tasks.filter(t=>!t.done).map(t=>`id:${t.id} "${t.text}"`).join(", ") || "none";
+    const pendingTasks = tasks.filter(t=>!t.done).slice().sort((a,b) => {
+      const da = a.due ? parseFlexibleDate(a.due) : null;
+      const db = b.due ? parseFlexibleDate(b.due) : null;
+      if (!da && !db) return 0;
+      if (!da) return 1;
+      if (!db) return -1;
+      return da - db;
+    }).map(t=>`id:${t.id} "${t.text}"${t.due?` (due ${t.due})`:""}`).join(", ") || "none";
     const vaultIndex = vault.map(d => `id:${d.id} | ${d.name} | ${d.docType} | ${d.summary?.slice(0,100)||""}`).join("\n") || "empty";
 
     return `You are TARS, Neil's personal AI, currently working with him inside a focused PROJECT space called "${project?.name || "this project"}". This is a dedicated workspace for this specific topic — keep the conversation focused on it.
@@ -5272,7 +5299,7 @@ This project's conversation history below IS its memory — there's no separate 
     } else if (module === "calorieLog") {
       if (op === "create") { const entry={id:Date.now(),name:fields.name,kcal:fields.kcal||0,protein:fields.protein||0,time:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"})}; setCalLog(prev=>({...prev,[todayLabel]:[...(prev[todayLabel]||[]),entry]})); }
     } else if (module === "health") {
-      const latest = healthEntries[healthEntries.length-1] || {};
+      const latest = getLatestHealthEntry(healthEntries);
       setHealthEntries(prev => [...prev, { date:toISODate(new Date()), weight:fields.weight||latest.weight, bodyFat:fields.bodyFat||latest.bodyFat, fatMass:fields.fatMass||latest.fatMass, muscle:fields.muscle||latest.muscle, bp:fields.bp||latest.bp, waist:fields.waist||latest.waist||null }]);
     } else if (module === "finance") {
       if (op === "create") setFinanceEntries(prev => [...prev, { id:Date.now(), date:fields.date||toISODate(new Date()), category:FINANCE_CATEGORIES.includes(fields.category)?fields.category:"Other", value:parseFloat(fields.value)||0, merchant:fields.merchant||"", notes:fields.notes||"", source:fields.source||"tars" }]);
