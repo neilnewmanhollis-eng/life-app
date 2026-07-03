@@ -544,6 +544,78 @@ function Card({ children, style }) {
   return <div style={{ background:T.card, borderRadius:16, padding:16, border:`1px solid ${T.border}`, ...style }}>{children}</div>;
 }
 
+// ── Stage 5 — the generic edit/delete UI. One component, reads whatever module's
+// fieldsSchema (Stage 3) to build the right form, writes through writeRecord (Stage 4).
+// This is what finally lets Neil fix a wrong entry himself in any module — Health,
+// Finance, and Calendar all get real edit/delete from this one component. ──
+function RecordEditModal({ module, record, onClose, writeRecord }) {
+  const schema = MODULE_REGISTRY[module]?.fieldsSchema || [];
+  const editableFields = schema.filter(f => f.type !== "id" && f.editable !== false);
+  const [form, setForm] = useState(() => {
+    const initial = {};
+    editableFields.forEach(f => { initial[f.name] = record[f.name] ?? (f.type === "boolean" ? false : ""); });
+    return initial;
+  });
+  const [error, setError] = useState(null);
+
+  const handleSave = () => {
+    const fields = {};
+    editableFields.forEach(f => {
+      const v = form[f.name];
+      if (f.type === "number") fields[f.name] = v === "" ? null : parseFloat(v);
+      else if (f.type === "boolean") fields[f.name] = !!v;
+      else fields[f.name] = v === "" ? null : v;
+    });
+    const result = writeRecord(module, "update", record.id, fields);
+    if (!result.success) { setError(result.reason); return; }
+    onClose();
+  };
+
+  const handleDelete = () => {
+    if (!window.confirm("Delete this entry? This can't be undone.")) return;
+    const result = writeRecord(module, "delete", record.id);
+    if (!result.success) { setError(result.reason); return; }
+    onClose();
+  };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1000, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={onClose}>
+      <div style={{ background:T.card, borderRadius:"20px 20px 0 0", padding:20, width:"100%", maxWidth:480, maxHeight:"85vh", overflowY:"auto", border:`1px solid ${T.border}`, boxSizing:"border-box" }} onClick={e=>e.stopPropagation()}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+          <div style={{ fontSize:15, fontWeight:700, color:T.text }}>Edit {MODULE_REGISTRY[module]?.label || module}</div>
+          <button onClick={onClose} style={{ background:"none", border:"none", color:T.muted, fontSize:18, cursor:"pointer", padding:4 }}>✕</button>
+        </div>
+        {error && <div style={{ background:"#fee2e2", color:"#991b1b", borderRadius:8, padding:10, fontSize:12, marginBottom:12 }}>Couldn't save — {error}</div>}
+        {editableFields.map(f => (
+          <div key={f.name} style={{ marginBottom:12 }}>
+            <div style={{ fontSize:11, color:T.muted, marginBottom:4 }}>{f.label || f.name}{f.unit ? ` (${f.unit})` : ""}</div>
+            {f.type === "select" ? (
+              <select value={form[f.name]||""} onChange={e=>setForm(p=>({...p,[f.name]:e.target.value}))}
+                style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", boxSizing:"border-box" }}>
+                <option value="">—</option>
+                {(f.options||[]).map(opt => <option key={opt} value={opt}>{opt}</option>)}
+              </select>
+            ) : f.type === "textarea" ? (
+              <textarea value={form[f.name]||""} onChange={e=>setForm(p=>({...p,[f.name]:e.target.value}))} rows={3}
+                style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", resize:"vertical", boxSizing:"border-box" }} />
+            ) : f.type === "boolean" ? (
+              <input type="checkbox" checked={!!form[f.name]} onChange={e=>setForm(p=>({...p,[f.name]:e.target.checked}))} style={{ width:20, height:20 }} />
+            ) : (
+              <input type={f.type === "number" ? "number" : f.type === "date" ? "date" : f.type === "time" ? "time" : "text"}
+                value={form[f.name]||""} onChange={e=>setForm(p=>({...p,[f.name]:e.target.value}))}
+                style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", boxSizing:"border-box" }} />
+            )}
+          </div>
+        ))}
+        <div style={{ display:"flex", gap:8, marginTop:16 }}>
+          <button onClick={handleDelete} style={{ padding:"10px 16px", borderRadius:10, border:`1px solid ${T.accent}44`, background:`${T.accent}18`, color:T.accent, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>Delete</button>
+          <button onClick={handleSave} style={{ flex:1, padding:"10px 16px", borderRadius:10, border:"none", background:T.blue, color:"white", fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>Save Changes</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SectionLabel({ children }) {
   return <div style={{ fontSize:11, fontWeight:700, color:T.muted, textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:10 }}>{children}</div>;
 }
@@ -1709,6 +1781,7 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
   // entries and calLog now passed in from LifeApp (TARS can write to them)
   const [suppChecked, setSuppChecked] = useState({});
   const [form, setForm] = useState({ date:"", weight:"", bodyFat:"", fatMass:"", muscle:"", bp:"", waist:"" });
+  const [editingHealthEntry, setEditingHealthEntry] = useState(null); // Stage 5 — tap a History row to edit/delete it
 
     // Calorie tracking state
   const today = new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"});
@@ -1910,7 +1983,7 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
                 <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11 }}>
                   <thead><tr>{["Date","Weight","Fat%","Fat kg","Muscle","Waist","BP"].map(h=><th key={h} style={{ textAlign:"left", padding:"4px 8px", color:T.muted, fontWeight:600, whiteSpace:"nowrap" }}>{h}</th>)}</tr></thead>
                   <tbody>{entriesByDate.slice().reverse().map((e,i)=>(
-                    <tr key={e.date+i} style={{ borderTop:`1px solid ${T.border}` }}>
+                    <tr key={e.date+i} onClick={()=>setEditingHealthEntry(e)} style={{ borderTop:`1px solid ${T.border}`, cursor:"pointer" }}>
                       <td style={{ padding:"6px 8px", fontWeight:i===0?700:400, color:T.text }}>{formatDateDDMMYYYY(e.date)}{i===0?" ★":""}</td>
                       <td style={{ padding:"6px 8px", color:T.text }}>{e.weight ?? "—"}</td>
                       <td style={{ padding:"6px 8px", color:T.text }}>{e.bodyFat!=null ? `${e.bodyFat}%` : "—"}</td>
@@ -1921,6 +1994,7 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
                     </tr>
                   ))}</tbody>
                 </table>
+                <div style={{ fontSize:10, color:T.muted, marginTop:8 }}>Tap any row to edit or delete it.</div>
               </div>
             </Card>
           </div>
@@ -2220,6 +2294,7 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
         )}
 
       </div>
+      {editingHealthEntry && <RecordEditModal module="health" record={editingHealthEntry} onClose={()=>setEditingHealthEntry(null)} writeRecord={writeRecord} />}
     </div>
   );
 }
@@ -2236,16 +2311,16 @@ const CATEGORY_ICONS = {
 
 // Shared row list — used wherever a category's individual entries are shown (expanded
 // budget category, expanded history/expenses category). One implementation, one place to fix.
-function CategoryEntryRows({ entries, onDelete }) {
+function CategoryEntryRows({ entries, onDelete, onEdit }) {
   if (entries.length === 0) return <div style={{ fontSize:11, color:T.muted, textAlign:"center", padding:"8px 0" }}>No entries.</div>;
   return entries.map(e => (
-    <div key={e.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 0" }}>
+    <div key={e.id} onClick={()=>onEdit && onEdit(e)} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 0", cursor:onEdit?"pointer":"default" }}>
       <div style={{ flex:1, minWidth:0 }}>
         <div style={{ fontSize:12, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{e.merchant || e.notes || e.category}</div>
         <div style={{ fontSize:10, color:T.muted }}>{formatDateDDMMYYYY(e.date)}{e.source!=="manual" ? " · via TARS" : ""}</div>
       </div>
       <div style={{ fontSize:12, fontWeight:700, color:T.text, flexShrink:0 }}>${e.value.toFixed(2)}</div>
-      <button onClick={()=>onDelete(e.id)} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, padding:2, flexShrink:0 }}>
+      <button onClick={(evt)=>{ evt.stopPropagation(); onDelete(e.id); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, padding:2, flexShrink:0 }}>
         <Icon name="trash" size={12} color={T.muted} />
       </button>
     </div>
@@ -2255,7 +2330,7 @@ function CategoryEntryRows({ entries, onDelete }) {
 // Shared category-breakdown card with click-to-expand — used by Expenses tab (this month)
 // and History tab (any month or custom range). Budget tab keeps its own card since it also
 // carries the editable limit + pace bar, but reuses CategoryEntryRows for the expanded list.
-function CategoryBreakdownCard({ entries, total, expandedCategory, setExpandedCategory, onDelete, title, emptyLabel }) {
+function CategoryBreakdownCard({ entries, total, expandedCategory, setExpandedCategory, onDelete, onEdit, title, emptyLabel }) {
   const byCategory = {};
   entries.forEach(e => { byCategory[e.category] = (byCategory[e.category]||0) + (e.value||0); });
   const cats = FINANCE_CATEGORIES.filter(c => byCategory[c] > 0).sort((a,b)=>byCategory[b]-byCategory[a]);
@@ -2282,7 +2357,7 @@ function CategoryBreakdownCard({ entries, total, expandedCategory, setExpandedCa
             </div>
             {isExpanded && (
               <div style={{ marginTop:8, paddingTop:8, borderTop:`1px solid ${T.border}` }}>
-                <CategoryEntryRows entries={catEntries} onDelete={onDelete} />
+                <CategoryEntryRows entries={catEntries} onDelete={onDelete} onEdit={onEdit} />
               </div>
             )}
           </div>
@@ -2301,6 +2376,7 @@ function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets, write
   const [historyMonthOffset, setHistoryMonthOffset] = useState(0); // 0 = current month, -1 = last month, etc.
   const [useCustomRange, setUseCustomRange] = useState(false);
   const [rangeStart, setRangeStart] = useState("");
+  const [editingFinanceEntry, setEditingFinanceEntry] = useState(null); // Stage 5 — tap a transaction to edit/delete it
   const [rangeEnd, setRangeEnd] = useState("");
 
   const today = new Date();
@@ -2436,7 +2512,7 @@ function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets, write
               <CategoryBreakdownCard
                 entries={monthEntries} total={monthTotal}
                 expandedCategory={expandedCategory} setExpandedCategory={setExpandedCategory}
-                onDelete={removeEntry} title="This Month by Category" />
+                onDelete={removeEntry} onEdit={setEditingFinanceEntry} title="This Month by Category" />
             )}
 
             {/* Recent transactions */}
@@ -2446,14 +2522,14 @@ function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets, write
                 <div style={{ fontSize:12, color:T.muted, textAlign:"center", padding:"20px 0" }}>No expenses logged yet.</div>
               ) : (
                 entries.slice().sort((a,b)=>parseFlexibleDate(b.date)-parseFlexibleDate(a.date)).slice(0,30).map(e => (
-                  <div key={e.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 0", borderBottom:`1px solid ${T.border}` }}>
+                  <div key={e.id} onClick={()=>setEditingFinanceEntry(e)} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 0", borderBottom:`1px solid ${T.border}`, cursor:"pointer" }}>
                     <span style={{ fontSize:18, flexShrink:0 }}>{CATEGORY_ICONS[e.category]||"📎"}</span>
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ fontSize:13, fontWeight:600, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{e.merchant || e.category}</div>
                       <div style={{ fontSize:10, color:T.muted }}>{formatDateDDMMYYYY(e.date)} · {e.category}{e.source==="receipt"||e.source==="tars" ? " · via TARS" : ""}</div>
                     </div>
                     <div style={{ fontSize:13, fontWeight:700, color:T.text, flexShrink:0 }}>${e.value.toFixed(2)}</div>
-                    <button onClick={()=>removeEntry(e.id)} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, padding:4, flexShrink:0 }}>
+                    <button onClick={(evt)=>{ evt.stopPropagation(); removeEntry(e.id); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, padding:4, flexShrink:0 }}>
                       <Icon name="trash" size={14} color={T.muted} />
                     </button>
                   </div>
@@ -2514,7 +2590,7 @@ function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets, write
                   )}
                   {isExpanded && (
                     <div style={{ marginTop:10, paddingTop:10, borderTop:`1px solid ${T.border}` }}>
-                      <CategoryEntryRows entries={categoryEntries} onDelete={removeEntry} />
+                      <CategoryEntryRows entries={categoryEntries} onDelete={removeEntry} onEdit={setEditingFinanceEntry} />
                     </div>
                   )}
                 </Card>
@@ -2577,11 +2653,12 @@ function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets, write
             <CategoryBreakdownCard
               entries={historyEntries} total={historyTotal}
               expandedCategory={historyExpandedCategory} setExpandedCategory={setHistoryExpandedCategory}
-              onDelete={removeEntry} title="By Category"
+              onDelete={removeEntry} onEdit={setEditingFinanceEntry} title="By Category"
               emptyLabel={useCustomRange ? "No expenses in that range." : "No expenses that month."} />
           </div>
         )}
       </div>
+      {editingFinanceEntry && <RecordEditModal module="finance" record={editingFinanceEntry} onClose={()=>setEditingFinanceEntry(null)} writeRecord={writeRecord} />}
     </div>
   );
 }
@@ -2687,6 +2764,7 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addRotation, remove
   const [viewYear,  setViewYear]  = useState(now.getFullYear());
   const [selectedDay, setSelectedDay] = useState(null);
   const [calTab, setCalTab] = useState("month"); // month | add | rotation
+  const [editingCalEvent, setEditingCalEvent] = useState(null); // Stage 5 — tap an event to edit/delete it
   const [addForm, setAddForm] = useState({ type:"reminder", date:"", title:"", notes:"", time:"", endDate:"", location:"" });
   const [uploadLoading, setUploadLoading] = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
@@ -2864,7 +2942,7 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addRotation, remove
             <div style={{ fontSize:12, color:T.muted }}>Nothing scheduled — tap + to add an event</div>
           )}
           {selectedInfo.events.map(ev=>(
-            <div key={ev.id} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"8px 0", borderBottom:`1px solid ${T.border}` }}>
+            <div key={ev.id} onClick={()=>setEditingCalEvent(ev)} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"8px 0", borderBottom:`1px solid ${T.border}`, cursor:"pointer" }}>
               <div style={{ width:8, height:8, borderRadius:"50%", background:EVENT_COLORS[ev.type]?.bg||T.muted, marginTop:4, flexShrink:0 }} />
               <div style={{ flex:1 }}>
                 <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{ev.title}</div>
@@ -2872,7 +2950,7 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addRotation, remove
                 {ev.notes && <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{ev.notes}</div>}
                 {ev.endDate && <div style={{ fontSize:10, color:T.gold }}>Until {ev.endDate}</div>}
               </div>
-              <button onClick={()=>{ if(window.confirm(`Delete "${ev.title}"?`)) writeRecord("calendar", "delete", ev.id); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:14, padding:2 }}>✕</button>
+              <button onClick={(evt)=>{ evt.stopPropagation(); if(window.confirm(`Delete "${ev.title}"?`)) writeRecord("calendar", "delete", ev.id); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:14, padding:2 }}>✕</button>
             </div>
           ))}
           {selectedTasks.map(t=>(
@@ -2981,6 +3059,7 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addRotation, remove
         {/* UPLOAD */}
 
       </div>
+      {editingCalEvent && <RecordEditModal module="calendar" record={editingCalEvent} onClose={()=>setEditingCalEvent(null)} writeRecord={writeRecord} />}
     </div>
   );
 }
