@@ -909,15 +909,12 @@ function splitIntoSpeechChunks(text, maxLen = 200) {
 
 // Pipelined playback — keeps up to LOOKAHEAD chunks' audio generating ahead of what's
 // currently playing, so there's no gap between sentences, without firing every chunk of
-// a long reply at once (bounded concurrency, gentler on Puter/OpenAI and more predictable).
+// a long reply at once (bounded concurrency, gentler on the proxy/OpenAI and more predictable).
 const SPEECH_LOOKAHEAD = 2;
+const TTS_PROXY_URL = "https://life-app-tts-proxy.vercel.app/api/tts"; // self-hosted proxy — calls OpenAI TTS server-side, avoids both OpenAI's CORS problem and Puter's subscription requirement
 
 async function speakQueued(text, { audioRef, requestIdRef, voiceEnabled, setSpeaking, setVoiceError, voice = "onyx", speed = 1.4 }) {
   if (!voiceEnabled) return;
-  if (typeof window.puter === "undefined" || !window.puter?.ai?.txt2speech) {
-    setVoiceError("Puter.js not loaded — check index.html has the puter script tag");
-    return;
-  }
   // A new speak() call always supersedes whatever this ref was doing — stop it immediately
   // (both the audio itself and any in-flight loop still awaiting a chunk).
   if (audioRef.current) { try { audioRef.current.pause(); } catch {} audioRef.current = null; }
@@ -931,7 +928,19 @@ async function speakQueued(text, { audioRef, requestIdRef, voiceEnabled, setSpea
 
   const pending = new Array(chunks.length);
   const fetchChunk = (i) => {
-    pending[i] = window.puter.ai.txt2speech(chunks[i], { provider: "openai", model: "tts-1", voice, speed })
+    pending[i] = fetch(TTS_PROXY_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: chunks[i], voice, speed }),
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`Proxy returned ${res.status}: ${(await res.text()).slice(0,150)}`);
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio._blobUrl = url; // stashed so we can revoke it once this chunk is done playing
+        return audio;
+      })
       .catch(err => ({ __error: err }));
   };
   let nextToFetch = Math.min(SPEECH_LOOKAHEAD, chunks.length);
@@ -943,7 +952,7 @@ async function speakQueued(text, { audioRef, requestIdRef, voiceEnabled, setSpea
       if (nextToFetch < chunks.length) { fetchChunk(nextToFetch); nextToFetch++; }
 
       const audio = await pending[i];
-      if (myId !== requestIdRef.current) return;
+      if (myId !== requestIdRef.current) { if (audio?._blobUrl) URL.revokeObjectURL(audio._blobUrl); return; }
 
       if (!audio || audio.__error) {
         console.error("TARS Voice: chunk failed, skipping", audio?.__error);
@@ -952,14 +961,15 @@ async function speakQueued(text, { audioRef, requestIdRef, voiceEnabled, setSpea
 
       audioRef.current = audio;
       await new Promise((resolve) => {
-        audio.onended = resolve;
-        audio.onerror = resolve;
-        audio.onpause = resolve; // catches an external stop (mute, or a newer speak() call) so this loop doesn't hang waiting for a chunk that was deliberately cut off
+        const done = () => { if (audio._blobUrl) URL.revokeObjectURL(audio._blobUrl); resolve(); };
+        audio.onended = done;
+        audio.onerror = done;
+        audio.onpause = done; // catches an external stop (mute, or a newer speak() call) so this loop doesn't hang waiting for a chunk that was deliberately cut off
         const p = audio.play();
         if (p !== undefined) p.catch((err) => {
           console.error("TARS Voice: play() blocked", err);
           setVoiceError("Playback blocked — tap TARS once then retry");
-          resolve();
+          done();
         });
       });
       if (myId !== requestIdRef.current) return;
@@ -3532,8 +3542,9 @@ If you mention how soon something today is (e.g. "in 15 minutes," "this afternoo
     }
   }, []);
 
-  // ── TTS via Puter.js (routes to OpenAI server-side — avoids OpenAI's inconsistent
-  // browser CORS support on /v1/audio/speech, which is what was silently breaking TARS) ──
+  // ── TTS via a self-hosted Vercel proxy (routes to OpenAI server-side — avoids
+  // OpenAI's inconsistent browser CORS support on /v1/audio/speech, without Puter's
+  // subscription requirement). Key lives only on the Vercel proxy, never in this app. ──
   const TARS_VOICE = "onyx";  // alloy | echo | fable | onyx | nova | shimmer | ash | coral
   const TARS_SPEED = 1.4;     // 0.25–4.0, 1.0 = normal
 
@@ -4644,11 +4655,11 @@ If multiple files were uploaded, treat them as related unless the content sugges
               style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${hasAnthropicKey()?T.green:T.accent}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
           </div>
 
-          {/* Voice — now via Puter.js, no key needed */}
+          {/* Voice — self-hosted proxy, no key needed on this end */}
           <div style={{ marginBottom:10 }}>
             <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:4 }}>Voice (TARS TTS)</div>
             <div style={{ fontSize:11, color:T.green, padding:"8px 10px", borderRadius:8, border:`1px solid ${T.green}44`, background:T.elevated }}>
-              ✓ Runs via Puter.js — no key needed
+              ✓ Runs via self-hosted proxy — no key needed here
             </div>
           </div>
 
@@ -5404,19 +5415,6 @@ const INIT_CAL_EVENTS = [];
 
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
 export default function LifeApp() {
-  // ── Load Puter.js at runtime for TARS voice — don't depend on index.html having
-  // the script tag (can't verify it's there, and this makes the app self-contained
-  // regardless of what's in the page shell). Safe to call once; no-ops if already present. ──
-  useEffect(() => {
-    if (typeof window.puter !== "undefined") return;
-    if (document.getElementById("puter-js-sdk")) return;
-    const script = document.createElement("script");
-    script.id = "puter-js-sdk";
-    script.src = "https://js.puter.com/v2/";
-    script.async = true;
-    document.head.appendChild(script);
-  }, []);
-
   // ── Fix the outer page white border — this isn't coming from anything inside this
   // component, it's the default browser body margin + white background on the page
   // shell outside React's control (index.html). This forces it to match the app at
