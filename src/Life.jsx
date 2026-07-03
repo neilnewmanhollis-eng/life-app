@@ -3800,13 +3800,17 @@ Mark a task done: ACTION:{"type":"generic","module":"tasks","op":"update","id":"
 Delete a calendar event: ACTION:{"type":"generic","module":"calendar","op":"delete","id":"1719820800001"}
 Log a calorie entry: ACTION:{"type":"generic","module":"calorieLog","op":"create","fields":{"name":"Chicken salad","kcal":450,"protein":38}}
 
-MOVE / RESCHEDULE — moving is just update with new field values. No separate move action.
-SWAP — two update actions in one confirmation card, each on its own ACTION line.
-CROSS-MODULE MOVE — use op "move_module" with fields.toModule when a record genuinely relocates between modules.
+MOVE / RESCHEDULE (SAME module, e.g. a calendar event's date, a task's due date) — this is ALWAYS a single "update" op on the existing record's id. Never create a new record and never delete-then-recreate for this — that pattern is ONLY for CROSS-MODULE MOVE below, a different situation. Worked example — moving a calendar event to a new date:
+ACTION:{"type":"generic","module":"calendar","op":"update","id":"1719820800001","fields":{"date":"2026-07-06"}}
+Wrong way to do the same thing (do NOT do this): a create action for the new date plus a delete action for the old one. That leaves the original record behind if either half fails, and there's no reason to ever do it this way for a same-module move.
+SWAP — two separate "update" ops in one confirmation card, each on its own ACTION line — e.g. swapping two tasks' due dates.
+CROSS-MODULE MOVE (the record genuinely relocates from one module to a structurally different one, e.g. a task becoming a calendar event) — this is the ONE situation where delete-then-recreate is correct, because a record can't "update" its way across two different modules. Use op "move_module" with fields.toModule for this specific case only.
 
 Always state what you're about to do and ask for confirmation before including the ACTION line. Prefer generic format for everything new.
 
 If Neil asks about something in a module you have full visibility of, answer directly from the live data given to you — never say you "don't have access" to a part of the app. The only things you don't have direct live visibility of are: full historical detail beyond what's summarised below (use search_vault for documents), and anything genuinely not yet built into the app (be honest if a module like Work or Finance doesn't have real data yet — it's a placeholder).
+
+If an earlier action in this conversation failed or you're unsure whether it worked, that doesn't mean later, separate actions failed too — check the live data given to you fresh on each message rather than assuming a pattern from one earlier moment. Trust what the current data actually shows over a general sense that "things haven't been working."
 
 ACTION PROTOCOL — CRITICAL:
 When you want to perform an action, you MUST include a JSON block at the end of your message in this exact format:
@@ -4051,34 +4055,35 @@ ${(() => {
       else if (module === "calendar") sourceRecord = calEvents.find(e => String(e.id)===String(id));
       else if (module === "vault") sourceRecord = vault.find(d => String(d.id)===String(id));
       // Remove from source
-      executeGenericAction(module, "delete", id, {});
+      const delResult = executeGenericAction(module, "delete", id, {});
+      if (!delResult.success) return delResult;
       // Create in destination with merged fields (source data as a base, overridden by any new fields given)
-      executeGenericAction(toModule, "create", null, { ...(sourceRecord||{}), ...newFields });
-      return;
+      return executeGenericAction(toModule, "create", null, { ...(sourceRecord||{}), ...newFields });
     }
     switch (module) {
       case "tasks": {
         if (op === "create") {
-          writeRecord("tasks", "create", null, { text:fields.text, cat:fields.cat||"Admin", priority:fields.priority||"med", due:fields.due||"" });
+          return writeRecord("tasks", "create", null, { text:fields.text, cat:fields.cat||"Admin", priority:fields.priority||"med", due:fields.due||"" });
         } else if (op === "update") {
-          writeRecord("tasks", "update", id, fields);
+          return writeRecord("tasks", "update", id, fields);
         } else if (op === "delete") {
-          writeRecord("tasks", "delete", id);
+          return writeRecord("tasks", "delete", id);
         }
         break;
       }
       case "calendar": {
         if (op === "create") {
-          writeRecord("calendar", "create", null, { type:fields.type||"reminder", date:fields.date, title:fields.title, notes:fields.notes||"", time:fields.time||"", location:fields.location||"" });
+          return writeRecord("calendar", "create", null, { type:fields.type||"reminder", date:fields.date, title:fields.title, notes:fields.notes||"", time:fields.time||"", location:fields.location||"" });
         } else if (op === "update") {
-          writeRecord("calendar", "update", id, fields);
+          return writeRecord("calendar", "update", id, fields);
         } else if (op === "delete") {
           if (id) {
-            writeRecord("calendar", "delete", id);
+            return writeRecord("calendar", "delete", id);
           } else {
             // Fallback fuzzy match by title+date for cases where TARS doesn't have the exact id
             const target = calEvents.find(e => e.date===fields.date && e.title.toLowerCase().includes((fields.title||"").toLowerCase().slice(0,15)));
-            if (target) writeRecord("calendar", "delete", target.id);
+            if (target) return writeRecord("calendar", "delete", target.id);
+            return { success:false, reason:`couldn't find a calendar event matching "${fields.title||""}" on ${fields.date||"that date"}` };
           }
         }
         break;
@@ -4087,84 +4092,75 @@ ${(() => {
         // Append-only — creates a new check-in entry with ONLY the fields Neil actually gave
         // fresh numbers for. No carry-forward — a partial update (e.g. just weight) should
         // never duplicate old body-fat/muscle/etc numbers as if they were re-measured today.
-        writeRecord("health", "create", null, {
+        return writeRecord("health", "create", null, {
+          date: fields.date || toISODate(new Date()),
           weight: fields.weight ?? null, bodyFat: fields.bodyFat ?? null,
           fatMass: fields.fatMass ?? null, muscle: fields.muscle ?? null, bp: fields.bp ?? null,
           waist: fields.waist ?? null,
         });
-        break;
       }
       case "calorieLog": {
         if (op === "create") {
-          writeRecord("calorieLog", "create", null, { name:fields.name, kcal:fields.kcal||0, protein:fields.protein||0 });
+          return writeRecord("calorieLog", "create", null, { name:fields.name, kcal:fields.kcal||0, protein:fields.protein||0 });
         } else if (op === "delete") {
-          writeRecord("calorieLog", "delete", id);
+          return writeRecord("calorieLog", "delete", id);
         }
         break;
       }
       case "finance": {
         if (op === "create") {
-          writeRecord("finance", "create", null, { ...fields, source: fields.source || "tars" });
+          return writeRecord("finance", "create", null, { ...fields, source: fields.source || "tars" });
         } else if (op === "update") {
-          writeRecord("finance", "update", id, fields);
+          return writeRecord("finance", "update", id, fields);
         } else if (op === "delete") {
-          writeRecord("finance", "delete", id);
+          return writeRecord("finance", "delete", id);
         }
         break;
       }
       default:
-        break; // unregistered module — silently ignored, shouldn't happen since prompt only offers registered modules
+        break; // unregistered module — falls through to the failure return below
     }
+    return { success:false, reason:`unrecognised module/operation: ${module}/${op}` };
   };
 
-  const executeAction = (action) => {
-    if (action.type === "multi") {
-      (action.payload.actions||[]).filter(sub => sub.type === "generic").forEach(sub => {
-        executeGenericAction(sub.payload.module, sub.payload.op, sub.payload.id, sub.payload.fields || {});
-      });
-      setPendingAction(null);
-      return;
-    }
+  // Executes a single non-multi action of any type (generic or legacy shorthand) and
+  // returns its result. Shared by both the top-level dispatch and the multi-action loop
+  // below, so a bundle of mixed action types no longer silently drops anything that
+  // isn't "generic" — every action type this app supports gets executed the same way
+  // regardless of whether it's alone or bundled with others.
+  const executeOneAction = (action) => {
     if (action.type === "generic") {
-      executeGenericAction(action.payload.module, action.payload.op, action.payload.id, action.payload.fields || {});
-      setPendingAction(null);
-      return;
+      return executeGenericAction(action.payload.module, action.payload.op, action.payload.id, action.payload.fields || {});
     }
-    switch(action.type) {
-      case "log_food": {
-        writeRecord("calorieLog", "create", null, { name:action.payload.name, kcal:action.payload.kcal, protein:action.payload.protein });
-        break;
-      }
-      case "add_task": {
-        writeRecord("tasks", "create", null, { text:action.payload.text, cat:action.payload.cat||"Admin", priority:action.payload.priority||"med", due:action.payload.due||"" });
-        break;
-      }
-      case "complete_task": {
+    switch (action.type) {
+      case "log_food":
+        return writeRecord("calorieLog", "create", null, { name:action.payload.name, kcal:action.payload.kcal, protein:action.payload.protein });
+      case "add_task":
+        return writeRecord("tasks", "create", null, { text:action.payload.text, cat:action.payload.cat||"Admin", priority:action.payload.priority||"med", due:action.payload.due||"" });
+      case "complete_task":
         // Explicit "mark done", not a toggle — sets completedAt too, so it shows up in
         // Stage 2's 90-day completed-tasks window like every other completion path does.
-        writeRecord("tasks", "update", action.payload.id, { done:true, completedAt: toISODate(new Date()) });
-        break;
-      }
-      case "add_cal_event": {
-        writeRecord("calendar", "create", null, { type:action.payload.type||"reminder", date:action.payload.date, title:action.payload.title, notes:action.payload.notes||"", time:action.payload.time||"", location:action.payload.location||"" });
-        break;
-      }
+        return writeRecord("tasks", "update", action.payload.id, { done:true, completedAt: toISODate(new Date()) });
+      case "add_cal_event":
+        return writeRecord("calendar", "create", null, { type:action.payload.type||"reminder", date:action.payload.date, title:action.payload.title, notes:action.payload.notes||"", time:action.payload.time||"", location:action.payload.location||"" });
       case "add_cal_events": {
-        (action.payload.events||[]).forEach(ev => {
-          writeRecord("calendar", "create", null, { type:ev.eventType||ev.type||"reminder", date:ev.date, title:ev.title, notes:ev.notes||"", time:ev.time||"", location:ev.location||"" });
-        });
-        break;
+        const results = (action.payload.events||[]).map(ev =>
+          writeRecord("calendar", "create", null, { type:ev.eventType||ev.type||"reminder", date:ev.date, title:ev.title, notes:ev.notes||"", time:ev.time||"", location:ev.location||"" })
+        );
+        const failed = results.filter(r => !r.success);
+        return failed.length === 0 ? { success:true } : { success:false, reason:`${failed.length} of ${results.length} events failed: ${failed.map(f=>f.reason).join("; ")}` };
       }
       case "delete_cal_event": {
         const target = calEvents.find(e =>
           e.date === action.payload.date &&
           e.title.toLowerCase().includes((action.payload.title||"").toLowerCase().slice(0,15))
         );
-        if (target) writeRecord("calendar", "delete", target.id);
-        break;
+        if (target) return writeRecord("calendar", "delete", target.id);
+        return { success:false, reason:`couldn't find a calendar event matching "${action.payload.title||""}" on ${action.payload.date||"that date"}` };
       }
-      case "log_health": {
-        writeRecord("health", "create", null, {
+      case "log_health":
+        return writeRecord("health", "create", null, {
+          date: action.payload.date || toISODate(new Date()),
           weight: action.payload.weight ?? null,
           bodyFat: action.payload.bodyFat ?? null,
           fatMass: action.payload.fatMass ?? null,
@@ -4172,11 +4168,23 @@ ${(() => {
           bp: action.payload.bp ?? null,
           waist: action.payload.waist ?? null,
         });
-        break;
-      }
-      default: break;
+      default:
+        return { success:false, reason:`unrecognised action type: ${action.type}` };
     }
+  };
+
+  const executeAction = (action) => {
+    if (action.type === "multi") {
+      const results = (action.payload.actions||[]).map(sub => executeOneAction(sub));
+      setPendingAction(null);
+      const failed = results.filter(r => !r.success);
+      if (failed.length === 0) return { success:true };
+      if (failed.length === results.length) return { success:false, reason:failed.map(f=>f.reason).join("; ") };
+      return { success:false, reason:`${results.length - failed.length} of ${results.length} went through — failed: ${failed.map(f=>f.reason).join("; ")}` };
+    }
+    const result = executeOneAction(action);
     setPendingAction(null);
+    return result;
   };
 
   // ── Parse TARS response for ACTION JSON block ──
@@ -4192,7 +4200,7 @@ ${(() => {
       case "add_cal_events":
         return { type:"add_cal_events", payload:{ events:data.events||[] }, description:`Add ${data.events?.length||0} events to calendar` };
       case "log_health":
-        return { type:"log_health", payload:{ weight:data.weight, bodyFat:data.bodyFat, fatMass:data.fatMass, muscle:data.muscle, bp:data.bp, waist:data.waist }, description:`Log health check-in` };
+        return { type:"log_health", payload:{ date:data.date, weight:data.weight, bodyFat:data.bodyFat, fatMass:data.fatMass, muscle:data.muscle, bp:data.bp, waist:data.waist }, description:`Log health check-in` };
       case "complete_task": {
         const matchedTask = tasks.find(t => String(t.id) === String(data.id));
         return { type:"complete_task", payload:{ id:data.id }, description:`Mark complete: "${matchedTask?.text || "task"}"` };
@@ -4933,7 +4941,13 @@ If multiple files were uploaded, treat them as related unless the content sugges
                 </div>
               )}
               <div style={{ display:"flex", gap:8 }}>
-                <button onClick={()=>{ executeAction(pendingAction); const ts=new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}); setMessages(prev=>[...prev,{role:"assistant",content:"Done.",ts}]); speak("Done."); }}
+                <button onClick={()=>{
+                  const result = executeAction(pendingAction);
+                  const ts = new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"});
+                  const content = result.success ? "Done." : `Couldn't actually do that — ${result.reason}. Nothing was changed.`;
+                  setMessages(prev=>[...prev,{role:"assistant",content,ts}]);
+                  speak(content);
+                }}
                   style={{ flex:1, padding:"10px", borderRadius:8, background:T.green, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>
                   ✓ Confirm
                 </button>
@@ -5109,7 +5123,7 @@ If multiple files were uploaded, treat them as related unless the content sugges
 // step needed, given Neil's projects are expected to stay small: the conversation itself
 // IS the memory, persisted directly, read back in full next time the project is opened.
 function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState }) {
-  const { tasks, writeRecord } = appState;
+  const { tasks, calEvents, writeRecord } = appState;
   const project = projects.find(p => p.id === projectId);
 
   const [messages, setMessages] = usePersistentState(`project_chat_${projectId}`, []);
@@ -5178,6 +5192,8 @@ function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState 
       if (!db) return -1;
       return da - db;
     }).map(t=>`id:${t.id} "${t.text}"${t.due?` (due ${t.due})`:""}`).join(", ") || "none";
+    const calendarEvents = calEvents.slice().sort((a,b) => parseFlexibleDate(a.date) - parseFlexibleDate(b.date))
+      .map(e => `  id:${e.id} | ${e.title} | ${e.date}${e.time?` ${e.time}`:""}${e.location?` (${e.location} local time)`:""} | ${e.type}`).join("\n") || "  none";
     const vaultIndex = vault.map(d => `id:${d.id} | ${d.name} | ${d.docType} | ${d.summary?.slice(0,100)||""}`).join("\n") || "empty";
 
     return `You are TARS, Neil's personal AI, currently working with him inside a focused PROJECT space called "${project?.name || "this project"}". This is a dedicated workspace for this specific topic — keep the conversation focused on it.
@@ -5186,13 +5202,17 @@ VOICE: Same as always — direct, dry, specific, no corporate assistant energy, 
 
 You are NOT just an assistant with static knowledge — you have a web_search tool. Use it freely for anything current: opening hours, prices, what's on, addresses, travel times, current events, anything time-sensitive or specific to a place. When Neil says "google" something he means search the web for it. Don't rely on stale training knowledge for anything that could have changed.
 
-You also have full access to the rest of Neil's Life app via the same generic action system used in main TARS chat — you can add tasks, add calendar events, log things, exactly as TARS normally does, all requiring confirmation first via the ACTION protocol below.
+You can write to any part of Neil's Life app via the same generic action system main TARS chat uses — add tasks, add/update/delete calendar events, log things — all requiring confirmation first via the ACTION protocol below. For reading live data, this space is scoped specifically to Tasks and Calendar (below) since that's this project's core purpose — you do NOT have live visibility into Health or Finance data here. If Neil asks about those, say so honestly rather than guessing or claiming you can't find something that was never given to you in the first place.
+
+If an earlier action in this conversation failed or you're unsure whether it worked, that doesn't mean later, separate actions failed too — check the live data given to you fresh on each message rather than assuming a pattern from one earlier moment.
 
 MODULE REGISTRY (module name : what it holds : fields):
 ${Object.entries(MODULE_REGISTRY).map(([key,m])=>`${key} : ${m.label} : ${m.fields}`).join("\n")}
 
 ACTION PROTOCOL — CRITICAL: When proposing any action (add, update, delete, move), you MUST include the ACTION block in the SAME message as your confirmation request — not in a later message after Neil says "yes". The confirmation card appears when you output the ACTION block, so if you ask "confirm?" without including an ACTION block in that same reply, the card never appears and Neil has to say yes twice. Always: state what you're doing, ask confirm, include ACTION block — all in one single reply.
 ACTION:{"type":"generic","module":"<module>","op":"create|update|delete","id":"<id if needed>","fields":{...}}
+
+MOVE / RESCHEDULE (e.g. a calendar event's date) — this is ALWAYS a single "update" op on the existing record's id, changing just the date field. Never create a new record and separately delete the old one for this — that only leaves duplicates or orphaned records if either half fails, and there's no reason to ever do it this way.
 
 DATE FORMAT — CRITICAL: All dates you speak or write must be day-first. Spell the month out in full (e.g. "4 July 2026") or use DD/MM/YYYY numerically (e.g. "04/07/2026"). NEVER write MM/DD/YYYY American-style. The "date" field inside any ACTION block must always be YYYY-MM-DD internally (that's just data format, not what Neil reads) — but anything you say to Neil in plain text must be day-first.
 
@@ -5202,6 +5222,8 @@ ${dateAnchor.join("\n")}
 LIVE DATA:
 Today is ${today}. The current time on Neil's device is ${currentTime} (24-hour, local — always trust this over any assumption). Calculate actual time gaps precisely when relevant, don't estimate.
 Pending tasks: ${pendingTasks}
+Calendar events (every event — use for any date/schedule question, and use the exact id shown when updating or deleting one):
+${calendarEvents}
 Vault documents available (use search_vault to read one in full if relevant): ${vaultIndex}
 
 This project's conversation history below IS its memory — there's no separate save step, everything here persists automatically.`;
@@ -5395,24 +5417,33 @@ This project's conversation history below IS its memory — there's no separate 
   // no longer has its own separate copy of this logic to drift out of sync with TARS's.
   const executeProjectAction = (action) => {
     const { module, op, id, fields } = action;
+    let result = { success:false, reason:`unrecognised module/operation: ${module}/${op}` };
     if (module === "tasks") {
-      if (op === "create") writeRecord("tasks", "create", null, { text:fields.text, cat:fields.cat||"Admin", priority:fields.priority||"med", due:fields.due||"" });
-      else if (op === "update") writeRecord("tasks", "update", id, fields);
-      else if (op === "delete") writeRecord("tasks", "delete", id);
+      if (op === "create") result = writeRecord("tasks", "create", null, { text:fields.text, cat:fields.cat||"Admin", priority:fields.priority||"med", due:fields.due||"" });
+      else if (op === "update") result = writeRecord("tasks", "update", id, fields);
+      else if (op === "delete") result = writeRecord("tasks", "delete", id);
     } else if (module === "calendar") {
-      if (op === "create") writeRecord("calendar", "create", null, { type:fields.type||"reminder", date:fields.date, title:fields.title, notes:fields.notes||"", time:fields.time||"", location:fields.location||"" });
-      else if (op === "update") writeRecord("calendar", "update", id, fields);
-      else if (op === "delete") { if (id) writeRecord("calendar", "delete", id); }
+      if (op === "create") result = writeRecord("calendar", "create", null, { type:fields.type||"reminder", date:fields.date, title:fields.title, notes:fields.notes||"", time:fields.time||"", location:fields.location||"" });
+      else if (op === "update") result = writeRecord("calendar", "update", id, fields);
+      else if (op === "delete") {
+        if (id) {
+          result = writeRecord("calendar", "delete", id);
+        } else {
+          const target = calEvents.find(e => e.date===fields.date && e.title.toLowerCase().includes((fields.title||"").toLowerCase().slice(0,15)));
+          result = target ? writeRecord("calendar", "delete", target.id) : { success:false, reason:`couldn't find a calendar event matching "${fields.title||""}" on ${fields.date||"that date"}` };
+        }
+      }
     } else if (module === "calorieLog") {
-      if (op === "create") writeRecord("calorieLog", "create", null, { name:fields.name, kcal:fields.kcal||0, protein:fields.protein||0 });
+      if (op === "create") result = writeRecord("calorieLog", "create", null, { name:fields.name, kcal:fields.kcal||0, protein:fields.protein||0 });
     } else if (module === "health") {
-      writeRecord("health", "create", null, { weight:fields.weight??null, bodyFat:fields.bodyFat??null, fatMass:fields.fatMass??null, muscle:fields.muscle??null, bp:fields.bp??null, waist:fields.waist??null });
+      result = writeRecord("health", "create", null, { date:fields.date||toISODate(new Date()), weight:fields.weight??null, bodyFat:fields.bodyFat??null, fatMass:fields.fatMass??null, muscle:fields.muscle??null, bp:fields.bp??null, waist:fields.waist??null });
     } else if (module === "finance") {
-      if (op === "create") writeRecord("finance", "create", null, { ...fields, source: fields.source || "tars" });
-      else if (op === "update") writeRecord("finance", "update", id, fields);
-      else if (op === "delete") writeRecord("finance", "delete", id);
+      if (op === "create") result = writeRecord("finance", "create", null, { ...fields, source: fields.source || "tars" });
+      else if (op === "update") result = writeRecord("finance", "update", id, fields);
+      else if (op === "delete") result = writeRecord("finance", "delete", id);
     }
     setPendingAction(null);
+    return result;
   };
 
   return (
@@ -5453,7 +5484,12 @@ This project's conversation history below IS its memory — there's no separate 
           <div style={{ fontSize:12, color:T.gold, fontWeight:700, marginBottom:4 }}>⚡ Pending action</div>
           <div style={{ fontSize:12, color:T.text, marginBottom:10, lineHeight:1.5 }}>{pendingAction.description}</div>
           <div style={{ display:"flex", gap:8 }}>
-            <button onClick={()=>{ executeProjectAction(pendingAction); setMessages(prev=>[...prev,{role:"assistant",content:"Done.",ts:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"})}]); }} style={{ flex:1, padding:"10px", borderRadius:8, background:T.green, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>✓ Confirm</button>
+            <button onClick={()=>{
+              const result = executeProjectAction(pendingAction);
+              const content = result.success ? "Done." : `Couldn't actually do that — ${result.reason}. Nothing was changed.`;
+              setMessages(prev=>[...prev,{role:"assistant",content,ts:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"})}]);
+              if (voiceEnabled) speakProject(content);
+            }} style={{ flex:1, padding:"10px", borderRadius:8, background:T.green, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>✓ Confirm</button>
             <button onClick={()=>{ setPendingAction(null); setMessages(prev=>[...prev,{role:"assistant",content:"Cancelled.",ts:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"})}]); }} style={{ flex:1, padding:"10px", borderRadius:8, background:T.elevated, color:T.muted, fontWeight:700, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>✕ Cancel</button>
           </div>
         </div>
@@ -5658,36 +5694,43 @@ export default function LifeApp() {
   // carry-forward bug existed in four separate places before this) structurally
   // impossible going forward: there's only one place left to get it right or wrong. ──
   const writeRecord = (module, op, id, fields = {}) => {
+    // Every update/delete/toggle checks the record actually exists BEFORE writing — if TARS
+    // gives a wrong or stale id, this is what turns that into an honest "couldn't find it"
+    // instead of a silent no-op that still gets reported as "Done."
+    const existsIn = (arr) => (arr||[]).some(r => String(r.id) === String(id));
+
     if (module === "tasks") {
       if (op === "create") {
         setTasks(prev => [...prev, { id: Date.now(), text:"", cat:"Admin", priority:"med", due:"", done:false, notes:"", subtasks:[], pinned:false, ...fields }]);
-      } else if (op === "update") {
-        setTasks(prev => prev.map(t => String(t.id)===String(id) ? {...t, ...fields} : t));
-      } else if (op === "delete") {
-        setTasks(prev => prev.filter(t => String(t.id)!==String(id)));
-      } else if (op === "toggle") {
-        // Flips done and stamps/clears completedAt in one step — needs the current value,
-        // so it reads via the functional update rather than taking fields from the caller.
-        setTasks(prev => prev.map(t => String(t.id)===String(id) ? {...t, done:!t.done, completedAt: !t.done ? toISODate(new Date()) : null} : t));
+        return { success: true };
+      } else if (op === "update" || op === "delete" || op === "toggle") {
+        if (!existsIn(tasks)) return { success:false, reason:`no task found with id ${id}` };
+        if (op === "update") setTasks(prev => prev.map(t => String(t.id)===String(id) ? {...t, ...fields} : t));
+        else if (op === "delete") setTasks(prev => prev.filter(t => String(t.id)!==String(id)));
+        else setTasks(prev => prev.map(t => String(t.id)===String(id) ? {...t, done:!t.done, completedAt: !t.done ? toISODate(new Date()) : null} : t));
+        return { success: true };
       }
     } else if (module === "calendar") {
       if (op === "create") {
         setCalEvents(prev => [...prev, { id: Date.now(), type:"reminder", date:"", title:"", notes:"", time:"", location:"", ...fields }]);
-      } else if (op === "update") {
-        // Previously this module's "update" was done/delete+recreate, which silently
-        // assigned the event a brand new id every time — a real bug, not just a style
-        // choice. This preserves the original id.
-        setCalEvents(prev => prev.map(e => String(e.id)===String(id) ? {...e, ...fields} : e));
-      } else if (op === "delete") {
-        setCalEvents(prev => prev.filter(e => String(e.id)!==String(id)));
+        return { success: true };
+      } else if (op === "update" || op === "delete") {
+        if (!existsIn(calEvents)) return { success:false, reason:`no calendar event found with id ${id}` };
+        // Previously "update" was delete+recreate, which silently assigned a brand new id
+        // every time — a real bug, not just a style choice. This preserves the original id.
+        if (op === "update") setCalEvents(prev => prev.map(e => String(e.id)===String(id) ? {...e, ...fields} : e));
+        else setCalEvents(prev => prev.filter(e => String(e.id)!==String(id)));
+        return { success: true };
       }
     } else if (module === "health") {
       if (op === "create") {
         setHealthEntries(prev => [...prev, { id: Date.now(), date: toISODate(new Date()), weight:null, bodyFat:null, fatMass:null, muscle:null, bp:null, waist:null, ...fields }]);
-      } else if (op === "update") {
-        setHealthEntries(prev => prev.map(e => String(e.id)===String(id) ? {...e, ...fields} : e));
-      } else if (op === "delete") {
-        setHealthEntries(prev => prev.filter(e => String(e.id)!==String(id)));
+        return { success: true };
+      } else if (op === "update" || op === "delete") {
+        if (!existsIn(healthEntries)) return { success:false, reason:`no health entry found with id ${id}` };
+        if (op === "update") setHealthEntries(prev => prev.map(e => String(e.id)===String(id) ? {...e, ...fields} : e));
+        else setHealthEntries(prev => prev.filter(e => String(e.id)!==String(id)));
+        return { success: true };
       }
     } else if (module === "finance") {
       if (op === "create") {
@@ -5697,10 +5740,12 @@ export default function LifeApp() {
           id: Date.now(), date: toISODate(new Date()), merchant: "", notes: "", source: "manual",
           ...fields, category, value,
         }]);
-      } else if (op === "update") {
-        setFinanceEntries(prev => prev.map(e => String(e.id)===String(id) ? {...e, ...fields} : e));
-      } else if (op === "delete") {
-        setFinanceEntries(prev => prev.filter(e => String(e.id)!==String(id)));
+        return { success: true };
+      } else if (op === "update" || op === "delete") {
+        if (!existsIn(financeEntries)) return { success:false, reason:`no finance entry found with id ${id}` };
+        if (op === "update") setFinanceEntries(prev => prev.map(e => String(e.id)===String(id) ? {...e, ...fields} : e));
+        else setFinanceEntries(prev => prev.filter(e => String(e.id)!==String(id)));
+        return { success: true };
       }
     } else if (module === "calorieLog") {
       // Nested under a date key rather than a flat array — defaults to today, but a
@@ -5711,10 +5756,14 @@ export default function LifeApp() {
         const { dateKey: _drop, ...entryFields } = fields;
         const entry = { id: Date.now(), time: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}), ...entryFields };
         setCalLog(prev => ({ ...prev, [dateKey]: [...(prev[dateKey]||[]), entry] }));
+        return { success: true };
       } else if (op === "delete") {
+        if (!existsIn(calLog[dateKey])) return { success:false, reason:`no calorie entry found with id ${id} on ${dateKey}` };
         setCalLog(prev => ({ ...prev, [dateKey]: (prev[dateKey]||[]).filter(e => String(e.id)!==String(id)) }));
+        return { success: true };
       }
     }
+    return { success:false, reason:`unrecognised module/operation: ${module}/${op}` };
   };
 
   // Derive next flight and rotation status for home screen
@@ -5784,7 +5833,7 @@ export default function LifeApp() {
       case "work":     return <ComingSoon label="Work" icon="work" accent={T.blue} onBack={()=>setScreen("home")} />;
       case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord }} />;
       case "projects": return <ProjectsListScreen onBack={()=>setScreen("home")} projects={projects} setProjects={setProjects} onOpenProject={(id)=>{ setActiveProjectId(id); setScreen("projectChat"); }} />;
-      case "projectChat": return <ProjectChatScreen onBack={()=>setScreen("projects")} projectId={activeProjectId} projects={projects} setProjects={setProjects} appState={{ tasks, writeRecord }} />;
+      case "projectChat": return <ProjectChatScreen onBack={()=>setScreen("projects")} projectId={activeProjectId} projects={projects} setProjects={setProjects} appState={{ tasks, calEvents, writeRecord }} />;
       default:         return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} />;
     }
   };
