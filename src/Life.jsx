@@ -3452,7 +3452,7 @@ const MODULE_REGISTRY = {
     { name:"notes", label:"Notes", type:"textarea", required:false },
   ], "location should only be set for events outside Christchurch — leave blank for local events."),
 
-  health: buildModuleEntry("Health check-ins", null, [ // idField null: entries have real IDs (Stage 1), but update/delete via chat isn't wired up yet — that's Stage 5. Still append-only for now.
+  health: buildModuleEntry("Health check-ins", null, [ // idField null: DELIBERATE, PERMANENT — Neil wants full control over editing/deleting his own health history himself, only via the Health screen (Stage 5 built this). Never available via chat, in any format.
     { name:"id", type:"id" },
     { name:"date", label:"Date", type:"date", required:true },
     { name:"weight", label:"Weight", type:"number", unit:"kg", required:false },
@@ -3461,7 +3461,7 @@ const MODULE_REGISTRY = {
     { name:"muscle", label:"Muscle", type:"number", unit:"kg", required:false },
     { name:"bp", label:"Blood pressure", type:"text", required:false },
     { name:"waist", label:"Waist", type:"number", unit:"cm", required:false },
-  ], "Only include a field if Neil actually gave you a fresh number for it — never carry forward an old value into a new entry just to fill a gap. Missing/unmeasured fields should be left out entirely."),
+  ], "Only include a field if Neil actually gave you a fresh number for it — never carry forward an old value into a new entry just to fill a gap. Missing/unmeasured fields should be left out entirely. You can only CREATE new check-ins here — you cannot update or delete an existing health entry via chat, in any action format, standard or otherwise. This is deliberate and permanent, not a temporary gap to work around. If Neil asks you to edit or delete a health entry, tell him plainly you can't do that via chat and to use the Health screen directly (tap the entry in History) — don't attempt it a different way, and don't offer to keep trying."),
 
   calorieLog: buildModuleEntry("Calorie log", "id", [ // nested under date key — handled specially
     { name:"id", type:"id" },
@@ -4168,6 +4168,12 @@ ${(() => {
         break;
       }
       case "health": {
+        if (op !== "create") {
+          // Deliberately not available via chat — Neil wants full control over editing/
+          // deleting his own health history, easy to get wrong by accident otherwise.
+          // Health entries can only be created here; editing/deleting is UI-only (Stage 5).
+          return { success:false, reason:"Health entries can only be edited or deleted directly in the Health screen, not via chat — I can only add new check-ins here" };
+        }
         // Append-only — creates a new check-in entry with ONLY the fields Neil actually gave
         // fresh numbers for. No carry-forward — a partial update (e.g. just weight) should
         // never duplicate old body-fat/muscle/etc numbers as if they were re-measured today.
@@ -5515,7 +5521,11 @@ This project's conversation history below IS its memory — there's no separate 
     } else if (module === "calorieLog") {
       if (op === "create") result = writeRecord("calorieLog", "create", null, { name:fields.name, kcal:fields.kcal||0, protein:fields.protein||0 });
     } else if (module === "health") {
-      result = writeRecord("health", "create", null, { date:fields.date||toISODate(new Date()), weight:fields.weight??null, bodyFat:fields.bodyFat??null, fatMass:fields.fatMass??null, muscle:fields.muscle??null, bp:fields.bp??null, waist:fields.waist??null });
+      if (op !== "create") {
+        result = { success:false, reason:"Health entries can only be edited or deleted directly in the Health screen, not via chat — I can only add new check-ins here" };
+      } else {
+        result = writeRecord("health", "create", null, { date:fields.date||toISODate(new Date()), weight:fields.weight??null, bodyFat:fields.bodyFat??null, fatMass:fields.fatMass??null, muscle:fields.muscle??null, bp:fields.bp??null, waist:fields.waist??null });
+      }
     } else if (module === "finance") {
       if (op === "create") result = writeRecord("finance", "create", null, { ...fields, source: fields.source || "tars" });
       else if (op === "update") result = writeRecord("finance", "update", id, fields);
