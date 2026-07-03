@@ -568,6 +568,14 @@ function SubTab({ tabs, active, onChange }) {
 }
 
 function MetricCard({ label, value, baseline, unit, target }) {
+  if (value === null || value === undefined) {
+    return (
+      <div style={{ background:T.card, borderRadius:14, padding:14, border:`1px solid ${T.border}` }}>
+        <div style={{ fontSize:11, fontWeight:600, color:T.muted, textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:8 }}>{label}</div>
+        <div style={{ fontSize:13, color:T.muted }}>No check-in yet</div>
+      </div>
+    );
+  }
   const isWeight = label === "Weight" || label === "Fat Mass";
   const isMuscle = label === "Muscle";
   const atTarget = value <= target.max && value >= target.min;
@@ -618,14 +626,15 @@ function TrendsCharts({ entries }) {
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
       {metrics.map(({ key, label, color }) => {
-        const vals = entries.map(e => e[key]).filter(Boolean);
-        if (vals.length < 2) return null;
+        const withMetric = entries.filter(e => e[key] !== null && e[key] !== undefined && e[key] !== "");
+        if (withMetric.length < 2) return null;
+        const vals = withMetric.map(e => e[key]);
         const min = Math.min(...vals);
         const max = Math.max(...vals);
         const range = max - min || 1;
         const W = 280, H = 80;
-        const pts = entries.map((e, i) => {
-          const x = (i / (entries.length - 1)) * W;
+        const pts = withMetric.map((e, i) => {
+          const x = (i / (withMetric.length - 1)) * W;
           const y = H - ((e[key] - min) / range) * (H - 10) - 5;
           return `${x},${y}`;
         }).join(" ");
@@ -634,16 +643,16 @@ function TrendsCharts({ entries }) {
             <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:10 }}>{label}</div>
             <svg viewBox={`0 0 ${W} ${H}`} style={{ width:"100%", height:H }}>
               <polyline points={pts} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" />
-              {entries.map((e, i) => {
-                const x = (i / (entries.length - 1)) * W;
+              {withMetric.map((e, i) => {
+                const x = (i / (withMetric.length - 1)) * W;
                 const y = H - ((e[key] - min) / range) * (H - 10) - 5;
                 return <circle key={i} cx={x} cy={y} r={4} fill={color} />;
               })}
             </svg>
             <div style={{ display:"flex", justifyContent:"space-between", fontSize:10, color:T.muted, marginTop:4 }}>
-              <span>{formatDateDDMMYYYY(entries[0].date)}</span>
+              <span>{formatDateDDMMYYYY(withMetric[0].date)}</span>
               <span style={{ fontWeight:700, color }}>{vals[vals.length-1]} {key==="bodyFat"?"%":"kg"}</span>
-              <span>{formatDateDDMMYYYY(entries[entries.length-1].date)}</span>
+              <span>{formatDateDDMMYYYY(withMetric[withMetric.length-1].date)}</span>
             </div>
           </Card>
         );
@@ -770,14 +779,6 @@ function toISODate(d) {
   const m = String(dt.getMonth() + 1).padStart(2, "0");
   const day = String(dt.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
-}
-
-// Real date order, not array/insertion order — used everywhere a "latest health entry"
-// fallback is needed (filling in weight/bodyFat/etc when TARS logs a partial check-in).
-// A backdated entry logged out of order should never be mistaken for the most recent one.
-function getLatestHealthEntry(healthEntries) {
-  if (!healthEntries || healthEntries.length === 0) return {};
-  return healthEntries.slice().sort((a,b) => parseFlexibleDate(a.date) - parseFlexibleDate(b.date)).pop();
 }
 
 function formatDateDDMMYYYY(date) {
@@ -1729,18 +1730,27 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
   // wrongly becomes "latest" just because it was added most recently.
   const entriesByDate = entries.slice().sort((a,b) => parseFlexibleDate(a.date) - parseFlexibleDate(b.date));
   const latest = entriesByDate[entriesByDate.length - 1] || entries[entries.length - 1];
+  // Entries are sparse now (only fields actually measured get stored) — so "current weight"
+  // and "current body fat" etc each need their own most-recent-known-value lookup, scanning
+  // backwards through history, rather than trusting a single "latest" entry to have everything.
+  const latestMetric = (key) => {
+    for (let i = entriesByDate.length - 1; i >= 0; i--) {
+      const v = entriesByDate[i][key];
+      if (v !== null && v !== undefined && v !== "") return v;
+    }
+    return null;
+  };
   const addEntry = () => {
     if (!form.date || !form.weight) return;
-    const l = latest;
     setEntries(prev => [...prev, {
       id: Date.now(),
       date: form.date, // <input type="date"> already gives YYYY-MM-DD — store as-is
-      weight:  parseFloat(form.weight)||l.weight,
-      bodyFat: parseFloat(form.bodyFat)||l.bodyFat,
-      fatMass: parseFloat(form.fatMass)||l.fatMass,
-      muscle:  parseFloat(form.muscle)||l.muscle,
-      bp:      form.bp||l.bp,
-      waist:   parseFloat(form.waist)||l.waist||null,
+      weight:  parseFloat(form.weight),
+      bodyFat: form.bodyFat ? parseFloat(form.bodyFat) : null,
+      fatMass: form.fatMass ? parseFloat(form.fatMass) : null,
+      muscle:  form.muscle ? parseFloat(form.muscle) : null,
+      bp:      form.bp || null,
+      waist:   form.waist ? parseFloat(form.waist) : null,
     }]);
     setForm({ date:"", weight:"", bodyFat:"", fatMass:"", muscle:"", bp:"", waist:"" });
   };
@@ -1779,9 +1789,9 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
       <div style={{ padding:"12px 16px", background:T.elevated, borderBottom:`1px solid ${T.border}` }}>
         <div style={{ display:"flex", gap:16 }}>
           {[
-            { label:"Lost so far", value:`${(USER.health.weight - latest.weight).toFixed(1)} kg`, color:T.green },
-            { label:"To target",   value:`${Math.max(0, latest.weight - USER.health.target).toFixed(1)} kg`, color:T.accent },
-            { label:"Body fat",    value:`${latest.bodyFat}%`, color:latest.bodyFat < USER.health.bodyFat ? T.green : T.muted },
+            { label:"Lost so far", value:latestMetric("weight")!=null ? `${(USER.health.weight - latestMetric("weight")).toFixed(1)} kg` : "—", color:T.green },
+            { label:"To target",   value:latestMetric("weight")!=null ? `${Math.max(0, latestMetric("weight") - USER.health.target).toFixed(1)} kg` : "—", color:T.accent },
+            { label:"Body fat",    value:latestMetric("bodyFat")!=null ? `${latestMetric("bodyFat")}%` : "—", color:latestMetric("bodyFat") < USER.health.bodyFat ? T.green : T.muted },
           ].map(s => (
             <div key={s.label}>
               <div style={{ fontSize:18, fontWeight:800, color:s.color }}>{s.value}</div>
@@ -1809,10 +1819,10 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
         {tab==="overview" && (
           <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-              <MetricCard label="Weight"   value={latest.weight}  baseline={USER.health.weight}  unit="kg" target={HEALTH_TARGETS.weight} />
-              <MetricCard label="Body Fat" value={latest.bodyFat} baseline={USER.health.bodyFat} unit="%" target={HEALTH_TARGETS.bodyFat} />
-              <MetricCard label="Fat Mass" value={latest.fatMass} baseline={USER.health.fatMass} unit="kg" target={HEALTH_TARGETS.fatMass} />
-              <MetricCard label="Muscle"   value={latest.muscle}  baseline={USER.health.muscle}  unit="kg" target={HEALTH_TARGETS.muscle} />
+              <MetricCard label="Weight"   value={latestMetric("weight")}  baseline={USER.health.weight}  unit="kg" target={HEALTH_TARGETS.weight} />
+              <MetricCard label="Body Fat" value={latestMetric("bodyFat")} baseline={USER.health.bodyFat} unit="%" target={HEALTH_TARGETS.bodyFat} />
+              <MetricCard label="Fat Mass" value={latestMetric("fatMass")} baseline={USER.health.fatMass} unit="kg" target={HEALTH_TARGETS.fatMass} />
+              <MetricCard label="Muscle"   value={latestMetric("muscle")}  baseline={USER.health.muscle}  unit="kg" target={HEALTH_TARGETS.muscle} />
             </div>
             <Card>
               <SectionLabel>Vitals</SectionLabel>
@@ -1857,44 +1867,44 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
                 </div>
                 <div>
                   <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Weight (kg)</div>
-                  <input type="number" value={form.weight} onChange={e=>setForm(p=>({...p,weight:e.target.value}))} placeholder={String(latest?.weight ?? "")}
+                  <input type="number" value={form.weight} onChange={e=>setForm(p=>({...p,weight:e.target.value}))} placeholder="required"
                     style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
                 </div>
               </div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
                 <div>
                   <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Body Fat (%)</div>
-                  <input type="number" value={form.bodyFat} onChange={e=>setForm(p=>({...p,bodyFat:e.target.value}))} placeholder={String(latest?.bodyFat ?? "")}
+                  <input type="number" value={form.bodyFat} onChange={e=>setForm(p=>({...p,bodyFat:e.target.value}))} placeholder="optional"
                     style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
                 </div>
                 <div>
                   <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Fat Mass (kg)</div>
-                  <input type="number" value={form.fatMass} onChange={e=>setForm(p=>({...p,fatMass:e.target.value}))} placeholder={String(latest?.fatMass ?? "")}
+                  <input type="number" value={form.fatMass} onChange={e=>setForm(p=>({...p,fatMass:e.target.value}))} placeholder="optional"
                     style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
                 </div>
               </div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
                 <div>
                   <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Muscle (kg)</div>
-                  <input type="number" value={form.muscle} onChange={e=>setForm(p=>({...p,muscle:e.target.value}))} placeholder={String(latest?.muscle ?? "")}
+                  <input type="number" value={form.muscle} onChange={e=>setForm(p=>({...p,muscle:e.target.value}))} placeholder="optional"
                     style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
                 </div>
                 <div>
                   <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Waist (cm)</div>
-                  <input type="number" value={form.waist} onChange={e=>setForm(p=>({...p,waist:e.target.value}))} placeholder={latest?.waist ? String(latest.waist) : "optional"}
+                  <input type="number" value={form.waist} onChange={e=>setForm(p=>({...p,waist:e.target.value}))} placeholder="optional"
                     style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
                 </div>
               </div>
               <div style={{ marginBottom:12 }}>
                 <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Blood Pressure (optional)</div>
-                <input type="text" value={form.bp} onChange={e=>setForm(p=>({...p,bp:e.target.value}))} placeholder={latest?.bp || "e.g. 127/75"}
+                <input type="text" value={form.bp} onChange={e=>setForm(p=>({...p,bp:e.target.value}))} placeholder="e.g. 127/75"
                   style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
               </div>
               <button onClick={()=>{ addEntry(); }} disabled={!form.date || !form.weight}
                 style={{ width:"100%", padding:"10px", borderRadius:10, background:(!form.date||!form.weight)?T.elevated:T.blue, color:(!form.date||!form.weight)?T.muted:"white", fontWeight:700, fontSize:13, border:"none", cursor:(!form.date||!form.weight)?"not-allowed":"pointer", fontFamily:"inherit" }}>
                 Save Check-in
               </button>
-              <div style={{ fontSize:10, color:T.muted, marginTop:6 }}>Date and weight are required — everything else fills from your last check-in if left blank.</div>
+              <div style={{ fontSize:10, color:T.muted, marginTop:6 }}>Date and weight are required — leave anything else blank if you didn't measure it today. Nothing gets carried forward from your last check-in.</div>
             </Card>
             <Card>
               <div style={{ fontSize:13, fontWeight:700, color:T.text, marginBottom:12 }}>Check-in History</div>
@@ -1904,12 +1914,12 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog }) {
                   <tbody>{entriesByDate.slice().reverse().map((e,i)=>(
                     <tr key={e.date+i} style={{ borderTop:`1px solid ${T.border}` }}>
                       <td style={{ padding:"6px 8px", fontWeight:i===0?700:400, color:T.text }}>{formatDateDDMMYYYY(e.date)}{i===0?" ★":""}</td>
-                      <td style={{ padding:"6px 8px", color:T.text }}>{e.weight}</td>
-                      <td style={{ padding:"6px 8px", color:T.text }}>{e.bodyFat}%</td>
-                      <td style={{ padding:"6px 8px", color:T.text }}>{e.fatMass}</td>
-                      <td style={{ padding:"6px 8px", color:T.text }}>{e.muscle}</td>
+                      <td style={{ padding:"6px 8px", color:T.text }}>{e.weight ?? "—"}</td>
+                      <td style={{ padding:"6px 8px", color:T.text }}>{e.bodyFat!=null ? `${e.bodyFat}%` : "—"}</td>
+                      <td style={{ padding:"6px 8px", color:T.text }}>{e.fatMass ?? "—"}</td>
+                      <td style={{ padding:"6px 8px", color:T.text }}>{e.muscle ?? "—"}</td>
                       <td style={{ padding:"6px 8px", color:T.text }}>{e.waist ? `${e.waist}cm` : "—"}</td>
-                      <td style={{ padding:"6px 8px", color:T.text }}>{e.bp}</td>
+                      <td style={{ padding:"6px 8px", color:T.text }}>{e.bp ?? "—"}</td>
                     </tr>
                   ))}</tbody>
                 </table>
@@ -3322,8 +3332,8 @@ const MODULE_REGISTRY = {
     fields: "id, type (reminder/flight/hotel/travel), title, date (YYYY-MM-DD), time (HH:MM, optional), location (city, optional — only for events outside Christchurch), notes",
   },
   health: {
-    label: "Health check-ins", idField: null, // append-only log, no individual edit/delete by id — always adds a new entry
-    fields: "date, weight (kg), bodyFat (%), fatMass (kg), muscle (kg), bp",
+    label: "Health check-ins", idField: null, // entries have real IDs now (Stage 1 migration), but update/delete via chat isn't wired up yet — that's Stage 5. Still append-only for now.
+    fields: "id, date, weight (kg), bodyFat (%), fatMass (kg), muscle (kg), bp, waist (cm, optional). Only include a field if Neil actually gave you a fresh number for it — never carry forward an old value into a new entry just to fill a gap. Missing/unmeasured fields should be left out entirely.",
   },
   calorieLog: {
     label: "Calorie log", idField: "id", // nested under date key — handled specially
@@ -3605,9 +3615,6 @@ If you mention how soon something today is (e.g. "in 15 minutes," "this afternoo
     const todayEntries = calLog[todayLabel] || [];
     const todayKcal = todayEntries.reduce((s,e)=>s+e.kcal,0);
     const todayProtein = todayEntries.reduce((s,e)=>s+e.protein,0);
-    // Real date order, not array/insertion order — a backdated entry shouldn't make TARS
-    // think it's the most recent check-in just because it happened to be added last.
-    const latestHealth = getLatestHealthEntry(healthEntries);
     return `You are TARS. Not an AI assistant, not Claude, not a chatbot. You are TARS — the dry, deadpan AI unit from Interstellar, now hardwired into Neil's Life app as his personal AI.
 
 IDENTITY: Never say you are Claude or mention Anthropic. You are TARS. You are fully integrated into Neil's app and can log food, add tasks, add calendar events, and update health stats. Never claim you cannot do something the app supports.
@@ -3777,9 +3784,27 @@ ${(() => {
   // Format: { label, data, format, skipIfEmpty }
   const STATE_SLICES = [
     {
-      label: "HEALTH (latest check-in)",
-      data: latestHealth,
-      format: (h) => `Weight: ${h.weight||89.0}kg, Body fat: ${h.bodyFat||25.2}%, Fat mass: ${h.fatMass||22.4}kg, Muscle: ${h.muscle||35.6}kg, BP: ${h.bp||"127/75"}${h.waist?`, Waist: ${h.waist}cm`:""}`
+      label: "HEALTH (each metric shows its own most recent measurement and when it was taken — they may be from different dates since Neil only logs what he actually measured each time, never assume a metric is current just because another one was updated today)",
+      data: healthEntries,
+      format: (entries) => {
+        if (!entries || entries.length === 0) return "No check-ins logged yet.";
+        const sorted = entries.slice().sort((a,b) => parseFlexibleDate(a.date) - parseFlexibleDate(b.date));
+        const metrics = [
+          { key:"weight", label:"Weight", unit:"kg" },
+          { key:"bodyFat", label:"Body fat", unit:"%" },
+          { key:"fatMass", label:"Fat mass", unit:"kg" },
+          { key:"muscle", label:"Muscle", unit:"kg" },
+          { key:"waist", label:"Waist", unit:"cm" },
+          { key:"bp", label:"BP", unit:"" },
+        ];
+        return metrics.map(({ key, label, unit }) => {
+          for (let i = sorted.length - 1; i >= 0; i--) {
+            const v = sorted[i][key];
+            if (v !== null && v !== undefined && v !== "") return `${label}: ${v}${unit} (as of ${sorted[i].date})`;
+          }
+          return `${label}: never recorded`;
+        }).join(", ");
+      }
     },
     {
       label: "TODAY'S NUTRITION",
@@ -3968,13 +3993,15 @@ ${(() => {
         break;
       }
       case "health": {
-        // Append-only — always creates a new check-in entry, filling gaps from the latest entry
-        const latest = getLatestHealthEntry(healthEntries);
+        // Append-only — creates a new check-in entry with ONLY the fields Neil actually gave
+        // fresh numbers for. No carry-forward — a partial update (e.g. just weight) should
+        // never duplicate old body-fat/muscle/etc numbers as if they were re-measured today.
         setHealthEntries(prev => [...prev, {
           id: Date.now(),
           date: toISODate(new Date()),
-          weight: fields.weight || latest.weight, bodyFat: fields.bodyFat || latest.bodyFat,
-          fatMass: fields.fatMass || latest.fatMass, muscle: fields.muscle || latest.muscle, bp: fields.bp || latest.bp,
+          weight: fields.weight ?? null, bodyFat: fields.bodyFat ?? null,
+          fatMass: fields.fatMass ?? null, muscle: fields.muscle ?? null, bp: fields.bp ?? null,
+          waist: fields.waist ?? null,
         }]);
         break;
       }
@@ -4058,15 +4085,15 @@ ${(() => {
         break;
       }
       case "log_health": {
-        const latest = getLatestHealthEntry(healthEntries);
         const entry = {
           id: Date.now(),
           date: toISODate(new Date()),
-          weight: action.payload.weight || latest.weight,
-          bodyFat: action.payload.bodyFat || latest.bodyFat,
-          fatMass: action.payload.fatMass || latest.fatMass,
-          muscle: action.payload.muscle || latest.muscle,
-          bp: action.payload.bp || latest.bp,
+          weight: action.payload.weight ?? null,
+          bodyFat: action.payload.bodyFat ?? null,
+          fatMass: action.payload.fatMass ?? null,
+          muscle: action.payload.muscle ?? null,
+          bp: action.payload.bp ?? null,
+          waist: action.payload.waist ?? null,
         };
         setHealthEntries(prev => [...prev, entry]);
         break;
@@ -5302,8 +5329,7 @@ This project's conversation history below IS its memory — there's no separate 
     } else if (module === "calorieLog") {
       if (op === "create") { const entry={id:Date.now(),name:fields.name,kcal:fields.kcal||0,protein:fields.protein||0,time:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"})}; setCalLog(prev=>({...prev,[todayLabel]:[...(prev[todayLabel]||[]),entry]})); }
     } else if (module === "health") {
-      const latest = getLatestHealthEntry(healthEntries);
-      setHealthEntries(prev => [...prev, { id:Date.now(), date:toISODate(new Date()), weight:fields.weight||latest.weight, bodyFat:fields.bodyFat||latest.bodyFat, fatMass:fields.fatMass||latest.fatMass, muscle:fields.muscle||latest.muscle, bp:fields.bp||latest.bp, waist:fields.waist||latest.waist||null }]);
+      setHealthEntries(prev => [...prev, { id:Date.now(), date:toISODate(new Date()), weight:fields.weight??null, bodyFat:fields.bodyFat??null, fatMass:fields.fatMass??null, muscle:fields.muscle??null, bp:fields.bp??null, waist:fields.waist??null }]);
     } else if (module === "finance") {
       if (op === "create") setFinanceEntries(prev => [...prev, { id:Date.now(), date:fields.date||toISODate(new Date()), category:FINANCE_CATEGORIES.includes(fields.category)?fields.category:"Other", value:parseFloat(fields.value)||0, merchant:fields.merchant||"", notes:fields.notes||"", source:fields.source||"tars" }]);
       else if (op === "update") setFinanceEntries(prev => prev.map(e => String(e.id)===String(id) ? {...e, ...fields} : e));
