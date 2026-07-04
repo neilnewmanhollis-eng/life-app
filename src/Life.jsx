@@ -853,6 +853,15 @@ function toISODate(d) {
   return `${y}-${m}-${day}`;
 }
 
+// calLog is keyed by a locale date string ("3 Jul 2026"), not ISO — this converts
+// whatever date TARS resolves (always ISO, same as everywhere else) into that key
+// format, so a backdated food-log request actually lands on the right day instead of
+// silently defaulting to today.
+function calLogKeyFromISO(isoDate) {
+  const d = parseFlexibleDate(isoDate);
+  return d ? d.toLocaleDateString("en-NZ", { day:"numeric", month:"short", year:"numeric" }) : null;
+}
+
 function formatDateDDMMYYYY(date) {
   const d = parseFlexibleDate(date);
   if (!d) return String(date || "");
@@ -3469,8 +3478,9 @@ const MODULE_REGISTRY = {
     { name:"name", label:"Food", type:"text", required:true },
     { name:"kcal", label:"Calories", type:"number", required:true },
     { name:"protein", label:"Protein", type:"number", unit:"g", required:true },
+    { name:"date", label:"Date", type:"date", required:false },
     { name:"time", label:"Time logged", type:"time", required:false, editable:false },
-  ], "Stored under today's date key, not a flat list."),
+  ], "Stored under a date key, not a flat list. Defaults to today if no date is given — but if Neil asks you to log something for yesterday or another specific day (e.g. \"I forgot to log lunch yesterday\"), include that date and it will genuinely save under that day, not today."),
 
   vault: buildModuleEntry("Document vault", "id", [
     { name:"id", type:"id" },
@@ -3577,7 +3587,6 @@ function TarsScreen({ onBack, appState }) {
 
   const [tarsTab, setTarsTab] = useState("chat");
   const [showSettings, setShowSettings] = useState(false);
-  const [showAutomations, setShowAutomations] = useState(false); // Stage 7 — rules list inside TARS settings
   const [anthropicKeyInput, setAnthropicKeyInput] = useState("");
   const [githubTokenInput, setGithubTokenInput] = useState("");
   const [gistIdInput, setGistIdInput] = useState("");
@@ -3900,6 +3909,10 @@ For logging food:
 Your natural response here. Shall I log it?
 ACTION:{"type":"log_food","name":"food name","kcal":000,"protein":00}
 
+For logging food for a day other than today (e.g. "I forgot to log lunch yesterday") — include "date" (YYYY-MM-DD, resolved from the reference table) so it actually saves under that day, not today:
+Your natural response here, stating the resolved date clearly. Confirm?
+ACTION:{"type":"log_food","name":"food name","kcal":000,"protein":00,"date":"2026-07-02"}
+
 For adding a task:
 Your natural response here. Confirm?
 ACTION:{"type":"add_task","text":"task text","cat":"Health","priority":"high"}
@@ -4208,7 +4221,8 @@ ${(() => {
       }
       case "calorieLog": {
         if (op === "create") {
-          return writeRecord("calorieLog", "create", null, { name:fields.name, kcal:fields.kcal||0, protein:fields.protein||0 }, { source: "tars" });
+          const dateKey = fields.date ? calLogKeyFromISO(fields.date) : undefined;
+          return writeRecord("calorieLog", "create", null, { name:fields.name, kcal:fields.kcal||0, protein:fields.protein||0, ...(dateKey ? { dateKey } : {}) }, { source: "tars" });
         } else if (op === "delete") {
           return writeRecord("calorieLog", "delete", id, { source: "tars" });
         }
@@ -4240,8 +4254,10 @@ ${(() => {
       return executeGenericAction(action.payload.module, action.payload.op, action.payload.id, action.payload.fields || {});
     }
     switch (action.type) {
-      case "log_food":
-        return writeRecord("calorieLog", "create", null, { name:action.payload.name, kcal:action.payload.kcal, protein:action.payload.protein }, { source: "tars" });
+      case "log_food": {
+        const dateKey = action.payload.date ? calLogKeyFromISO(action.payload.date) : undefined;
+        return writeRecord("calorieLog", "create", null, { name:action.payload.name, kcal:action.payload.kcal, protein:action.payload.protein, ...(dateKey ? { dateKey } : {}) }, { source: "tars" });
+      }
       case "add_task":
         return writeRecord("tasks", "create", null, { text:action.payload.text, cat:action.payload.cat||"Admin", priority:action.payload.priority||"med", due:action.payload.due||"" }, { source: "tars" });
       case "complete_task":
@@ -4308,7 +4324,7 @@ ${(() => {
   const parseSingleAction = (data) => {
     switch(data.type) {
       case "log_food":
-        return { type:"log_food", payload:{ name:data.name||"Food", kcal:data.kcal||0, protein:data.protein||0 }, description:`Log "${data.name}" — ${data.kcal} kcal, ${data.protein}g protein` };
+        return { type:"log_food", payload:{ name:data.name||"Food", kcal:data.kcal||0, protein:data.protein||0, date:data.date }, description:`Log "${data.name}" — ${data.kcal} kcal, ${data.protein}g protein${data.date ? ` (for ${formatDateDDMMYYYY(data.date)})` : ""}` };
       case "add_task":
         return { type:"add_task", payload:{ text:data.text, cat:data.cat||"Admin", priority:data.priority||"med" }, description:`Add task: "${data.text}"` };
       case "add_cal_event":
@@ -4930,29 +4946,7 @@ If multiple files were uploaded, treat them as related unless the content sugges
             </div>
           </div>
 
-          {/* Automation rules — Stage 7 */}
-          <div style={{ marginBottom:10 }}>
-            <button onClick={()=>setShowAutomations(s=>!s)} style={{ width:"100%", display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
-              <span>🤖 Automation Rules ({rules.length})</span>
-              <span style={{ color:T.muted }}>{showAutomations ? "▲" : "▼"}</span>
-            </button>
-            {showAutomations && (
-              <div style={{ marginTop:8 }}>
-                {rules.length === 0 ? (
-                  <div style={{ fontSize:11, color:T.muted, textAlign:"center", padding:"10px 0" }}>No rules yet — tell TARS "when X happens, notify me about Y" to set one up.</div>
-                ) : rules.map(r => (
-                  <div key={r.id} style={{ display:"flex", alignItems:"flex-start", gap:8, padding:"8px 0", borderBottom:`1px solid ${T.border}` }}>
-                    <input type="checkbox" checked={r.enabled} onChange={()=>setRules(prev=>prev.map(x=>x.id===r.id?{...x,enabled:!x.enabled}:x))} style={{ width:16, height:16, marginTop:2, flexShrink:0 }} />
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontSize:12, color:r.enabled?T.text:T.muted, fontWeight:600 }}>{r.description}</div>
-                      <div style={{ fontSize:10, color:T.muted }}>notifies: "{r.action?.message}"</div>
-                    </div>
-                    <button onClick={()=>{ if(window.confirm(`Delete rule "${r.description}"?`)) setRules(prev=>prev.filter(x=>x.id!==r.id)); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:14, padding:2, flexShrink:0 }}>✕</button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          {/* Automation Rules — moved to its own top-bar icon beside the notification bell */}
 
           {/* GitHub Gist sync */}
           <div style={{ marginBottom:10 }}>
@@ -5590,7 +5584,10 @@ This project's conversation history below IS its memory — there's no separate 
         }
       }
     } else if (module === "calorieLog") {
-      if (op === "create") result = writeRecord("calorieLog", "create", null, { name:fields.name, kcal:fields.kcal||0, protein:fields.protein||0 }, { source: "project" });
+      if (op === "create") {
+        const dateKey = fields.date ? calLogKeyFromISO(fields.date) : undefined;
+        result = writeRecord("calorieLog", "create", null, { name:fields.name, kcal:fields.kcal||0, protein:fields.protein||0, ...(dateKey ? { dateKey } : {}) }, { source: "project" });
+      }
     } else if (module === "health") {
       if (op !== "create") {
         result = { success:false, reason:"Health entries can only be edited or deleted directly in the Health screen, not via chat — I can only add new check-ins here" };
@@ -5796,6 +5793,7 @@ export default function LifeApp() {
 
   // Derive unread notification count
   const unreadCount = notifications.filter(n => !n.read).length;
+  const activeRulesCount = rules.filter(r => r.enabled).length;
 
   const [tasks, setTasks] = usePersistentState("life_tasks", INIT_TASKS);
 
@@ -6065,6 +6063,29 @@ export default function LifeApp() {
           </div>
         </div>
       );
+      case "automations": return (
+        <div>
+          <SectionHeader title="Automation Rules" onBack={()=>setScreen("home")} />
+          <div style={{ padding:"16px" }}>
+            {rules.length === 0 ? (
+              <div style={{ textAlign:"center", padding:"40px 20px", color:T.muted, fontSize:13 }}>No rules yet — tell TARS "when X happens, notify me about Y" to set one up.</div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                {rules.map(r => (
+                  <div key={r.id} style={{ display:"flex", alignItems:"flex-start", gap:10, background:T.card, borderRadius:12, padding:14, border:`1px solid ${T.border}` }}>
+                    <input type="checkbox" checked={r.enabled} onChange={()=>setRules(prev=>prev.map(x=>x.id===r.id?{...x,enabled:!x.enabled}:x))} style={{ width:18, height:18, marginTop:2, flexShrink:0 }} />
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:13, fontWeight:600, color:r.enabled?T.text:T.muted }}>{r.description}</div>
+                      <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>notifies: "{r.action?.message}"</div>
+                    </div>
+                    <button onClick={()=>{ if(window.confirm(`Delete rule "${r.description}"?`)) setRules(prev=>prev.filter(x=>x.id!==r.id)); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:15, padding:2, flexShrink:0 }}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      );
       case "meals":    return (
         <div>
           <SectionHeader title="Meal Planning" onBack={()=>setScreen("home")} />
@@ -6095,6 +6116,13 @@ export default function LifeApp() {
             <span style={{ fontSize:18 }}>🔔</span>
             {unreadCount > 0 && (
               <div style={{ position:"absolute", top:0, right:0, width:16, height:16, borderRadius:"50%", background:T.accent, color:"white", fontSize:9, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center" }}>{unreadCount}</div>
+            )}
+          </button>
+          {/* Automation rules — moved here from TARS settings so it's a peer of the bell, not buried */}
+          <button onClick={()=>setScreen("automations")} style={{ position:"relative", background:"none", border:"none", cursor:"pointer", padding:4 }}>
+            <span style={{ fontSize:18 }}>🤖</span>
+            {activeRulesCount > 0 && (
+              <div style={{ position:"absolute", top:0, right:0, width:16, height:16, borderRadius:"50%", background:T.blue, color:"white", fontSize:9, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center" }}>{activeRulesCount}</div>
             )}
           </button>
           <button onClick={()=>setScreen("tars")} style={{ background:T.elevated, border:`1px solid ${T.border}`, borderRadius:999, padding:"6px 12px", display:"flex", alignItems:"center", gap:6, cursor:"pointer", color:T.blue, fontSize:11, fontWeight:700 }}>
