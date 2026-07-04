@@ -3100,7 +3100,7 @@ const MEMORY_KEYS = {
   legacy:   "tars_memory",           // Old single-string format — migrated on first load
 };
 
-const MAX_PROFILE_CHARS   = 3000;  // ~750 tokens — enough for rich personal profile
+const MAX_PROFILE_CHARS   = 4500;  // ~1100 tokens — raised from 3000 (Session 5) to give real headroom before compression pressure forces anything out
 const MAX_SESSION_CHARS   = 600;   // ~150 tokens per session summary
 const MAX_SESSIONS_STORED = 5;     // Rolling window of last 5 conversations
 
@@ -3189,27 +3189,30 @@ async function updateDurableProfile(messages, apiKey) {
       },
       body: JSON.stringify({
         model: HAIKU,
-        max_tokens: 500,
+        max_tokens: 1500,
         system: `You are updating a personal profile for TARS, an AI that knows Neil Newman-Hollis well.
 
-Extract ONLY things from this conversation that genuinely reveal something about Neil as a person — preferences that emerged, patterns noticed, personal things he mentioned, how he reacted to things, what made him engage more or less. 
+Extract ONLY things from this conversation that genuinely reveal something about Neil as a person — preferences that emerged, patterns noticed, personal things he mentioned, how he reacted to things, what made him engage more or less.
 
 DO NOT include:
 - Facts already visible in the app (his weight, tasks, calendar events, flights)
+- Flat facts Neil has stated directly (a date, an address, a name) — those go through a separate, permanent system now (Tier A) and should never live here
 - Generic information (he's a Second Officer, he lives in Christchurch — already known)
 - Anything vague or obvious
 
 DO include:
 - Specific preferences that emerged ("preferred lamb dish over the chicken one")
 - How he communicates in practice ("tends to send follow-up messages when he wants to change direction")
-- Personal things mentioned in passing ("mentioned his sister is visiting")  
+- Personal things mentioned in passing ("mentioned his sister is visiting")
 - What landed well or didn't ("the chips joke went down well again")
 - Patterns in his decisions or thinking
 
-Write as concise bullet points. Merge with existing profile — don't repeat what's already there. Keep total under 600 words. Return only the updated profile text, no preamble.`,
+CRITICAL — preserve, don't compress: this profile is Neil's accumulated understanding built up over many conversations. Keep every existing entry unless it's been directly contradicted by something new, or is now clearly obsolete (e.g. a completed one-off event). When genuinely unsure whether something old is still relevant, keep it rather than cut it for space — being asked to remove something later is a minor inconvenience, silently losing it is not. Add new insights alongside what's there rather than rewriting or summarising existing entries down to make room.
+
+Write as concise bullet points. Merge with existing profile. Keep total under 1000 words. Return only the updated profile text, no preamble.`,
         messages: [{
           role: "user",
-          content: `EXISTING PROFILE:\n${existing || "Empty — first session."}\n\nCONVERSATION:\n${transcript.slice(0, 2500)}\n\nUpdate the profile with anything genuinely new.`
+          content: `EXISTING PROFILE:\n${existing || "Empty — first session."}\n\nCONVERSATION:\n${transcript.slice(0, 2500)}\n\nUpdate the profile with anything genuinely new. Remember: preserve existing entries, don't compress them away.`
         }]
       }),
     });
@@ -3296,7 +3299,7 @@ const GistSync = {
     "meal_library", "meal_current", "meal_cooked",
     "meal_shopping", "meal_regulars", "meal_pantry",
     "tars_vault",
-    "tars_memory_profile", "tars_memory_sessions",
+    "tars_memory_profile", "tars_memory_sessions", "tars_memory_facts",
     "life_projects",
   ],
 
@@ -3644,6 +3647,29 @@ function TarsScreen({ onBack, appState }) {
   };
   const messages = tarsMessages;
   const setMessages = setTarsMessages;
+
+  // ── Memory Tier B auto-save — fires automatically when Neil navigates away from TARS,
+  // so pattern/preference learning no longer depends on him remembering to tap 💾. Uses a
+  // ref rather than depending on `messages` directly in the effect: with `messages` as a
+  // dependency, the cleanup would re-fire on every single message exchange (since the
+  // effect re-runs whenever its dependency changes), turning this into "save after every
+  // message" instead of "save when the conversation actually ends." The ref always holds
+  // the latest value without that problem — the effect itself only runs once, on mount,
+  // and its cleanup (which reads the ref) only fires once, on actual unmount. The 💾
+  // button still exists as an optional "update now" on top of this, not a replacement. ──
+  const tierBMessagesRef = useRef(messages);
+  useEffect(() => { tierBMessagesRef.current = messages; }, [messages]);
+  useEffect(() => {
+    return () => {
+      const finalMessages = tierBMessagesRef.current;
+      if (finalMessages.length < 3) return;
+      const apiKey = getAnthropicKey();
+      if (!apiKey) return;
+      saveSessionMemory(finalMessages, apiKey).then(() => {
+        if (GistSync.isConfigured()) GistSync.push().catch(() => {});
+      });
+    };
+  }, []);
   const [nudgeLoading, setNudgeLoading] = useState(true);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -3656,6 +3682,7 @@ function TarsScreen({ onBack, appState }) {
     catch { return true; }
   });
   const [pendingAction, setPendingAction] = useState(null); // { type, payload, description }
+  const [memoryFacts, setMemoryFacts] = usePersistentState("tars_memory_facts", []); // Memory Tier A — explicit facts, instant-commit, never summarised away
   const [pendingFiles, setPendingFiles] = useState([]); // [{ file, extracted }] — supports multiple attachments staged together
   const [fileComment, setFileComment] = useState("");
   const [vault, setVault] = usePersistentState("tars_vault", []);
@@ -3951,7 +3978,14 @@ To delete an existing rule, use its exact id from the list above:
 Deleting the "Remind about evening supplements after logging dinner" rule. Confirm?
 ACTION:{"type":"delete_rule","id":"1719820800000"}
 
-IMPORTANT: Only include the ACTION line when you are proposing an action that needs confirmation. Never say you have done something without first getting confirmation via this flow. The ACTION line is machine-readable — do not wrap it in quotes or markdown. The "date" field must always be in YYYY-MM-DD format using the exact date you resolved from the reference table above, never a relative term. You DO have the ability to delete calendar events — never tell Neil you can't, use the delete_cal_event action instead.
+MEMORY — you have two genuinely different ways of remembering things about Neil, and it matters which one you use:
+TIER A — explicit facts. When Neil directly tells you something to remember (a date of birth, an address, the name of a new ship he's joined, an allergy — anything stated as a fact, not a preference), commit it INSTANTLY using the remember_fact action. This is the ONE action type in this entire app that does NOT wait for confirmation — no card, no "confirm?", it saves the moment you include it, in the same reply. Just acknowledge naturally that you've got it — "Got it, noted" or similar — your own reply IS the confirmation, don't ask if he wants you to save it, just save it.
+ACTION:{"type":"remember_fact","fact":"Neil's date of birth is 15 March 1985"}
+Write the fact as a clear, complete, standalone sentence — it needs to make sense on its own later, out of context. Check the REMEMBERED FACTS list above first so you don't save an obvious duplicate.
+TIER B — patterns and preferences. Softer things that emerge from how a conversation goes rather than being stated outright — a preference, a communication tendency, something that landed well or didn't. You don't need to do anything active for these — they're picked up automatically once this conversation ends, no action needed from you. Don't claim these are "saved" the way Tier A facts are; if it comes up, something like "I'll keep that in mind" is honest, "I've saved that permanently" is not, because nothing permanent has happened yet at the point you'd be saying it.
+Never claim ANY memory action succeeded unless it was a genuine Tier A remember_fact action that you actually included — this app has a strict standing rule against confirming things that didn't really happen, and memory is no exception.
+
+IMPORTANT: Only include the ACTION line when you are proposing an action that needs confirmation (except remember_fact, which never needs it). Never say you have done something without first getting confirmation via this flow. The ACTION line is machine-readable — do not wrap it in quotes or markdown. The "date" field must always be in YYYY-MM-DD format using the exact date you resolved from the reference table above, never a relative term. You DO have the ability to delete calendar events — never tell Neil you can't, use the delete_cal_event action instead.
 
 
 LIVE DATA — right now:
@@ -4069,6 +4103,12 @@ ${(() => {
       label: "AUTOMATION RULES (existing rules Neil has already set up — check before proposing a new one so you don't create a duplicate; use the exact id when deleting one)",
       data: rules,
       format: (r) => r.length === 0 ? "none set up yet" : r.map(x=>`  id:${x.id} "${x.description}" ${x.enabled?"(active)":"(disabled)"}`).join("\n"),
+      skipIfEmpty: false
+    },
+    {
+      label: "REMEMBERED FACTS (Tier A memory — things Neil has explicitly told you to remember, committed instantly and permanently, never summarised or dropped. Check this before asking Neil something he's already told you.)",
+      data: memoryFacts,
+      format: (f) => f.length === 0 ? "none yet" : f.map(x=>`  "${x.fact}" (added ${x.addedAt})`).join("\n"),
       skipIfEmpty: false
     },
     {
@@ -4333,6 +4373,8 @@ ${(() => {
         return { type:"add_cal_events", payload:{ events:data.events||[] }, description:`Add ${data.events?.length||0} events to calendar` };
       case "log_health":
         return { type:"log_health", payload:{ date:data.date, weight:data.weight, bodyFat:data.bodyFat, fatMass:data.fatMass, muscle:data.muscle, bp:data.bp, waist:data.waist }, description:`Log health check-in` };
+      case "remember_fact":
+        return { type: "remember_fact", payload: { fact: data.fact }, description: `Remember: ${data.fact}` };
       case "create_rule": {
         const moduleLabel = MODULE_REGISTRY[data.trigger?.module]?.label || data.trigger?.module;
         const cond = data.trigger?.condition;
@@ -4391,6 +4433,30 @@ ${(() => {
         description: parsed.map(a => a.description).join("; "),
       };
     } catch { return null; }
+  };
+
+  // ── Memory Tier A — explicit facts, committed instantly with no confirm step
+  // (deliberately decided — low stakes, easily corrected, the whole point is removing
+  // friction so Neil never has to actively participate in getting TARS to remember
+  // something he's stated directly). Storage is a flat list, not prose, specifically so
+  // nothing here can ever be silently dropped by a later summarisation pass the way the
+  // old single-profile system could. ──
+  const commitFact = (fact) => {
+    if (!fact || !fact.trim()) return;
+    setMemoryFacts(prev => [...prev, { id: Date.now(), fact: fact.trim(), addedAt: toISODate(new Date()) }]);
+  };
+
+  // Routes a parsed action to instant commit (Tier A) or the normal confirm-card flow
+  // (everything else) — the one place this branch needs to exist, used by every send path.
+  const handleParsedAction = (action) => {
+    if (!action) return;
+    if (action.type === "remember_fact") {
+      commitFact(action.payload.fact);
+      // No pendingAction, no synthetic extra message — TARS's own reply text (already
+      // displayed) is the acknowledgment. Nothing further needed here.
+      return;
+    }
+    setPendingAction(action);
   };
 
 
@@ -4512,7 +4578,7 @@ OTHER — anything else`,
 
       // Parse for action — food logs, health logs etc
       const action = parseActionFromReply(reply);
-      if (action) setPendingAction(action);
+      handleParsedAction(action);
 
       // Auto-add to vault if it's a document — store full content for later re-reading
       if (imageType === "DOCUMENT") {
@@ -4691,7 +4757,7 @@ If multiple files were uploaded, treat them as related unless the content sugges
     speak(displayReply3);
 
     const action = parseActionFromReply(reply);
-    if (action) setPendingAction(action);
+    handleParsedAction(action);
 
     // Auto-vault each non-image document — store the FULL extracted content, not just a
     // summary, so TARS can genuinely re-read the original later for specific follow-up
@@ -4854,7 +4920,7 @@ If multiple files were uploaded, treat them as related unless the content sugges
 
       // Parse for action intent from full reply (includes ACTION block)
       const action = parseActionFromReply(reply);
-      if (action) setPendingAction(action);
+      handleParsedAction(action);
 
     } catch(e) {
       const errDetail = e?.message || e?.toString() || "Unknown error";
@@ -4990,18 +5056,29 @@ If multiple files were uploaded, treat them as related unless the content sugges
             </div>
           )}
 
-          {/* Memory section */}
+          {/* Memory section — redesigned Session 5, two tiers */}
           <div style={{ paddingTop:12, borderTop:`1px solid ${T.border}` }}>
             <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:6 }}>
-              TARS Memory {MemoryStore.getProfile() ? "✓ Active" : "— None yet"}
+              TARS Memory — {memoryFacts.length} remembered fact{memoryFacts.length===1?"":"s"}, {MemoryStore.getProfile() ? "profile active" : "no profile yet"}
             </div>
-            <div style={{ fontSize:11, color:T.muted, lineHeight:1.5, marginBottom:8 }}>
-              {MemoryStore.getProfile()
-                ? `Profile: ${MemoryStore.getProfile().length} chars · Sessions: ${MemoryStore.getSessions().length} stored. Tap 💾 save after any conversation to update.`
-                : "No memory yet. Chat with TARS then tap 💾 save to start building his understanding of you."}
+            <div style={{ fontSize:11, color:T.muted, lineHeight:1.5, marginBottom:10 }}>
+              Facts you tell TARS directly ("remember my DOB is...") save instantly, permanently, below — no confirmation needed, no button to remember. Softer things TARS picks up naturally (preferences, communication style) save automatically when you leave this chat — 💾 save is still there if you want to force an update mid-conversation, but you never have to.
             </div>
-            {(MemoryStore.getProfile() || MemoryStore.getSessions().length > 0) && (
-              <button onClick={()=>{ if(window.confirm("Clear all TARS memory? This removes both his personal profile and session history. Cannot be undone.")) { MemoryStore.clearAll(); window.location.reload(); }}}
+            {memoryFacts.length > 0 && (
+              <div style={{ marginBottom:10 }}>
+                {memoryFacts.map(f => (
+                  <div key={f.id} style={{ display:"flex", alignItems:"flex-start", gap:8, padding:"6px 0", borderBottom:`1px solid ${T.border}` }}>
+                    <div style={{ flex:1, fontSize:12, color:T.text }}>{f.fact}</div>
+                    <button onClick={()=>setMemoryFacts(prev=>prev.filter(x=>x.id!==f.id))} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:13, padding:2, flexShrink:0 }}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {MemoryStore.getProfile() && (
+              <div style={{ fontSize:10, color:T.muted, marginBottom:8 }}>Profile: {MemoryStore.getProfile().length} chars · Sessions: {MemoryStore.getSessions().length} stored.</div>
+            )}
+            {(memoryFacts.length > 0 || MemoryStore.getProfile() || MemoryStore.getSessions().length > 0) && (
+              <button onClick={()=>{ if(window.confirm("Clear all TARS memory? This removes remembered facts, his personal profile, and session history. Cannot be undone.")) { MemoryStore.clearAll(); setMemoryFacts([]); window.location.reload(); }}}
                 style={{ width:"100%", padding:"7px", borderRadius:8, background:`${T.accent}11`, border:`1px solid ${T.accent}33`, color:T.accent, fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>
                 Clear All Memory
               </button>
