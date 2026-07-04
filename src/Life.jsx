@@ -3283,6 +3283,7 @@ const GistSync = {
     "life_health_entries", "life_cal_log",
     "life_steps_log", "life_workout_log", "life_last_brief_date",
     "life_finance_entries", "life_finance_budgets",
+    "life_notifications", "life_automation_rules",
     "meal_library", "meal_current", "meal_cooked",
     "meal_shopping", "meal_regulars", "meal_pantry",
     "tars_vault",
@@ -3572,10 +3573,11 @@ function ProjectsListScreen({ onBack, projects, setProjects, onOpenProject }) {
 }
 
 function TarsScreen({ onBack, appState }) {
-  const { tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord } = appState;
+  const { tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord, rules, setRules, createRule } = appState;
 
   const [tarsTab, setTarsTab] = useState("chat");
   const [showSettings, setShowSettings] = useState(false);
+  const [showAutomations, setShowAutomations] = useState(false); // Stage 7 — rules list inside TARS settings
   const [anthropicKeyInput, setAnthropicKeyInput] = useState("");
   const [githubTokenInput, setGithubTokenInput] = useState("");
   const [gistIdInput, setGistIdInput] = useState("");
@@ -3922,6 +3924,20 @@ For deleting a calendar event:
 Your natural response here, confirming exactly which event you're about to remove including its date. Confirm?
 ACTION:{"type":"delete_cal_event","title":"GP Appointment","date":"2026-07-04"}
 
+AUTOMATION RULES — "when X happens, do Y": Neil can ask you to set up a standing rule that fires automatically in future, without him asking again each time. This is a genuinely new capability (Stage 7) — until now you could only act on direct requests in the moment.
+How it works: a rule watches for a specific thing happening in a specific module (e.g. "whenever a calorie entry is logged"), optionally with a simple condition (a field matching a value, or a time-of-day window), and when it matches, shows Neil a notification in the app's notification bell (top bar, next to the TARS button — this now genuinely works, badge shows unread count, tap to view). That is the ONLY thing a rule can currently do — show a notification. A rule can NEVER create, update, or delete anything by itself, and can never speak or interrupt Neil — it only ever adds a quiet notification he checks when he chooses to. If Neil asks for a rule that would need to actually take an action beyond notifying (e.g. "automatically add X to my calendar every time Y happens"), tell him plainly that's not supported yet — notification-only for now — rather than proposing something that oversteps this.
+Worked example — Neil's original motivating case, "remind me to take my evening supplements after I log dinner":
+I can set that up — a rule that shows you a notification whenever you log a calorie entry after 3pm, reminding you about evening supplements. Confirm?
+ACTION:{"type":"create_rule","description":"Remind about evening supplements after logging dinner","trigger":{"module":"calorieLog","op":"create","condition":{"type":"time","after":"15:00"}},"action":{"message":"Evening supplements — Fish Oil, Vitamin D3"}}
+Another example — a field-based condition, "let me know whenever I log an expense over $100":
+Setting that up now — a rule that notifies you whenever a Finance entry over $100 gets logged. Confirm?
+ACTION:{"type":"create_rule","description":"Flag expenses over $100","trigger":{"module":"finance","op":"create","condition":{"type":"field","field":"value","operator":"gt","value":100}},"action":{"message":"Logged an expense over $100"}}
+condition.type is one of: "field" (operator: equals/contains/gt/lt, against a real field on the record — check the module's fields list above for what's actually available), "time" (after/before, 24-hour HH:MM, checks the clock at the moment the trigger fires), or omit condition entirely for "fires every single time this happens, no filter." Keep rules genuinely simple — Neil has said he wants to start with basic ones and build up over time, so don't propose anything elaborate unless he specifically asks for it.
+Rules can only be created in this main chat, not in Project chats — if asked from a Project, say so plainly rather than attempting it.
+To delete an existing rule, use its exact id from the list above:
+Deleting the "Remind about evening supplements after logging dinner" rule. Confirm?
+ACTION:{"type":"delete_rule","id":"1719820800000"}
+
 IMPORTANT: Only include the ACTION line when you are proposing an action that needs confirmation. Never say you have done something without first getting confirmation via this flow. The ACTION line is machine-readable — do not wrap it in quotes or markdown. The "date" field must always be in YYYY-MM-DD format using the exact date you resolved from the reference table above, never a relative term. You DO have the ability to delete calendar events — never tell Neil you can't, use the delete_cal_event action instead.
 
 
@@ -4035,6 +4051,12 @@ ${(() => {
       })(),
       format: (t) => t.length === 0 ? "none" : t.map(x=>`  "${x.text}" (completed ${x.completedAt})`).join("\n"),
       skipIfEmpty: true
+    },
+    {
+      label: "AUTOMATION RULES (existing rules Neil has already set up — check before proposing a new one so you don't create a duplicate; use the exact id when deleting one)",
+      data: rules,
+      format: (r) => r.length === 0 ? "none set up yet" : r.map(x=>`  id:${x.id} "${x.description}" ${x.enabled?"(active)":"(disabled)"}`).join("\n"),
+      skipIfEmpty: false
     },
     {
       label: "FULL CALENDAR (every event — use for any date/schedule question)",
@@ -4253,6 +4275,15 @@ ${(() => {
           bp: action.payload.bp ?? null,
           waist: action.payload.waist ?? null,
         }, { source: "tars" });
+      case "create_rule":
+        return createRule(action.payload);
+      case "delete_rule": {
+        if (!rules.some(r => String(r.id) === String(action.payload.id))) {
+          return { success:false, reason:`no rule found with id ${action.payload.id}` };
+        }
+        setRules(prev => prev.filter(r => String(r.id) !== String(action.payload.id)));
+        return { success: true };
+      }
       default:
         return { success:false, reason:`unrecognised action type: ${action.type}` };
     }
@@ -4286,6 +4317,22 @@ ${(() => {
         return { type:"add_cal_events", payload:{ events:data.events||[] }, description:`Add ${data.events?.length||0} events to calendar` };
       case "log_health":
         return { type:"log_health", payload:{ date:data.date, weight:data.weight, bodyFat:data.bodyFat, fatMass:data.fatMass, muscle:data.muscle, bp:data.bp, waist:data.waist }, description:`Log health check-in` };
+      case "create_rule": {
+        const moduleLabel = MODULE_REGISTRY[data.trigger?.module]?.label || data.trigger?.module;
+        const cond = data.trigger?.condition;
+        let condText = "";
+        if (cond?.type === "field") condText = ` where ${cond.field} ${cond.operator} ${cond.value}`;
+        else if (cond?.type === "time") condText = `${cond.after?` after ${cond.after}`:""}${cond.before?` before ${cond.before}`:""}`;
+        return {
+          type: "create_rule",
+          payload: { description: data.description, trigger: data.trigger, action: data.action },
+          description: `New rule: when something is ${data.trigger?.op||"created"} in ${moduleLabel}${condText}, notify: "${data.action?.message}"`,
+        };
+      }
+      case "delete_rule": {
+        const matchedRule = rules.find(r => String(r.id) === String(data.id));
+        return { type:"delete_rule", payload:{ id:data.id }, description:`Delete rule: "${matchedRule?.description || "rule"}"` };
+      }
       case "complete_task": {
         const matchedTask = tasks.find(t => String(t.id) === String(data.id));
         return { type:"complete_task", payload:{ id:data.id }, description:`Mark complete: "${matchedTask?.text || "task"}"` };
@@ -4881,6 +4928,30 @@ If multiple files were uploaded, treat them as related unless the content sugges
             <div style={{ fontSize:11, color:T.green, padding:"8px 10px", borderRadius:8, border:`1px solid ${T.green}44`, background:T.elevated }}>
               ✓ Runs via self-hosted proxy — no key needed here
             </div>
+          </div>
+
+          {/* Automation rules — Stage 7 */}
+          <div style={{ marginBottom:10 }}>
+            <button onClick={()=>setShowAutomations(s=>!s)} style={{ width:"100%", display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
+              <span>🤖 Automation Rules ({rules.length})</span>
+              <span style={{ color:T.muted }}>{showAutomations ? "▲" : "▼"}</span>
+            </button>
+            {showAutomations && (
+              <div style={{ marginTop:8 }}>
+                {rules.length === 0 ? (
+                  <div style={{ fontSize:11, color:T.muted, textAlign:"center", padding:"10px 0" }}>No rules yet — tell TARS "when X happens, notify me about Y" to set one up.</div>
+                ) : rules.map(r => (
+                  <div key={r.id} style={{ display:"flex", alignItems:"flex-start", gap:8, padding:"8px 0", borderBottom:`1px solid ${T.border}` }}>
+                    <input type="checkbox" checked={r.enabled} onChange={()=>setRules(prev=>prev.map(x=>x.id===r.id?{...x,enabled:!x.enabled}:x))} style={{ width:16, height:16, marginTop:2, flexShrink:0 }} />
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:12, color:r.enabled?T.text:T.muted, fontWeight:600 }}>{r.description}</div>
+                      <div style={{ fontSize:10, color:T.muted }}>notifies: "{r.action?.message}"</div>
+                    </div>
+                    <button onClick={()=>{ if(window.confirm(`Delete rule "${r.description}"?`)) setRules(prev=>prev.filter(x=>x.id!==r.id)); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:14, padding:2, flexShrink:0 }}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* GitHub Gist sync */}
@@ -5717,6 +5788,11 @@ export default function LifeApp() {
 
   const [screen, setScreen] = useState("home");
   const [notifications, setNotifications] = usePersistentState("life_notifications", []);
+  // ── Stage 7 — automation rules. Deliberately NOT run through MODULE_REGISTRY/writeRecord —
+  // a rule isn't a life-data record like a task or expense, it's configuration about the
+  // app's own behaviour, so a small dedicated system is more honest than forcing it through
+  // the generic pattern. Shape: { id, description, trigger:{module,op,condition}, action:{type,message}, enabled, createdAt } ──
+  const [rules, setRules] = usePersistentState("life_automation_rules", []);
 
   // Derive unread notification count
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -5785,6 +5861,43 @@ export default function LifeApp() {
   // Builds a reasonably readable notification message from the module/op/fields alone,
   // so every TARS/automation-driven write gets a sensible notification without needing
   // every single call site updated with a custom description.
+  // ── Stage 7 — checks a successful write against every enabled rule, firing a
+  // notification for any match. Deliberately runs regardless of who made the write
+  // (TARS, Project chat, or Neil manually) — unlike the "TARS did something" notification
+  // below, a rule's trigger is "did X happen to the data", not "did TARS specifically
+  // cause it". Deterministic code, no LLM call — free and instant to check. ──
+  const evaluateRules = (module, op, record) => {
+    rules.filter(r => r.enabled && r.trigger.module === module && r.trigger.op === op).forEach(rule => {
+      const cond = rule.trigger.condition || { type: "always" };
+      let matched = false;
+      if (cond.type === "always") {
+        matched = true;
+      } else if (cond.type === "field") {
+        const val = record?.[cond.field];
+        if (cond.operator === "equals") matched = String(val ?? "").toLowerCase() === String(cond.value).toLowerCase();
+        else if (cond.operator === "contains") matched = String(val||"").toLowerCase().includes(String(cond.value).toLowerCase());
+        else if (cond.operator === "gt") matched = parseFloat(val) > parseFloat(cond.value);
+        else if (cond.operator === "lt") matched = parseFloat(val) < parseFloat(cond.value);
+      } else if (cond.type === "time") {
+        const now = new Date();
+        const nowMin = now.getHours()*60 + now.getMinutes();
+        matched = true;
+        if (cond.after) { const [h,m] = cond.after.split(":").map(Number); if (nowMin < h*60+m) matched = false; }
+        if (matched && cond.before) { const [h,m] = cond.before.split(":").map(Number); if (nowMin > h*60+m) matched = false; }
+      }
+      if (matched) {
+        setNotifications(prev => [...prev, { message: rule.action.message, read:false, time: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) }]);
+      }
+    });
+  };
+
+  // Adds a new rule — called only from main TARS chat (Project chats deliberately can't
+  // create rules, per the same reasoning as their narrower write scope).
+  const createRule = (ruleData) => {
+    setRules(prev => [...prev, { id: Date.now(), enabled: true, createdAt: toISODate(new Date()), ...ruleData }]);
+    return { success: true };
+  };
+
   const defaultNotificationText = (module, op, fields, id) => {
     const label = MODULE_REGISTRY[module]?.label || module;
     if (module === "tasks") {
@@ -5817,9 +5930,12 @@ export default function LifeApp() {
   // himself, a notification there would just be noise. ──
   const writeRecord = (module, op, id, fields = {}, opts = {}) => {
     const result = writeRecordCore(module, op, id, fields);
-    if (result.success && (opts.source === "tars" || opts.source === "project")) {
-      const message = opts.description || defaultNotificationText(module, op, fields, id);
-      setNotifications(prev => [...prev, { message, read: false, time: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) }]);
+    if (result.success) {
+      evaluateRules(module, op, fields);
+      if (opts.source === "tars" || opts.source === "project") {
+        const message = opts.description || defaultNotificationText(module, op, fields, id);
+        setNotifications(prev => [...prev, { message, read: false, time: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) }]);
+      }
     }
     return result;
   };
@@ -5962,7 +6078,7 @@ export default function LifeApp() {
       case "health":   return <HealthScreen onBack={()=>setScreen("home")} entries={healthEntries} setEntries={setHealthEntries} calLog={calLog} setCalLog={setCalLog} writeRecord={writeRecord} />;
       case "finance":  return <FinanceScreen onBack={()=>setScreen("home")} entries={financeEntries} setEntries={setFinanceEntries} budgets={financeBudgets} setBudgets={setFinanceBudgets} writeRecord={writeRecord} />;
       case "work":     return <ComingSoon label="Work" icon="work" accent={T.blue} onBack={()=>setScreen("home")} />;
-      case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord }} />;
+      case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord, rules, setRules, createRule }} />;
       case "projects": return <ProjectsListScreen onBack={()=>setScreen("home")} projects={projects} setProjects={setProjects} onOpenProject={(id)=>{ setActiveProjectId(id); setScreen("projectChat"); }} />;
       case "projectChat": return <ProjectChatScreen onBack={()=>setScreen("projects")} projectId={activeProjectId} projects={projects} setProjects={setProjects} appState={{ tasks, calEvents, writeRecord }} />;
       default:         return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} />;
