@@ -1037,6 +1037,8 @@ async function speakQueued(text, { audioRef, requestIdRef, voiceEnabled, setSpea
   for (let i = 0; i < nextToFetch; i++) fetchChunk(i);
 
   try {
+    let anyChunkPlayed = false;
+    let lastError = null;
     for (let i = 0; i < chunks.length; i++) {
       if (myId !== requestIdRef.current) return; // superseded — bail without touching state
       if (nextToFetch < chunks.length) { fetchChunk(nextToFetch); nextToFetch++; }
@@ -1045,9 +1047,11 @@ async function speakQueued(text, { audioRef, requestIdRef, voiceEnabled, setSpea
       if (myId !== requestIdRef.current) { if (audio?._blobUrl) URL.revokeObjectURL(audio._blobUrl); return; }
 
       if (!audio || audio.__error) {
-        console.error("TARS Voice: chunk failed, skipping", audio?.__error);
+        lastError = audio?.__error;
+        console.error("TARS Voice: chunk failed, skipping", lastError);
         continue; // one bad chunk shouldn't silence the rest of the reply
       }
+      anyChunkPlayed = true;
 
       audioRef.current = audio;
       await new Promise((resolve) => {
@@ -1063,6 +1067,12 @@ async function speakQueued(text, { audioRef, requestIdRef, voiceEnabled, setSpea
         });
       });
       if (myId !== requestIdRef.current) return;
+    }
+    // If literally every chunk failed, this reply produced total silence with no visible
+    // cause — that's the actual bug being fixed here. Surface the real underlying error
+    // instead of leaving it to only ever appear in the browser console.
+    if (!anyChunkPlayed && chunks.length > 0 && myId === requestIdRef.current) {
+      setVoiceError(`Voice failed — ${lastError?.message || "couldn't reach the voice service"}`);
     }
   } finally {
     if (myId === requestIdRef.current) { setSpeaking(false); audioRef.current = null; }
