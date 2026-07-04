@@ -1011,12 +1011,7 @@ async function speakQueued(text, { audioRef, requestIdRef, voiceEnabled, setSpea
   const myId = ++requestIdRef.current;
 
   const chunks = splitIntoSpeechChunks(text);
-  if (chunks.length === 0) {
-    // Temporary diagnostic (Session 5) — proves whether the sentence-splitter is
-    // somehow producing zero chunks for real text. Remove once resolved.
-    setVoiceError(`DIAGNOSTIC: splitIntoSpeechChunks returned 0 chunks for text of length ${text?.length ?? "null"}`);
-    return;
-  }
+  if (chunks.length === 0) return; // genuinely nothing to say — not an error
 
   setSpeaking(true);
   setVoiceError(null);
@@ -1045,14 +1040,7 @@ async function speakQueued(text, { audioRef, requestIdRef, voiceEnabled, setSpea
     let anyChunkPlayed = false;
     let lastError = null;
     for (let i = 0; i < chunks.length; i++) {
-      if (myId !== requestIdRef.current) {
-        // Temporary diagnostic (Session 5) — if this fires on the very FIRST chunk of a
-        // brand new reply, something is incrementing the shared request counter again
-        // immediately after this call claimed it, cancelling it before it ever gets a
-        // chance to fetch anything. That's a real bug if so. Remove once resolved.
-        if (i === 0) setVoiceError(`DIAGNOSTIC: superseded on the very first chunk — myId=${myId}, current=${requestIdRef.current}`);
-        return;
-      }
+      if (myId !== requestIdRef.current) return; // superseded by a newer speak() call — bail quietly, this is normal
       if (nextToFetch < chunks.length) { fetchChunk(nextToFetch); nextToFetch++; }
 
       const audio = await pending[i];
