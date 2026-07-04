@@ -1004,7 +1004,14 @@ const SPEECH_LOOKAHEAD = 2;
 const TTS_PROXY_URL = "https://life-app-tts-proxy.vercel.app/api/tts"; // self-hosted proxy — calls OpenAI TTS server-side, avoids both OpenAI's CORS problem and Puter's subscription requirement
 
 async function speakQueued(text, { audioRef, requestIdRef, voiceEnabled, setSpeaking, setVoiceError, voice = "onyx", speed = 1.4 }) {
-  if (!voiceEnabled) return;
+  if (!voiceEnabled) {
+    // Temporary diagnostic (Session 5) — proves whether voiceEnabled is genuinely false
+    // at the moment TARS tries to speak, vs. something else being the real cause. Remove
+    // this whole block once resolved — it's not meant to be permanent, muting on purpose
+    // shouldn't normally show an error.
+    setVoiceError("DIAGNOSTIC: voiceEnabled was false when TARS tried to speak — check what the mute button visually shows right now");
+    return;
+  }
   // A new speak() call always supersedes whatever this ref was doing — stop it immediately
   // (both the audio itself and any in-flight loop still awaiting a chunk).
   if (audioRef.current) { try { audioRef.current.pause(); } catch {} audioRef.current = null; }
