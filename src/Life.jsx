@@ -5439,7 +5439,11 @@ VOICE: Same as always — direct, dry, specific, no corporate assistant energy, 
 
 You are NOT just an assistant with static knowledge — you have a web_search tool. Use it freely for anything current: opening hours, prices, what's on, addresses, travel times, current events, anything time-sensitive or specific to a place. When Neil says "google" something he means search the web for it. Don't rely on stale training knowledge for anything that could have changed.
 
-You can write to any part of Neil's Life app via the same generic action system main TARS chat uses — add tasks, add/update/delete calendar events, log things — all requiring confirmation first via the ACTION protocol below. For reading live data, this space is scoped specifically to Tasks and Calendar (below) since that's this project's core purpose — you do NOT have live visibility into Health or Finance data here. If Neil asks about those, say so honestly rather than guessing or claiming you can't find something that was never given to you in the first place.
+This project has a deliberately narrow, fixed scope — Neil uses Projects for individual, focused topics (research, trip planning), and keeps main TARS chat as the workhorse for everything else in his life. Your access here is:
+- Tasks: full read and write (add, edit, delete, mark done).
+- Calendar: full read and write (add, edit, delete events).
+- Vault: read-only (search_vault tool) — same as everywhere else in the app.
+- Health, Finance, Meals, Work, and calorie logging: NO access at all, not even read. These genuinely exist in the Life app as real features Neil uses — you're not being kept in the dark about the app's existence — you simply cannot see or touch that data from inside a Project chat. If Neil asks about any of these, say so plainly and directly: something like "that's not available from a Project chat — main TARS handles that." Never guess, never claim something doesn't exist in the app, and never attempt an action against one of these anyway using a different action format — there genuinely isn't one that works here, by design, not by oversight.
 
 If an earlier action in this conversation failed or you're unsure whether it worked, that doesn't mean later, separate actions failed too — check the live data given to you fresh on each message rather than assuming a pattern from one earlier moment.
 
@@ -5652,9 +5656,16 @@ This project's conversation history below IS its memory — there's no separate 
 
   // Delegates every write to the same unified writeRecord LifeApp uses — Project chat
   // no longer has its own separate copy of this logic to drift out of sync with TARS's.
+  // ── Project chats are deliberately scoped to Tasks and Calendar only (Session 5,
+  // Neil's decision after seeing this needed clarifying) — Projects are for narrow,
+  // individual topics/research, main TARS is the workhorse for everything else. This is
+  // a genuine code restriction, not just a prompt instruction — Health's restriction
+  // taught us TARS will otherwise try routing around a prompt-only "don't do this," so
+  // Finance/Health/calorieLog/Meals/Work simply aren't branches here at all. There's no
+  // path to talk this executor into touching them regardless of the action's shape. ──
   const executeProjectAction = (action) => {
     const { module, op, id, fields } = action;
-    let result = { success:false, reason:`unrecognised module/operation: ${module}/${op}` };
+    let result = { success:false, reason:`"${module}" isn't accessible from Project chats — that's main TARS chat only. This project only has Calendar and To Do.` };
     if (module === "tasks") {
       if (op === "create") result = writeRecord("tasks", "create", null, { text:fields.text, cat:fields.cat||"Admin", priority:fields.priority||"med", due:fields.due||"" }, { source: "project" });
       else if (op === "update") result = writeRecord("tasks", "update", id, fields, { source: "project" });
@@ -5670,21 +5681,6 @@ This project's conversation history below IS its memory — there's no separate 
           result = target ? writeRecord("calendar", "delete", target.id, { source: "project" }) : { success:false, reason:`couldn't find a calendar event matching "${fields.title||""}" on ${fields.date||"that date"}` };
         }
       }
-    } else if (module === "calorieLog") {
-      if (op === "create") {
-        const dateKey = fields.date ? calLogKeyFromISO(fields.date) : undefined;
-        result = writeRecord("calorieLog", "create", null, { name:fields.name, kcal:fields.kcal||0, protein:fields.protein||0, ...(dateKey ? { dateKey } : {}) }, { source: "project" });
-      }
-    } else if (module === "health") {
-      if (op !== "create") {
-        result = { success:false, reason:"Health entries can only be edited or deleted directly in the Health screen, not via chat — I can only add new check-ins here" };
-      } else {
-        result = writeRecord("health", "create", null, { date:fields.date||toISODate(new Date()), weight:fields.weight??null, bodyFat:fields.bodyFat??null, fatMass:fields.fatMass??null, muscle:fields.muscle??null, bp:fields.bp??null, waist:fields.waist??null }, { source: "project" });
-      }
-    } else if (module === "finance") {
-      if (op === "create") result = writeRecord("finance", "create", null, { ...fields, source: fields.source || "tars" }, { source: "project" });
-      else if (op === "update") result = writeRecord("finance", "update", id, fields, { source: "project" });
-      else if (op === "delete") result = writeRecord("finance", "delete", id, { source: "project" });
     }
     setPendingAction(null);
     return result;
