@@ -1004,21 +1004,19 @@ const SPEECH_LOOKAHEAD = 2;
 const TTS_PROXY_URL = "https://life-app-tts-proxy.vercel.app/api/tts"; // self-hosted proxy — calls OpenAI TTS server-side, avoids both OpenAI's CORS problem and Puter's subscription requirement
 
 async function speakQueued(text, { audioRef, requestIdRef, voiceEnabled, setSpeaking, setVoiceError, voice = "onyx", speed = 1.4 }) {
-  if (!voiceEnabled) {
-    // Temporary diagnostic (Session 5) — proves whether voiceEnabled is genuinely false
-    // at the moment TARS tries to speak, vs. something else being the real cause. Remove
-    // this whole block once resolved — it's not meant to be permanent, muting on purpose
-    // shouldn't normally show an error.
-    setVoiceError("DIAGNOSTIC: voiceEnabled was false when TARS tried to speak — check what the mute button visually shows right now");
-    return;
-  }
+  if (!voiceEnabled) return; // confirmed NOT the cause of the current issue — reverted to normal silent behaviour
   // A new speak() call always supersedes whatever this ref was doing — stop it immediately
   // (both the audio itself and any in-flight loop still awaiting a chunk).
   if (audioRef.current) { try { audioRef.current.pause(); } catch {} audioRef.current = null; }
   const myId = ++requestIdRef.current;
 
   const chunks = splitIntoSpeechChunks(text);
-  if (chunks.length === 0) return;
+  if (chunks.length === 0) {
+    // Temporary diagnostic (Session 5) — proves whether the sentence-splitter is
+    // somehow producing zero chunks for real text. Remove once resolved.
+    setVoiceError(`DIAGNOSTIC: splitIntoSpeechChunks returned 0 chunks for text of length ${text?.length ?? "null"}`);
+    return;
+  }
 
   setSpeaking(true);
   setVoiceError(null);
@@ -1047,7 +1045,14 @@ async function speakQueued(text, { audioRef, requestIdRef, voiceEnabled, setSpea
     let anyChunkPlayed = false;
     let lastError = null;
     for (let i = 0; i < chunks.length; i++) {
-      if (myId !== requestIdRef.current) return; // superseded — bail without touching state
+      if (myId !== requestIdRef.current) {
+        // Temporary diagnostic (Session 5) — if this fires on the very FIRST chunk of a
+        // brand new reply, something is incrementing the shared request counter again
+        // immediately after this call claimed it, cancelling it before it ever gets a
+        // chance to fetch anything. That's a real bug if so. Remove once resolved.
+        if (i === 0) setVoiceError(`DIAGNOSTIC: superseded on the very first chunk — myId=${myId}, current=${requestIdRef.current}`);
+        return;
+      }
       if (nextToFetch < chunks.length) { fetchChunk(nextToFetch); nextToFetch++; }
 
       const audio = await pending[i];
