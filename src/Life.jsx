@@ -4142,26 +4142,26 @@ ${(() => {
     switch (module) {
       case "tasks": {
         if (op === "create") {
-          return writeRecord("tasks", "create", null, { text:fields.text, cat:fields.cat||"Admin", priority:fields.priority||"med", due:fields.due||"" });
+          return writeRecord("tasks", "create", null, { text:fields.text, cat:fields.cat||"Admin", priority:fields.priority||"med", due:fields.due||"" }, { source: "tars" });
         } else if (op === "update") {
-          return writeRecord("tasks", "update", id, fields);
+          return writeRecord("tasks", "update", id, fields, { source: "tars" });
         } else if (op === "delete") {
-          return writeRecord("tasks", "delete", id);
+          return writeRecord("tasks", "delete", id, { source: "tars" });
         }
         break;
       }
       case "calendar": {
         if (op === "create") {
-          return writeRecord("calendar", "create", null, { type:fields.type||"reminder", date:fields.date, title:fields.title, notes:fields.notes||"", time:fields.time||"", location:fields.location||"" });
+          return writeRecord("calendar", "create", null, { type:fields.type||"reminder", date:fields.date, title:fields.title, notes:fields.notes||"", time:fields.time||"", location:fields.location||"" }, { source: "tars" });
         } else if (op === "update") {
-          return writeRecord("calendar", "update", id, fields);
+          return writeRecord("calendar", "update", id, fields, { source: "tars" });
         } else if (op === "delete") {
           if (id) {
-            return writeRecord("calendar", "delete", id);
+            return writeRecord("calendar", "delete", id, { source: "tars" });
           } else {
             // Fallback fuzzy match by title+date for cases where TARS doesn't have the exact id
             const target = calEvents.find(e => e.date===fields.date && e.title.toLowerCase().includes((fields.title||"").toLowerCase().slice(0,15)));
-            if (target) return writeRecord("calendar", "delete", target.id);
+            if (target) return writeRecord("calendar", "delete", target.id, { source: "tars" });
             return { success:false, reason:`couldn't find a calendar event matching "${fields.title||""}" on ${fields.date||"that date"}` };
           }
         }
@@ -4182,23 +4182,23 @@ ${(() => {
           weight: fields.weight ?? null, bodyFat: fields.bodyFat ?? null,
           fatMass: fields.fatMass ?? null, muscle: fields.muscle ?? null, bp: fields.bp ?? null,
           waist: fields.waist ?? null,
-        });
+        }, { source: "tars" });
       }
       case "calorieLog": {
         if (op === "create") {
-          return writeRecord("calorieLog", "create", null, { name:fields.name, kcal:fields.kcal||0, protein:fields.protein||0 });
+          return writeRecord("calorieLog", "create", null, { name:fields.name, kcal:fields.kcal||0, protein:fields.protein||0 }, { source: "tars" });
         } else if (op === "delete") {
-          return writeRecord("calorieLog", "delete", id);
+          return writeRecord("calorieLog", "delete", id, { source: "tars" });
         }
         break;
       }
       case "finance": {
         if (op === "create") {
-          return writeRecord("finance", "create", null, { ...fields, source: fields.source || "tars" });
+          return writeRecord("finance", "create", null, { ...fields, source: fields.source || "tars" }, { source: "tars" });
         } else if (op === "update") {
-          return writeRecord("finance", "update", id, fields);
+          return writeRecord("finance", "update", id, fields, { source: "tars" });
         } else if (op === "delete") {
-          return writeRecord("finance", "delete", id);
+          return writeRecord("finance", "delete", id, { source: "tars" });
         }
         break;
       }
@@ -4219,18 +4219,18 @@ ${(() => {
     }
     switch (action.type) {
       case "log_food":
-        return writeRecord("calorieLog", "create", null, { name:action.payload.name, kcal:action.payload.kcal, protein:action.payload.protein });
+        return writeRecord("calorieLog", "create", null, { name:action.payload.name, kcal:action.payload.kcal, protein:action.payload.protein }, { source: "tars" });
       case "add_task":
-        return writeRecord("tasks", "create", null, { text:action.payload.text, cat:action.payload.cat||"Admin", priority:action.payload.priority||"med", due:action.payload.due||"" });
+        return writeRecord("tasks", "create", null, { text:action.payload.text, cat:action.payload.cat||"Admin", priority:action.payload.priority||"med", due:action.payload.due||"" }, { source: "tars" });
       case "complete_task":
         // Explicit "mark done", not a toggle — sets completedAt too, so it shows up in
         // Stage 2's 90-day completed-tasks window like every other completion path does.
-        return writeRecord("tasks", "update", action.payload.id, { done:true, completedAt: toISODate(new Date()) });
+        return writeRecord("tasks", "update", action.payload.id, { done:true, completedAt: toISODate(new Date()) }, { source: "tars" });
       case "add_cal_event":
-        return writeRecord("calendar", "create", null, { type:action.payload.type||"reminder", date:action.payload.date, title:action.payload.title, notes:action.payload.notes||"", time:action.payload.time||"", location:action.payload.location||"" });
+        return writeRecord("calendar", "create", null, { type:action.payload.type||"reminder", date:action.payload.date, title:action.payload.title, notes:action.payload.notes||"", time:action.payload.time||"", location:action.payload.location||"" }, { source: "tars" });
       case "add_cal_events": {
         const results = (action.payload.events||[]).map(ev =>
-          writeRecord("calendar", "create", null, { type:ev.eventType||ev.type||"reminder", date:ev.date, title:ev.title, notes:ev.notes||"", time:ev.time||"", location:ev.location||"" })
+          writeRecord("calendar", "create", null, { type:ev.eventType||ev.type||"reminder", date:ev.date, title:ev.title, notes:ev.notes||"", time:ev.time||"", location:ev.location||"" }, { source: "tars" })
         );
         const failed = results.filter(r => !r.success);
         return failed.length === 0 ? { success:true } : { success:false, reason:`${failed.length} of ${results.length} events failed: ${failed.map(f=>f.reason).join("; ")}` };
@@ -4240,7 +4240,7 @@ ${(() => {
           e.date === action.payload.date &&
           e.title.toLowerCase().includes((action.payload.title||"").toLowerCase().slice(0,15))
         );
-        if (target) return writeRecord("calendar", "delete", target.id);
+        if (target) return writeRecord("calendar", "delete", target.id, { source: "tars" });
         return { success:false, reason:`couldn't find a calendar event matching "${action.payload.title||""}" on ${action.payload.date||"that date"}` };
       }
       case "log_health":
@@ -4252,7 +4252,7 @@ ${(() => {
           muscle: action.payload.muscle ?? null,
           bp: action.payload.bp ?? null,
           waist: action.payload.waist ?? null,
-        });
+        }, { source: "tars" });
       default:
         return { success:false, reason:`unrecognised action type: ${action.type}` };
     }
@@ -5504,32 +5504,32 @@ This project's conversation history below IS its memory — there's no separate 
     const { module, op, id, fields } = action;
     let result = { success:false, reason:`unrecognised module/operation: ${module}/${op}` };
     if (module === "tasks") {
-      if (op === "create") result = writeRecord("tasks", "create", null, { text:fields.text, cat:fields.cat||"Admin", priority:fields.priority||"med", due:fields.due||"" });
-      else if (op === "update") result = writeRecord("tasks", "update", id, fields);
-      else if (op === "delete") result = writeRecord("tasks", "delete", id);
+      if (op === "create") result = writeRecord("tasks", "create", null, { text:fields.text, cat:fields.cat||"Admin", priority:fields.priority||"med", due:fields.due||"" }, { source: "project" });
+      else if (op === "update") result = writeRecord("tasks", "update", id, fields, { source: "project" });
+      else if (op === "delete") result = writeRecord("tasks", "delete", id, { source: "project" });
     } else if (module === "calendar") {
-      if (op === "create") result = writeRecord("calendar", "create", null, { type:fields.type||"reminder", date:fields.date, title:fields.title, notes:fields.notes||"", time:fields.time||"", location:fields.location||"" });
-      else if (op === "update") result = writeRecord("calendar", "update", id, fields);
+      if (op === "create") result = writeRecord("calendar", "create", null, { type:fields.type||"reminder", date:fields.date, title:fields.title, notes:fields.notes||"", time:fields.time||"", location:fields.location||"" }, { source: "project" });
+      else if (op === "update") result = writeRecord("calendar", "update", id, fields, { source: "project" });
       else if (op === "delete") {
         if (id) {
-          result = writeRecord("calendar", "delete", id);
+          result = writeRecord("calendar", "delete", id, { source: "project" });
         } else {
           const target = calEvents.find(e => e.date===fields.date && e.title.toLowerCase().includes((fields.title||"").toLowerCase().slice(0,15)));
-          result = target ? writeRecord("calendar", "delete", target.id) : { success:false, reason:`couldn't find a calendar event matching "${fields.title||""}" on ${fields.date||"that date"}` };
+          result = target ? writeRecord("calendar", "delete", target.id, { source: "project" }) : { success:false, reason:`couldn't find a calendar event matching "${fields.title||""}" on ${fields.date||"that date"}` };
         }
       }
     } else if (module === "calorieLog") {
-      if (op === "create") result = writeRecord("calorieLog", "create", null, { name:fields.name, kcal:fields.kcal||0, protein:fields.protein||0 });
+      if (op === "create") result = writeRecord("calorieLog", "create", null, { name:fields.name, kcal:fields.kcal||0, protein:fields.protein||0 }, { source: "project" });
     } else if (module === "health") {
       if (op !== "create") {
         result = { success:false, reason:"Health entries can only be edited or deleted directly in the Health screen, not via chat — I can only add new check-ins here" };
       } else {
-        result = writeRecord("health", "create", null, { date:fields.date||toISODate(new Date()), weight:fields.weight??null, bodyFat:fields.bodyFat??null, fatMass:fields.fatMass??null, muscle:fields.muscle??null, bp:fields.bp??null, waist:fields.waist??null });
+        result = writeRecord("health", "create", null, { date:fields.date||toISODate(new Date()), weight:fields.weight??null, bodyFat:fields.bodyFat??null, fatMass:fields.fatMass??null, muscle:fields.muscle??null, bp:fields.bp??null, waist:fields.waist??null }, { source: "project" });
       }
     } else if (module === "finance") {
-      if (op === "create") result = writeRecord("finance", "create", null, { ...fields, source: fields.source || "tars" });
-      else if (op === "update") result = writeRecord("finance", "update", id, fields);
-      else if (op === "delete") result = writeRecord("finance", "delete", id);
+      if (op === "create") result = writeRecord("finance", "create", null, { ...fields, source: fields.source || "tars" }, { source: "project" });
+      else if (op === "update") result = writeRecord("finance", "update", id, fields, { source: "project" });
+      else if (op === "delete") result = writeRecord("finance", "delete", id, { source: "project" });
     }
     setPendingAction(null);
     return result;
@@ -5782,7 +5782,49 @@ export default function LifeApp() {
   // hit repeatedly (a fix landing in one entry point but not the others — the Health
   // carry-forward bug existed in four separate places before this) structurally
   // impossible going forward: there's only one place left to get it right or wrong. ──
-  const writeRecord = (module, op, id, fields = {}) => {
+  // Builds a reasonably readable notification message from the module/op/fields alone,
+  // so every TARS/automation-driven write gets a sensible notification without needing
+  // every single call site updated with a custom description.
+  const defaultNotificationText = (module, op, fields, id) => {
+    const label = MODULE_REGISTRY[module]?.label || module;
+    if (module === "tasks") {
+      if (op === "create") return `TARS added a task: "${fields.text}"`;
+      if (op === "toggle") return `TARS updated a task`;
+      if (op === "delete") return `TARS deleted a task`;
+      return `TARS updated a task`;
+    }
+    if (module === "calendar") {
+      if (op === "create") return `TARS added to your calendar: "${fields.title}"`;
+      if (op === "delete") return `TARS removed a calendar event`;
+      return `TARS updated a calendar event`;
+    }
+    if (module === "health" && op === "create") return `TARS logged a health check-in`;
+    if (module === "finance" && op === "create") return `TARS logged $${(fields.value||0).toFixed?fields.value.toFixed(2):fields.value} for ${fields.category||"an expense"}`;
+    if (module === "calorieLog" && op === "create") return `TARS logged ${fields.name||"a food entry"}${fields.kcal?` (${fields.kcal} kcal)`:""}`;
+    return `TARS made a change in ${label}`;
+  };
+
+  // ── writeRecord — THE unified write path (Stage 4). Every create/update/delete for
+  // every module, regardless of whether it came from TARS chat, Project chat, or a
+  // manual UI form, goes through here. This is what makes the exact bug class we've
+  // hit repeatedly (a fix landing in one entry point but not the others — the Health
+  // carry-forward bug existed in four separate places before this) structurally
+  // impossible going forward: there's only one place left to get it right or wrong.
+  //
+  // opts.source (Stage 6): when set to "tars" or "project", a successful write fires a
+  // notification into the (previously dormant) bell system. Deliberately omitted for
+  // manual UI edits — Neil is already looking at the screen when he edits something
+  // himself, a notification there would just be noise. ──
+  const writeRecord = (module, op, id, fields = {}, opts = {}) => {
+    const result = writeRecordCore(module, op, id, fields);
+    if (result.success && (opts.source === "tars" || opts.source === "project")) {
+      const message = opts.description || defaultNotificationText(module, op, fields, id);
+      setNotifications(prev => [...prev, { message, read: false, time: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) }]);
+    }
+    return result;
+  };
+
+  const writeRecordCore = (module, op, id, fields = {}) => {
     // Every update/delete/toggle checks the record actually exists BEFORE writing — if TARS
     // gives a wrong or stale id, this is what turns that into an honest "couldn't find it"
     // instead of a silent no-op that still gets reported as "Done."
