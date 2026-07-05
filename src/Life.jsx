@@ -5931,6 +5931,23 @@ export default function LifeApp() {
       return prev.map((e, i) => e.id != null ? e : { ...e, id: base + i });
     });
   }, []);
+  // ── One-time cleanup: rotation-related calendar entries created by an earlier
+  // instance before writeRecord existed. TARS couldn't reliably update/delete them (it
+  // reported success but nothing changed) — the most likely cause is these entries
+  // missing something writeRecord's existence-check relies on, given they predate the
+  // generic write system entirely. Rather than debug legacy data, removing them cleanly
+  // so Neil can re-enter rotation dates fresh through TARS, now that rotation blocks are
+  // properly wired in. Matches on "rotation" appearing in the title or notes, case
+  // insensitive — a no-op once none remain. ──
+  useEffect(() => {
+    setCalEvents(prev => {
+      const cleaned = prev.filter(e => {
+        const text = `${e.title||""} ${e.notes||""}`.toLowerCase();
+        return !text.includes("rotation");
+      });
+      return cleaned.length === prev.length ? prev : cleaned;
+    });
+  }, []);
   const todayLabel = new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"});
   const [calLog, setCalLog] = usePersistentState("life_cal_log", {});
 
