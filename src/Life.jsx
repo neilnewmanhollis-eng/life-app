@@ -773,7 +773,7 @@ function AICalLogger({ onAdd }) {
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method:"POST",
         headers:{ "Content-Type":"application/json", "x-api-key":apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
-        body: JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:200,
+        body: JSON.stringify({ model:HAIKU, max_tokens:200, // deliberate — simple calorie/protein estimate, no ACTION writes, Neil confirms before it saves. Was on Sonnet unnecessarily.
           system:"You are a nutrition estimator. Return ONLY valid JSON, no markdown.",
           messages:[{ role:"user", content:`Estimate calories and protein for: "${text}". Return JSON: {"name":"short name","kcal":number,"protein":number}` }]
         })
@@ -907,11 +907,13 @@ async function callClaudeRaw({ system, messages, tools, model }) {
   return response.json();
 }
 
-// ── HYBRID MODEL ROUTING ─────────────────────────────────────────────────────
-// Haiku (~12x cheaper) handles everyday queries — tasks, quick questions,
-// calorie logging, simple reminders. Sonnet handles complex reasoning, web
-// search, vault retrieval, multi-source planning, and anything requiring
-// genuine intelligence across multiple data sources. Completely invisible to Neil.
+// ── MODEL ROUTING ─────────────────────────────────────────────────────────
+// Main TARS chat (sendMessage) always uses Sonnet, deliberately — the honesty
+// principle and ACTION protocol need its reasoning, every time. Haiku is used
+// only for genuinely low-stakes, no-write, single-purpose calls: background
+// Tier B memory extraction, the manual calorie estimator, and recipe generation.
+// Anything that can write real data (dates, dollar figures, health metrics) via
+// an ACTION line explicitly requests Sonnet — never left to the default.
 const SONNET = "claude-sonnet-4-6";
 const HAIKU  = "claude-haiku-4-5-20251001";
 
@@ -1311,7 +1313,7 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
         method: "POST",
         headers: { "Content-Type":"application/json", "x-api-key":apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-6", max_tokens: 800,
+          model: HAIKU, max_tokens: 800, // deliberate — simple recipe-steps text, no ACTION writes, no financial/date stakes. Was on Sonnet unnecessarily.
           system: "You are a recipe writer. Return ONLY numbered steps, plain text, no markdown.",
           messages: [{ role: "user", content: `Simple recipe for "${meal.name}", 2 serves. Active time 20-30 mins max, oven time OK. No marinades. Numbered steps, concise. Use: ${meal.ingredients?.map(i => `${i.name} (${i.qty})`).join(", ")}.` }]
         })
@@ -2827,6 +2829,8 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addRotation, remove
         : [{ type:"text", text:`Extract travel info from this document content. File: ${file.name}` }];
 
       const text = await callClaude({
+        model: SONNET, // explicit — was silently defaulting to Haiku before; this writes real
+        // dates to the calendar from an uploaded document, so needs the same care as chat.
         system:`You extract travel information from uploaded documents. Return ONLY a JSON object with no markdown: {"events":[{"type":"flight|hotel|reminder|other","date":"YYYY-MM-DD","endDate":"YYYY-MM-DD or null","title":"short title","notes":"details","time":"HH:MM or null"}],"summary":"one sentence of what you found"} For flights: title = "SYD to LHR" style. For hotels: title = hotel name, endDate = checkout date. Dates MUST be in YYYY-MM-DD format.`,
         messages:[{ role:"user", content: msgContent }],
       });
@@ -3733,7 +3737,7 @@ Check his current rotation status first:
 If there's genuinely nothing worth reporting in a section, skip that section silently — don't say "nothing on your calendar today," just omit it. Don't manufacture content to seem thorough.
 If you mention how soon something today is (e.g. "in 15 minutes," "this afternoon"), calculate that properly from the current time given above — don't estimate or guess.`;
 
-      const reply = await callClaude({ system: briefSystem, messages: [{ role:"user", content:"Generate today's brief." }] });
+      const reply = await callClaude({ model: SONNET, system: briefSystem, messages: [{ role:"user", content:"Generate today's brief." }] }); // explicit — was silently defaulting to Haiku; real judgement calls here (rotation status, "ahead of pace" Finance) deserve the same care as chat.
       setLastBriefDate(todayKey);
       return reply.trim();
     } catch (err) {
@@ -4624,6 +4628,7 @@ ${(() => {
 
       // Step 1 — classify what the image is
       const classifyReply = await callClaude({
+        model: HAIKU, // deliberate — one-word classification, no writes, genuinely low-stakes.
         system: `You are an image classifier. Look at this image and respond with exactly one word only:
 FOOD — if it shows food, a meal, a drink, a snack, or anything edible
 HEALTH — if it shows a Samsung Health screenshot, fitness app data, steps, sleep, weight, heart rate, or any health metrics
@@ -4664,6 +4669,8 @@ OTHER — anything else`,
       }
 
       const reply = await callClaude({
+        model: SONNET, // explicit — was silently defaulting to Haiku; this path can log real
+        // dollar figures (receipts) and health metrics via ACTION lines, needs full care.
         system: buildSystemPrompt() + "\n\n" + systemAddendum,
         messages: [{ role:"user", content:[
           { type:"image", source:{ type:"base64", media_type:file.type, data:base64 }},
@@ -4852,7 +4859,7 @@ If multiple files were uploaded, treat them as related unless the content sugges
 
     const apiMessages = [{ role:"user", content: contentBlocks }];
 
-    const reply = await callClaude({ system: buildSystemPrompt() + "\n\n" + systemAddendum, messages: apiMessages });
+    const reply = await callClaude({ model: SONNET, system: buildSystemPrompt() + "\n\n" + systemAddendum, messages: apiMessages }); // explicit — was silently defaulting to Haiku; this path can log Finance/Calendar entries via ACTION lines from real uploaded documents.
 
     const displayReply3 = stripAction(reply);
     setMessages(prev => [...prev, { role:"assistant", content:displayReply3, ts }]);
@@ -5472,6 +5479,7 @@ If multiple files were uploaded, treat them as related unless the content sugges
                   const base64 = await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=()=>rej(new Error("fail"));r.readAsDataURL(file);});
                   const isImg = file.type.startsWith("image/");
                   const raw = await callClaude({
+                    model: HAIKU, // deliberate — plain summary, no writes, genuinely low-stakes.
                     system:`Extract key info. Return JSON only no markdown: {"summary":"paragraph","keyPoints":["p1","p2"],"docType":"type"}`,
                     messages:[{role:"user",content:isImg
                       ?[{type:"image",source:{type:"base64",media_type:file.type,data:base64}},{type:"text",text:"Summarise this."}]
