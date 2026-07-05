@@ -3792,10 +3792,22 @@ If you mention how soon something today is (e.g. "in 15 minutes," "this afternoo
     if (messagesEndRef.current) messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const buildSystemPrompt = () => {
+  // ── PROMPT CACHING SPLIT ─────────────────────────────────────────────────
+  // buildStaticSystemPrompt() returns the part of TARS's prompt that almost never
+  // changes between messages (identity, voice, rules, action protocol, module
+  // registry, date-handling instructions, memory instructions). buildDynamicSystemPrompt()
+  // returns the part that genuinely changes every message (today's date/time,
+  // STATE_SLICES live data, memory context). Marking only the static half with
+  // cache_control means Anthropic charges the ~10% cache-read rate for that whole
+  // block on every message after the first, instead of full price every time —
+  // with zero change to what TARS actually knows or can do. buildSystemPrompt()
+  // below is kept as the simple concatenation of both, for callers (image/file
+  // analysis, daily brief, classification) that don't need the cached array form.
+  const buildStaticSystemPrompt = () => {
     const now = new Date();
-    const today = now.toLocaleDateString("en-NZ", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
-    const currentTime = now.toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit", hour12:false }); // device's local clock — use this for any "in X minutes/hours" question, never guess or assume
+    // Note: "today"/"currentTime" as spoken values live in buildDynamicSystemPrompt now —
+    // this half only needs `now` to compute the date-anchor tables below, which are safe
+    // to cache (they only actually change once a day, not once a message).
 
     // Build a hard date-anchor table for the next 30 days so TARS never has to calculate
     // "this Friday" or "next Tuesday" itself — it just looks up the exact date.
@@ -3817,9 +3829,6 @@ If you mention how soon something today is (e.g. "in 15 minutes," "this afternoo
       monthAnchor.push(`${d.toLocaleDateString("en-NZ",{month:"long",year:"numeric"})}: 1st is a ${d.toLocaleDateString("en-NZ",{weekday:"long"})}`);
     }
 
-    const todayEntries = calLog[todayLabel] || [];
-    const todayKcal = todayEntries.reduce((s,e)=>s+e.kcal,0);
-    const todayProtein = todayEntries.reduce((s,e)=>s+e.protein,0);
     return `You are TARS. Not an AI assistant, not Claude, not a chatbot. You are TARS — the dry, deadpan AI unit from Interstellar, now hardwired into Neil's Life app as his personal AI.
 
 IDENTITY: Never say you are Claude or mention Anthropic. You are TARS. You are fully integrated into Neil's app and can log food, add tasks, add calendar events, and update health stats. Never claim you cannot do something the app supports.
@@ -3913,6 +3922,9 @@ Budget: $8-15 NZD per serving as a base. Meal planner generates 10-15 options, N
 
 VAULT USE — CRITICAL:
 You have a search_vault tool. Use it whenever Neil asks about something that might be in a previously uploaded document — flight times, hotel addresses, check-in times, booking references, certificate expiry dates, leave schedules — and you don't already have the specific detail in front of you. Don't guess from memory of what you said earlier; call the tool and read the real document. You'll be given a vault index showing what's available — match Neil's natural description (e.g. "my Brisbane hotel") against the index by reasoning about name, type, and summary, then retrieve the right one. If nothing in the index looks like a good match, say so plainly rather than guessing.
+
+HEALTH/FINANCE HISTORY BEYOND 90 DAYS:
+The HEALTH and FINANCE data given to you live only covers the last 90 days — this keeps the app efficient as real history piles up over months. It is NOT the limit of what actually exists. For anything reaching further back — "what was my body fat in January", "expenses in March", "how has my weight changed since I started" — call search_health_history or search_finance_history rather than saying you don't have it or guessing from what's in front of you. Both accept an optional date range and return full matching history; omit both dates for full all-time history. Never tell Neil older data "isn't available" — it always is, one tool call away.
 
 LOCATION / NEARBY SEARCH:
 You have a search_places tool for finding real places near Neil's current physical location — restaurants, cafes, pharmacies, shops, anything he asks is "nearby" or "within X minutes". It requests his device's live GPS location and searches Google Places around it, so the results are genuinely current, not guessed. If he gives a time instead of a distance (e.g. "within 5 minutes"), convert it yourself using the tool's guidance — don't ask him to convert it. If location permission was denied or the API key isn't set up, the tool will tell you plainly — pass that along to Neil honestly rather than inventing place names or addresses from training knowledge, which would be dangerously wrong for anything address- or hours-specific.
@@ -4011,10 +4023,21 @@ Write the fact as a clear, complete, standalone sentence — it needs to make se
 TIER B — patterns and preferences. Softer things that emerge from how a conversation goes rather than being stated outright — a preference, a communication tendency, something that landed well or didn't. You don't need to do anything active for these — they're picked up automatically once this conversation ends, no action needed from you. Don't claim these are "saved" the way Tier A facts are; if it comes up, something like "I'll keep that in mind" is honest, "I've saved that permanently" is not, because nothing permanent has happened yet at the point you'd be saying it.
 Never claim ANY memory action succeeded unless it was a genuine Tier A remember_fact action that you actually included — this app has a strict standing rule against confirming things that didn't really happen, and memory is no exception.
 
-IMPORTANT: Only include the ACTION line when you are proposing an action that needs confirmation (except remember_fact, which never needs it). Never say you have done something without first getting confirmation via this flow. The ACTION line is machine-readable — do not wrap it in quotes or markdown. The "date" field must always be in YYYY-MM-DD format using the exact date you resolved from the reference table above, never a relative term. You DO have the ability to delete calendar events — never tell Neil you can't, use the delete_cal_event action instead.
+IMPORTANT: Only include the ACTION line when you are proposing an action that needs confirmation (except remember_fact, which never needs it). Never say you have done something without first getting confirmation via this flow. The ACTION line is machine-readable — do not wrap it in quotes or markdown. The "date" field must always be in YYYY-MM-DD format using the exact date you resolved from the reference table above, never a relative term. You DO have the ability to delete calendar events — never tell Neil you can't, use the delete_cal_event action instead.`;
+  };
 
-
-LIVE DATA — right now:
+  // The dynamic half — genuinely changes every message, must never be cached
+  // (caching this would either serve stale live data, or, since cache_control
+  // requires an exact content match, simply fail to hit and get re-written every
+  // time — either way there'd be no benefit to caching it alongside the static part).
+  const buildDynamicSystemPrompt = () => {
+    const now = new Date();
+    const today = now.toLocaleDateString("en-NZ", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
+    const currentTime = now.toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit", hour12:false });
+    const todayEntries = calLog[todayLabel] || [];
+    const todayKcal = todayEntries.reduce((s,e)=>s+e.kcal,0);
+    const todayProtein = todayEntries.reduce((s,e)=>s+e.protein,0);
+    return `LIVE DATA — right now:
 Today is ${today}. The current time on Neil's device is ${currentTime} (24-hour, local — this is his phone's actual clock, always trust it over any assumption). When he asks how long until something, or you're mentioning an upcoming event's timing yourself (like in the Daily Brief), calculate the actual gap between ${currentTime} and the event's time properly — same rule as dates: work it out precisely, don't estimate or guess at how much time has passed or is left.
 
 ${(() => {
@@ -4024,10 +4047,20 @@ ${(() => {
   // Format: { label, data, format, skipIfEmpty }
   const STATE_SLICES = [
     {
-      label: "HEALTH — FULL CHECK-IN HISTORY (every entry ever logged, oldest first — use this for any trend or date-range question, e.g. \"how has my weight changed over 2 months\" or \"what was my body fat in early June\". Filter/compare it yourself rather than asking Neil to narrow it down. Entries are sparse — only fields actually measured that day are present, don't assume a blank field means zero.)",
-      data: healthEntries.slice().sort((a,b) => parseFlexibleDate(a.date) - parseFlexibleDate(b.date)),
+      // Windowed to the last 90 days, not full history, to stop this slice growing
+      // unbounded forever as months of real use accumulate. Anything older is still
+      // genuinely available — via the search_health_history tool — not lost. Same
+      // reasoning as the existing 90-day window on COMPLETED TASKS above.
+      label: "HEALTH — RECENT CHECK-IN HISTORY (last 90 days, oldest first — use this for any recent trend question. For anything further back, e.g. \"what was my body fat in January\" or a comparison spanning more than 90 days, use the search_health_history tool rather than guessing or saying you don't have it — full history is always available that way. Entries are sparse — only fields actually measured that day are present, don't assume a blank field means zero.)",
+      data: (() => {
+        const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
+        return healthEntries
+          .filter(e => parseFlexibleDate(e.date) >= cutoff)
+          .slice()
+          .sort((a,b) => parseFlexibleDate(a.date) - parseFlexibleDate(b.date));
+      })(),
       format: (sorted) => {
-        if (sorted.length === 0) return "none";
+        if (sorted.length === 0) return "none in the last 90 days — use search_health_history for older entries";
         return sorted.map(e => {
           const parts = [];
           if (e.weight != null) parts.push(`weight ${e.weight}kg`);
@@ -4198,9 +4231,18 @@ ${(() => {
       skipIfEmpty: false
     },
     {
-      label: "FINANCE — FULL EXPENSE HISTORY (every entry ever logged — use this for any date-range or historical spending question, e.g. \"expenses between 1 May and 17 June\". Filter it yourself by date rather than asking Neil to narrow it down.)",
-      data: financeEntries.slice().sort((a,b)=>parseFlexibleDate(a.date)-parseFlexibleDate(b.date)),
-      format: (list) => list.length === 0 ? "none" : list.map(e => `  id:${e.id} | ${e.date} | ${e.category} | $${e.value.toFixed(2)}${e.merchant?` | ${e.merchant}`:""}${e.source!=="manual"?` | via ${e.source}`:""}`).join("\n"),
+      // Windowed to 90 days for the same reason as Health above — this month's summary
+      // slice above already covers the current-month case; anything older than 90 days
+      // goes through search_finance_history instead of growing this forever.
+      label: "FINANCE — RECENT EXPENSE HISTORY (last 90 days — use this for recent date-range spending questions. For anything further back, e.g. \"expenses in March\" or a comparison spanning more than 90 days, use the search_finance_history tool rather than guessing or saying you don't have it — full history is always available that way. Use the exact id shown when editing/deleting an entry.)",
+      data: (() => {
+        const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
+        return financeEntries
+          .filter(e => parseFlexibleDate(e.date) >= cutoff)
+          .slice()
+          .sort((a,b)=>parseFlexibleDate(a.date)-parseFlexibleDate(b.date));
+      })(),
+      format: (list) => list.length === 0 ? "none in the last 90 days — use search_finance_history for older entries" : list.map(e => `  id:${e.id} | ${e.date} | ${e.category} | $${e.value.toFixed(2)}${e.merchant?` | ${e.merchant}`:""}${e.source!=="manual"?` | via ${e.source}`:""}`).join("\n"),
       skipIfEmpty: false
     },
     // ── FUTURE MODULES — add entries here as Work etc get built ──────
@@ -4217,6 +4259,30 @@ ${(() => {
     const memCtx = MemoryStore.buildContext();
     return memCtx ? `\n${memCtx}` : "\nNo session memory yet — this is early days.";
   })()}`;
+  };
+
+  // Plain concatenation of both halves — unchanged behaviour for every caller that
+  // doesn't need the cached array form (image analysis, file analysis, daily brief,
+  // image classification). None of these are worth caching individually — they're
+  // one-off calls, not a repeated back-and-forth — so simple concatenation is correct here.
+  const buildSystemPrompt = () => buildStaticSystemPrompt() + "\n\n" + buildDynamicSystemPrompt();
+
+  // The cached array form for main chat — the only place a system prompt gets reused
+  // across many messages in quick succession, which is exactly what caching needs to
+  // pay off. Anthropic caches everything up to and including the block carrying
+  // cache_control, so the static half goes first, marked, and the dynamic half (plus
+  // whatever the caller appends — vault index etc) goes after, unmarked, always fresh.
+  const buildSystemPromptCached = (addendum) => {
+    // ttl:"1h" deliberately, not the 5-minute default — Neil chats in short bursts with
+    // real thinking/typing pauses between messages (he's on a phone), and a 1-hour window
+    // is far more forgiving of that than 5 minutes. Cache reads are still ~10% of input
+    // price either way; the 1-hour write costs a bit more upfront (2x vs 1.25x base input)
+    // but only needs to hit twice to pay for itself, and stays warm across a whole session.
+    const blocks = [
+      { type: "text", text: buildStaticSystemPrompt(), cache_control: { type: "ephemeral", ttl: "1h" } },
+      { type: "text", text: buildDynamicSystemPrompt() + (addendum ? `\n\n${addendum}` : "") },
+    ];
+    return blocks;
   };
 
   // ── Execute confirmed action ──
@@ -4906,6 +4972,32 @@ If multiple files were uploaded, treat them as related unless the content sugges
         }
       };
 
+      // ── Health/Finance history tools — companion pieces to the 90-day windowing on the
+      // STATE_SLICES above. Live data still fully available, just fetched on demand for
+      // anything older than the recent window, the same pattern search_vault already uses. ──
+      const healthHistoryTool = {
+        name: "search_health_history",
+        description: "Retrieve health check-in entries older than the last 90 days (which are already in your live context). Use this for any trend or date-range question reaching further back than 90 days — e.g. \"what was my body fat in January\" or \"how has my weight changed since I started\". Omit both dates to get full all-time history.",
+        input_schema: {
+          type: "object",
+          properties: {
+            fromDate: { type:"string", description:"Start date YYYY-MM-DD, inclusive. Omit for no lower bound." },
+            toDate: { type:"string", description:"End date YYYY-MM-DD, inclusive. Omit for no upper bound." },
+          }
+        }
+      };
+      const financeHistoryTool = {
+        name: "search_finance_history",
+        description: "Retrieve Finance entries older than the last 90 days (which are already in your live context). Use this for any date-range or historical spending question reaching further back than 90 days — e.g. \"expenses in March\" or \"total spent on Fuel this year\". Omit both dates to get full all-time history.",
+        input_schema: {
+          type: "object",
+          properties: {
+            fromDate: { type:"string", description:"Start date YYYY-MM-DD, inclusive. Omit for no lower bound." },
+            toDate: { type:"string", description:"End date YYYY-MM-DD, inclusive. Omit for no upper bound." },
+          }
+        }
+      };
+
       const toolHandlers = {
         search_vault: async (input) => {
           const doc = vault.find(d => String(d.id) === String(input.documentId));
@@ -4929,12 +5021,60 @@ If multiple files were uploaded, treat them as related unless the content sugges
           return `Document "${doc.name}" (${doc.docType}, uploaded ${doc.uploadedAt}). Only a summary is available for this older entry: ${doc.summary || "No summary available."}`;
         },
         search_places: searchPlacesHandler,
+        search_health_history: async (input) => {
+          const from = input.fromDate ? parseFlexibleDate(input.fromDate) : null;
+          const to = input.toDate ? parseFlexibleDate(input.toDate) : null;
+          const matches = healthEntries
+            .filter(e => {
+              const d = parseFlexibleDate(e.date);
+              if (!d) return false;
+              if (from && d < from) return false;
+              if (to && d > to) return false;
+              return true;
+            })
+            .slice()
+            .sort((a,b) => parseFlexibleDate(a.date) - parseFlexibleDate(b.date));
+          if (matches.length === 0) return "No health entries found in that range.";
+          return matches.map(e => {
+            const parts = [];
+            if (e.weight != null) parts.push(`weight ${e.weight}kg`);
+            if (e.bodyFat != null) parts.push(`body fat ${e.bodyFat}%`);
+            if (e.fatMass != null) parts.push(`fat mass ${e.fatMass}kg`);
+            if (e.muscle != null) parts.push(`muscle ${e.muscle}kg`);
+            if (e.waist != null) parts.push(`waist ${e.waist}cm`);
+            if (e.bp) parts.push(`BP ${e.bp}`);
+            return `${e.date}: ${parts.length ? parts.join(", ") : "(no fields recorded)"}`;
+          }).join("\n");
+        },
+        search_finance_history: async (input) => {
+          const from = input.fromDate ? parseFlexibleDate(input.fromDate) : null;
+          const to = input.toDate ? parseFlexibleDate(input.toDate) : null;
+          const matches = financeEntries
+            .filter(e => {
+              const d = parseFlexibleDate(e.date);
+              if (!d) return false;
+              if (from && d < from) return false;
+              if (to && d > to) return false;
+              return true;
+            })
+            .slice()
+            .sort((a,b) => parseFlexibleDate(a.date) - parseFlexibleDate(b.date));
+          if (matches.length === 0) return "No Finance entries found in that range.";
+          return matches.map(e => `id:${e.id} | ${e.date} | ${e.category} | $${e.value.toFixed(2)}${e.merchant?` | ${e.merchant}`:""}${e.source!=="manual"?` | via ${e.source}`:""}`).join("\n");
+        },
       };
 
-      const systemWithVault = buildSystemPrompt()
-        + (vault.length > 0
-          ? `\n\nVAULT INDEX — documents Neil has previously uploaded (use the search_vault tool to retrieve full details for any of these when relevant to his question):\n${vaultIndex}`
-          : "\n\nVault is currently empty — no documents uploaded yet.");
+      const vaultAddendum = vault.length > 0
+        ? `VAULT INDEX — documents Neil has previously uploaded (use the search_vault tool to retrieve full details for any of these when relevant to his question):\n${vaultIndex}`
+        : "Vault is currently empty — no documents uploaded yet.";
+
+      // Cached array form — the static half (identity, rules, module registry, tool
+      // instructions) carries cache_control and gets billed at ~10% of input price on
+      // every message after the first within the cache window, instead of full price
+      // every time. The dynamic half (today's data, STATE_SLICES, vault index) is never
+      // cached — it must always be fresh. TARS's actual knowledge and behaviour is
+      // identical either way; this only changes what gets billed for repeating it.
+      const systemWithVault = buildSystemPromptCached(vaultAddendum);
 
       // ── Tools are always attached here — callClaudeWithTools uses Sonnet
       // regardless of this flag (see its definition), so gating tools by message
@@ -4943,7 +5083,7 @@ If multiple files were uploaded, treat them as related unless the content sugges
       const reply = await callClaudeWithTools({
         system: systemWithVault,
         messages: apiMessages,
-        tools: [vaultTool, WEB_SEARCH_TOOL, PLACES_SEARCH_TOOL],
+        tools: [vaultTool, healthHistoryTool, financeHistoryTool, WEB_SEARCH_TOOL, PLACES_SEARCH_TOOL],
         toolHandlers,
       });
 
