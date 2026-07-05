@@ -899,6 +899,23 @@ function certBadgeStatus(cert) {
 }
 const CERT_BADGE_COLORS = { green: "#22c55e", yellow: "#f5a623", red: "#e94560", booked: "#0f3460" };
 
+// Shown only alongside yellow/red on the certificate list — green means nothing to look
+// at yet, and once it's booked the countdown isn't the point anymore either. Picks weeks
+// under ~2 months, months (to the nearest half) above that — matches how Neil actually
+// thinks about lead time (a course-based renewal needs "6.5 months," not "197 days").
+function formatTimeUntilExpiry(expiryDate) {
+  const expiry = parseFlexibleDate(expiryDate);
+  if (!expiry) return "";
+  const days = Math.floor((expiry - new Date()) / 86400000);
+  if (days < 0) return "expired";
+  if (days < 60) {
+    const weeks = Math.max(1, Math.round(days / 7));
+    return `${weeks} week${weeks === 1 ? "" : "s"}`;
+  }
+  const months = Math.round((days / 30) * 2) / 2;
+  return `${months} month${months === 1 ? "" : "s"}`;
+}
+
 function getAnthropicKey() {
   return localStorage.getItem("tars_anthropic_key") || "";
 }
@@ -2965,10 +2982,58 @@ function CertEditModal({ cert, onClose, onSave, onDelete }) {
   );
 }
 
+// Paste-import — the safe alternative to a hosted transfer service. Text goes straight
+// from clipboard to local storage, nothing leaves the device, nothing new to secure.
+// Neil never needs to read or understand the pasted text — it's opaque to him by design,
+// the app just needs to parse it correctly.
+function ImportCertsModal({ onClose, onImport }) {
+  const [text, setText] = useState("");
+  const [error, setError] = useState(null);
+
+  const handleImport = () => {
+    setError(null);
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      setError("Couldn't read that — make sure the whole block was pasted, with nothing added or removed.");
+      return;
+    }
+    if (!Array.isArray(parsed)) parsed = [parsed];
+    const valid = parsed.filter(c => c && c.name && c.expiryDate);
+    if (valid.length === 0) {
+      setError("Nothing usable found in that text — check it's the right block.");
+      return;
+    }
+    // Fresh unique ids on import, regardless of whatever was in the pasted text —
+    // guarantees no collision with existing certs or with each other.
+    const withIds = valid.map((c, i) => ({ ...c, id: Date.now() + i, requirements: c.requirements || [] }));
+    onImport(withIds);
+    onClose();
+  };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1000, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={onClose}>
+      <div style={{ background:T.card, borderRadius:"20px 20px 0 0", padding:20, width:"100%", maxWidth:480, maxHeight:"85vh", overflowY:"auto", border:`1px solid ${T.border}`, boxSizing:"border-box" }} onClick={e=>e.stopPropagation()}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+          <div style={{ fontSize:15, fontWeight:700, color:T.text }}>Import Certificates</div>
+          <button onClick={onClose} style={{ background:"none", border:"none", color:T.muted, fontSize:18, cursor:"pointer", padding:4 }}>✕</button>
+        </div>
+        <div style={{ fontSize:12, color:T.muted, marginBottom:10, lineHeight:1.5 }}>Paste the block Claude gave you below — no need to read or understand it, just paste the whole thing exactly as given.</div>
+        {error && <div style={{ background:"#fee2e2", color:"#991b1b", borderRadius:8, padding:10, fontSize:12, marginBottom:10 }}>{error}</div>}
+        <textarea value={text} onChange={e=>setText(e.target.value)} rows={10} placeholder="Paste here…"
+          style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:11, fontFamily:"monospace", resize:"vertical", boxSizing:"border-box", marginBottom:14 }} />
+        <button onClick={handleImport} style={{ width:"100%", padding:"10px 16px", borderRadius:10, border:"none", background:T.blue, color:"white", fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>Import</button>
+      </div>
+    </div>
+  );
+}
+
 function WorkScreen({ onBack, workCerts, setWorkCerts }) {
   const [tab, setTab] = useState("certs"); // certs | seatime
   const [sortBy, setSortBy] = useState("expiry"); // expiry | type
   const [editingCert, setEditingCert] = useState(null); // record being edited, or {} sentinel for "new"
+  const [importing, setImporting] = useState(false);
 
   const sorted = workCerts.slice().sort((a,b) => {
     if (sortBy === "type") return (a.certType||"").localeCompare(b.certType||"") || (a.name||"").localeCompare(b.name||"");
@@ -3010,7 +3075,10 @@ function WorkScreen({ onBack, workCerts, setWorkCerts }) {
                 <button key={k} onClick={()=>setSortBy(k)} style={{ padding:"5px 10px", borderRadius:8, border:`1px solid ${sortBy===k?T.blue:T.border}`, background:sortBy===k?`${T.blue}18`:"transparent", color:sortBy===k?T.blue:T.muted, fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>Sort: {l}</button>
               ))}
             </div>
-            <button onClick={()=>setEditingCert({})} style={{ padding:"7px 12px", borderRadius:8, border:"none", background:T.blue, color:"white", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>+ Add</button>
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={()=>setImporting(true)} style={{ padding:"7px 12px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.muted, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>Import</button>
+              <button onClick={()=>setEditingCert({})} style={{ padding:"7px 12px", borderRadius:8, border:"none", background:T.blue, color:"white", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>+ Add</button>
+            </div>
           </div>
 
           {sorted.length === 0 ? (
@@ -3025,7 +3093,7 @@ function WorkScreen({ onBack, workCerts, setWorkCerts }) {
                     <div style={{ width:12, height:12, borderRadius:"50%", background:CERT_BADGE_COLORS[status], flexShrink:0 }} />
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{cert.name}</div>
-                      <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{cert.certType} · Expires {formatDateDDMMYYYY(cert.expiryDate)}{status==="booked" ? " · Renewal booked" : ""}{(cert.requirements&&cert.requirements.length>0) ? ` · ${cert.requirements.filter(r=>r.done).length}/${cert.requirements.length} requirements done` : ""}</div>
+                      <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{cert.certType} · Expires {formatDateDDMMYYYY(cert.expiryDate)}{(status==="yellow"||status==="red") ? ` · ${formatTimeUntilExpiry(cert.expiryDate)} left` : ""}{status==="booked" ? " · Renewal booked" : ""}{(cert.requirements&&cert.requirements.length>0) ? ` · ${cert.requirements.filter(r=>r.done).length}/${cert.requirements.length} requirements done` : ""}</div>
                     </div>
                   </div>
                 );
@@ -3041,6 +3109,13 @@ function WorkScreen({ onBack, workCerts, setWorkCerts }) {
           onClose={()=>setEditingCert(null)}
           onSave={handleSave}
           onDelete={handleDelete}
+        />
+      )}
+
+      {importing && (
+        <ImportCertsModal
+          onClose={()=>setImporting(false)}
+          onImport={(newCerts)=>setWorkCerts(prev => [...prev, ...newCerts])}
         />
       )}
     </div>
