@@ -3311,7 +3311,7 @@ const GistSync = {
     "life_health_entries", "life_cal_log",
     "life_steps_log", "life_workout_log", "life_last_brief_date",
     "life_finance_entries", "life_finance_budgets",
-    "life_notifications", "life_automation_rules",
+    "life_notifications", "life_automation_rules", "life_notify_routine_actions",
     "meal_library", "meal_current", "meal_cooked",
     "meal_shopping", "meal_regulars", "meal_pantry",
     "tars_vault",
@@ -6042,6 +6042,13 @@ export default function LifeApp() {
 
   const [screen, setScreen] = useState("home");
   const [notifications, setNotifications] = usePersistentState("life_notifications", []);
+  // Routine "TARS did X" notifications — off by default (Neil's explicit call: after
+  // extensive testing, these buried the notifications that actually matter, i.e. rule
+  // fires). Rule-fired notifications in evaluateRules() are NEVER gated by this — they
+  // stay unconditional regardless of this setting. Toggle lives inside the Notifications
+  // screen itself (reached by tapping the bell), not buried in TARS settings, specifically
+  // so Neil can flip it back on quickly if he ever needs to troubleshoot TARS behaviour.
+  const [notifyOnRoutineActions, setNotifyOnRoutineActions] = usePersistentState("life_notify_routine_actions", false);
   // ── Stage 7 — automation rules. Deliberately NOT run through MODULE_REGISTRY/writeRecord —
   // a rule isn't a life-data record like a task or expense, it's configuration about the
   // app's own behaviour, so a small dedicated system is more honest than forcing it through
@@ -6197,14 +6204,15 @@ export default function LifeApp() {
   // impossible going forward: there's only one place left to get it right or wrong.
   //
   // opts.source (Stage 6): when set to "tars" or "project", a successful write fires a
-  // notification into the (previously dormant) bell system. Deliberately omitted for
-  // manual UI edits — Neil is already looking at the screen when he edits something
-  // himself, a notification there would just be noise. ──
+  // routine notification into the bell system — but only if notifyOnRoutineActions is on
+  // (default off, per Neil's call after testing proved these buried the ones that matter).
+  // Deliberately omitted for manual UI edits regardless — Neil is already looking at the
+  // screen when he edits something himself, a notification there would just be noise. ──
   const writeRecord = (module, op, id, fields = {}, opts = {}) => {
     const result = writeRecordCore(module, op, id, fields);
     if (result.success) {
-      evaluateRules(module, op, fields);
-      if (opts.source === "tars" || opts.source === "project") {
+      evaluateRules(module, op, fields); // always runs, regardless of the toggle below
+      if ((opts.source === "tars" || opts.source === "project") && notifyOnRoutineActions) {
         const message = opts.description || defaultNotificationText(module, op, fields, id);
         setNotifications(prev => [...prev, { message, read: false, time: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) }]);
       }
@@ -6330,6 +6338,18 @@ export default function LifeApp() {
         <div>
           <SectionHeader title="Notifications" onBack={()=>setScreen("home")} />
           <div style={{ padding:"16px" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", background:T.card, borderRadius:12, padding:"12px 14px", border:`1px solid ${T.border}`, marginBottom:14 }}>
+              <div style={{ paddingRight:12 }}>
+                <div style={{ fontSize:13, fontWeight:600, color:T.text }}>Notify on every TARS action</div>
+                <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>Off by default — routine actions (logging food, adding a task) stay quiet. Rule-triggered notifications always come through either way. Turn on if you ever want to double-check TARS is behaving as expected.</div>
+              </div>
+              <button
+                onClick={()=>setNotifyOnRoutineActions(v=>!v)}
+                style={{ flexShrink:0, width:44, height:26, borderRadius:13, border:"none", cursor:"pointer", position:"relative", background:notifyOnRoutineActions?T.blue:T.border, transition:"background 0.15s" }}
+              >
+                <div style={{ position:"absolute", top:2, left:notifyOnRoutineActions?22:2, width:22, height:22, borderRadius:"50%", background:"#fff", transition:"left 0.15s" }} />
+              </button>
+            </div>
             {notifications.length === 0 ? (
               <div style={{ textAlign:"center", padding:"40px 20px", color:T.muted, fontSize:13 }}>No notifications yet.</div>
             ) : (
