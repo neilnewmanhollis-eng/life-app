@@ -527,10 +527,11 @@ function ComingSoon({ label, icon, accent, onBack }) {
 }
 
 // ModuleTile — home screen module card
-function ModuleTile({ icon, label, sublabel, accent, onClick, badge }) {
+function ModuleTile({ icon, label, sublabel, accent, onClick, badge, statusDot }) {
   return (
     <div onClick={onClick} style={{ background:T.card, borderRadius:16, padding:16, border:`1px solid ${T.border}`, cursor:"pointer", position:"relative", minHeight:100, display:"flex", flexDirection:"column", justifyContent:"space-between" }}>
       {badge && <div style={{ position:"absolute", top:10, right:10, width:20, height:20, borderRadius:"50%", background:T.accent, color:"white", fontSize:10, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center" }}>{badge}</div>}
+      {!badge && statusDot && <div style={{ position:"absolute", top:12, right:12, width:12, height:12, borderRadius:"50%", background:statusDot, border:"2px solid white", boxShadow:"0 0 0 1px rgba(0,0,0,0.06)" }} />}
       <div style={{ width:44, height:44, borderRadius:13, background:`${accent}22`, border:`1px solid ${accent}44`, display:"flex", alignItems:"center", justifyContent:"center" }}>
         <Icon name={icon} size={22} color={accent} />
       </div>
@@ -872,6 +873,31 @@ function formatDateDDMMYYYY(date) {
   const year = d.getFullYear();
   return `${day}/${month}/${year}`;
 }
+
+// ── WORK CERTIFICATES — badge status ─────────────────────────────────────────
+// Pure date arithmetic, deliberately no AI call involved anywhere in this — Neil's own
+// call, given this module is walled off from TARS entirely and he wants zero cost and
+// zero hallucination risk on something with real revalidation stakes. Thresholds are
+// his own, decided directly with him: course-type renewals (need booking/travel/time off
+// around an 8-week rotation) get a longer runway than admin-only renewals (can happen
+// any time, short notice is fine). "booked" always wins over the colour escalation —
+// once he's booked the renewal, the badge should say so, not keep alarming him.
+function certBadgeStatus(cert) {
+  if (cert.bookingStatus === "booked") return "booked";
+  const expiry = parseFlexibleDate(cert.expiryDate);
+  if (!expiry) return "green";
+  const daysLeft = Math.floor((expiry - new Date()) / 86400000);
+  if (cert.renewalType === "course") {
+    if (daysLeft <= 180) return "red";
+    if (daysLeft <= 365) return "yellow";
+    return "green";
+  }
+  // admin (default)
+  if (daysLeft <= 90) return "red";
+  if (daysLeft <= 180) return "yellow";
+  return "green";
+}
+const CERT_BADGE_COLORS = { green: "#22c55e", yellow: "#f5a623", red: "#e94560", booked: "#0f3460" };
 
 function getAnthropicKey() {
   return localStorage.getItem("tars_anthropic_key") || "";
@@ -2725,12 +2751,19 @@ function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets, write
 // ═══════════════════════════════════════════════════════════════════════════════
 // ─── HOME SCREEN ──────────────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
-function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo }) {
+function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo, workCerts }) {
   const rot = rotationInfo || { isOn:false, phase:"Off Rotation", daysLeft:0 };
   const weightLeft = (USER.health.weight - USER.health.target).toFixed(1);
   const completedToday = tasks.filter(t=>t.done).length;
   const pendingHigh = tasks.filter(t=>!t.done && t.priority==="high").length;
   const flightDisplay = nextFlight ? nextFlight.title.split(" ")[0]+"→"+nextFlight.title.split("→").pop().trim() : "No flights";
+  // Worst (most urgent) status across all certs, "booked" excluded from the escalation —
+  // a booked renewal is handled, it shouldn't still visually alarm on the home tile.
+  const certSeverity = { red:3, yellow:2, green:1, booked:0 };
+  const worstCertStatus = (workCerts||[]).reduce((worst, cert) => {
+    const s = certBadgeStatus(cert);
+    return certSeverity[s] > certSeverity[worst] ? s : worst;
+  }, "green");
 
   return (
     <div>
@@ -2764,7 +2797,7 @@ function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo 
           <ModuleTile icon="calendar" label="Calendar"  sublabel="Flights & rotation"        accent={T.gold}   onClick={()=>onNavigate("calendar")} />
           <ModuleTile icon="finance"  label="Finance"   sublabel="Budget & spending"         accent={T.purple} onClick={()=>onNavigate("finance")} />
           <ModuleTile icon="meals"    label="Meals"     sublabel="Plan, shop & cook"         accent={T.gold}   onClick={()=>onNavigate("meals")} />
-          <ModuleTile icon="work"     label="Work"      sublabel="Certs & vessel log"        accent={T.blue}   onClick={()=>onNavigate("work")} />
+          <ModuleTile icon="work"     label="Work"      sublabel="Certs & vessel log"        accent={T.blue}   onClick={()=>onNavigate("work")} statusDot={(workCerts&&workCerts.length>0&&worstCertStatus!=="green") ? CERT_BADGE_COLORS[worstCertStatus] : null} />
           <ModuleTile icon="projects" label="Projects"  sublabel="Plan with TARS"            accent={T.green}  onClick={()=>onNavigate("projects")} />
         </div>
 
@@ -2815,6 +2848,166 @@ function getDayType(dateStr, rotationBlocks, calEvents) {
   const hasFlight = dayEvents.some(e=>e.type==="flight");
   const hasHotel  = dayEvents.some(e=>e.type==="hotel");
   return { inRotation, isUnconfirmed, hasFlight, hasHotel, events:dayEvents };
+}
+
+// ── WORK — Certificate tracking ──────────────────────────────────────────────
+// Deliberately self-contained (see the note above MODULE_REGISTRY, and the
+// certBadgeStatus comment above) — no writeRecord, no shared modal, no TARS access
+// of any kind, main chat or Project. Neil manages every entry here himself; this is
+// the one module in the whole app where that's by design, not a gap to fill later.
+function CertEditModal({ cert, onClose, onSave, onDelete }) {
+  const [form, setForm] = useState(() => cert || {
+    name: "", certType: "CoP", issuingAuthority: "", regulationRef: "",
+    issueDate: "", expiryDate: "", renewalType: "admin", courseDurationDays: "",
+    bookingStatus: "none", bookingDate: "", bookingNotes: "", notes: "",
+  });
+  const isNew = !cert;
+
+  const handleSave = () => {
+    if (!form.name.trim() || !form.expiryDate) { alert("Name and expiry date are required."); return; }
+    onSave({ ...form, id: cert?.id || Date.now() });
+    onClose();
+  };
+
+  const field = (name, label, type, extra) => (
+    <div style={{ marginBottom:12 }}>
+      <div style={{ fontSize:11, color:T.muted, marginBottom:4 }}>{label}</div>
+      {type === "select" ? (
+        <select value={form[name]||""} onChange={e=>setForm(p=>({...p,[name]:e.target.value}))}
+          style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", boxSizing:"border-box" }}>
+          {extra.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      ) : type === "textarea" ? (
+        <textarea value={form[name]||""} onChange={e=>setForm(p=>({...p,[name]:e.target.value}))} rows={2}
+          style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", resize:"vertical", boxSizing:"border-box" }} />
+      ) : (
+        <input type={type} value={form[name]||""} onChange={e=>setForm(p=>({...p,[name]:e.target.value}))}
+          style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", boxSizing:"border-box" }} />
+      )}
+    </div>
+  );
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1000, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={onClose}>
+      <div style={{ background:T.card, borderRadius:"20px 20px 0 0", padding:20, width:"100%", maxWidth:480, maxHeight:"88vh", overflowY:"auto", border:`1px solid ${T.border}`, boxSizing:"border-box" }} onClick={e=>e.stopPropagation()}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+          <div style={{ fontSize:15, fontWeight:700, color:T.text }}>{isNew ? "Add Certificate" : "Edit Certificate"}</div>
+          <button onClick={onClose} style={{ background:"none", border:"none", color:T.muted, fontSize:18, cursor:"pointer", padding:4 }}>✕</button>
+        </div>
+        {field("name", "Certificate name", "text")}
+        {field("certType", "Type", "select", { options:[
+          { value:"CoC", label:"Certificate of Competency (CoC)" },
+          { value:"CoP", label:"Certificate of Proficiency (CoP)" },
+          { value:"Medical", label:"Medical" },
+          { value:"Endorsement", label:"Endorsement" },
+          { value:"Other", label:"Other" },
+        ]})}
+        {field("issuingAuthority", "Issuing authority", "text")}
+        {field("regulationRef", "Regulation reference (optional)", "text")}
+        {field("issueDate", "Date issued", "date")}
+        {field("expiryDate", "Expiry date", "date")}
+        {field("renewalType", "Renewal type", "select", { options:[
+          { value:"admin", label:"Admin — form/fee/medical sign-off, short notice fine" },
+          { value:"course", label:"Course/exam — needs booking & advance planning" },
+        ]})}
+        {form.renewalType === "course" && field("courseDurationDays", "Course length (days, optional)", "number")}
+        {field("bookingStatus", "Booking status", "select", { options:[
+          { value:"none", label:"Not booked" },
+          { value:"booked", label:"Booked — renewal in hand" },
+        ]})}
+        {form.bookingStatus === "booked" && field("bookingDate", "Booked date", "date")}
+        {form.bookingStatus === "booked" && field("bookingNotes", "Booking notes (optional)", "textarea")}
+        {field("notes", "Notes (optional)", "textarea")}
+        <div style={{ display:"flex", gap:8, marginTop:16 }}>
+          {!isNew && <button onClick={()=>{ if(window.confirm("Delete this certificate? This can't be undone.")) { onDelete(cert.id); onClose(); } }}
+            style={{ padding:"10px 16px", borderRadius:10, border:`1px solid ${T.accent}44`, background:`${T.accent}18`, color:T.accent, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>Delete</button>}
+          <button onClick={handleSave} style={{ flex:1, padding:"10px 16px", borderRadius:10, border:"none", background:T.blue, color:"white", fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WorkScreen({ onBack, workCerts, setWorkCerts }) {
+  const [tab, setTab] = useState("certs"); // certs | seatime
+  const [sortBy, setSortBy] = useState("expiry"); // expiry | type
+  const [editingCert, setEditingCert] = useState(null); // record being edited, or {} sentinel for "new"
+
+  const sorted = workCerts.slice().sort((a,b) => {
+    if (sortBy === "type") return (a.certType||"").localeCompare(b.certType||"") || (a.name||"").localeCompare(b.name||"");
+    const da = parseFlexibleDate(a.expiryDate), db = parseFlexibleDate(b.expiryDate);
+    if (!da && !db) return 0;
+    if (!da) return 1;
+    if (!db) return -1;
+    return da - db;
+  });
+
+  const handleSave = (cert) => {
+    setWorkCerts(prev => {
+      const exists = prev.some(c => c.id === cert.id);
+      return exists ? prev.map(c => c.id === cert.id ? cert : c) : [...prev, cert];
+    });
+  };
+  const handleDelete = (id) => setWorkCerts(prev => prev.filter(c => c.id !== id));
+
+  return (
+    <div>
+      <SectionHeader title="Work" onBack={onBack} />
+      <div style={{ display:"flex", padding:"0 16px", gap:8, marginTop:12 }}>
+        {[["certs","Certificates"],["seatime","Sea Time"]].map(([k,l]) => (
+          <button key={k} onClick={()=>setTab(k)} style={{ flex:1, padding:"9px", borderRadius:10, border:`1px solid ${tab===k?T.blue:T.border}`, background:tab===k?`${T.blue}18`:T.card, color:tab===k?T.blue:T.muted, fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>{l}</button>
+        ))}
+      </div>
+
+      {tab === "seatime" && (
+        <div style={{ padding:16, textAlign:"center", color:T.muted, fontSize:13, marginTop:20 }}>
+          Sea time tracking — coming soon.
+        </div>
+      )}
+
+      {tab === "certs" && (
+        <div style={{ padding:16 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+            <div style={{ display:"flex", gap:6 }}>
+              {[["expiry","Expiry"],["type","Type"]].map(([k,l]) => (
+                <button key={k} onClick={()=>setSortBy(k)} style={{ padding:"5px 10px", borderRadius:8, border:`1px solid ${sortBy===k?T.blue:T.border}`, background:sortBy===k?`${T.blue}18`:"transparent", color:sortBy===k?T.blue:T.muted, fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>Sort: {l}</button>
+              ))}
+            </div>
+            <button onClick={()=>setEditingCert({})} style={{ padding:"7px 12px", borderRadius:8, border:"none", background:T.blue, color:"white", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>+ Add</button>
+          </div>
+
+          {sorted.length === 0 ? (
+            <div style={{ textAlign:"center", padding:"40px 20px", color:T.muted, fontSize:13 }}>No certificates yet — tap + Add to log your first one.</div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+              {sorted.map(cert => {
+                const status = certBadgeStatus(cert);
+                return (
+                  <div key={cert.id} onClick={()=>setEditingCert(cert)}
+                    style={{ background:T.card, borderRadius:14, padding:14, border:`1px solid ${T.border}`, display:"flex", alignItems:"center", gap:12, cursor:"pointer" }}>
+                    <div style={{ width:12, height:12, borderRadius:"50%", background:CERT_BADGE_COLORS[status], flexShrink:0 }} />
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{cert.name}</div>
+                      <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{cert.certType} · Expires {formatDateDDMMYYYY(cert.expiryDate)}{status==="booked" ? " · Renewal booked" : ""}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {editingCert !== null && (
+        <CertEditModal
+          cert={editingCert.id ? editingCert : null}
+          onClose={()=>setEditingCert(null)}
+          onSave={handleSave}
+          onDelete={handleDelete}
+        />
+      )}
+    </div>
+  );
 }
 
 function CalendarScreen({ onBack, calEvents, rotationBlocks, addRotation, removeRotation, tasks, writeRecord }) {
@@ -3347,7 +3540,7 @@ const GistSync = {
     "life_health_entries", "life_cal_log",
     "life_steps_log", "life_workout_log", "life_last_brief_date",
     "life_finance_entries", "life_finance_budgets",
-    "life_notifications", "life_automation_rules", "life_notify_routine_actions",
+    "life_notifications", "life_automation_rules", "life_notify_routine_actions", "life_work_certs",
     "meal_library", "meal_current", "meal_cooked",
     "meal_shopping", "meal_regulars", "meal_pantry",
     "tars_vault",
@@ -3563,15 +3756,15 @@ const MODULE_REGISTRY = {
     { name:"notes", label:"Notes", type:"textarea", required:false },
   ], "Neil manages his own rotation dates separately and tells you when to update them — e.g. he may ask you to delete a whole year's blocks and re-enter fresh ones from a new planner document. Always confirm exactly which block(s) before deleting, and if he says something like \"delete all 2026 rotations,\" check the live list above first and delete each matching block individually rather than guessing which ones qualify."),
 
-  // Placeholder modules — not yet built in the UI, but registered now so the pattern
-  // is proven and TARS can be told about them ahead of time. When Work gets a real
-  // screen, it slots into this same generic system with zero new action types.
-  // certificates: buildModuleEntry("Work certificates", "id", [
-  //   { name:"id", type:"id" }, { name:"name", label:"Name", type:"text", required:true },
-  //   { name:"issueDate", label:"Issued", type:"date", required:false },
-  //   { name:"expiryDate", label:"Expires", type:"date", required:false },
-  //   { name:"notes", label:"Notes", type:"textarea", required:false },
-  // ]),
+  // Work certificates are deliberately NOT registered here. Neil decided this module
+  // is walled off from TARS entirely — no read, no write, main chat or Project — since
+  // it tracks real seafarer certificate revalidation and he wants zero AI involvement in
+  // it. Registering it in MODULE_REGISTRY would leak its existence and field structure
+  // into TARS's system prompt regardless of executor wiring (see the MODULE REGISTRY dump
+  // in buildStaticSystemPrompt/buildProjectPrompt — it lists every entry here, unconditionally).
+  // So this module is intentionally self-contained: its own state (life_work_certs), its
+  // own small edit UI, no writeRecord, no STATE_SLICE, no executeGenericAction case. Real
+  // isolation, not just an unused permission.
 };
 
 // ─── PROJECTS — TOPIC LIST SCREEN ──────────────────────────────────────────────
@@ -6204,6 +6397,12 @@ export default function LifeApp() {
   const [projects, setProjects] = usePersistentState("life_projects", []);
   const [activeProjectId, setActiveProjectId] = useState(null);
 
+  // ── WORK CERTIFICATES — fully self-contained, deliberately outside writeRecord/
+  // MODULE_REGISTRY/STATE_SLICES (see the note above MODULE_REGISTRY for why). Starts
+  // empty, always — no real cert data is ever hardcoded here, even Neil's own, since
+  // this file lives in a public repo (see Life_App_Build_Guide.md's security note). ──
+  const [workCerts, setWorkCerts] = usePersistentState("life_work_certs", []);
+
   // ── CALENDAR STATE (source of truth for whole app) ──────────────────────────
   const [calEvents, setCalEvents] = usePersistentState("life_cal_events", INIT_CAL_EVENTS);
   const [rotationBlocks, setRotationBlocks] = usePersistentState("life_rotation_blocks", INIT_ROTATION);
@@ -6413,7 +6612,7 @@ export default function LifeApp() {
 
   const renderScreen = () => {
     switch(screen) {
-      case "home":     return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} />;
+      case "home":     return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} workCerts={workCerts} />;
       case "notifications": return (
         <div>
           <SectionHeader title="Notifications" onBack={()=>setScreen("home")} />
@@ -6482,11 +6681,11 @@ export default function LifeApp() {
       case "calendar": return <CalendarScreen onBack={()=>setScreen("home")} calEvents={calEvents} rotationBlocks={rotationBlocks} addRotation={addRotation} removeRotation={removeRotation} tasks={tasks} writeRecord={writeRecord} />;
       case "health":   return <HealthScreen onBack={()=>setScreen("home")} entries={healthEntries} setEntries={setHealthEntries} calLog={calLog} setCalLog={setCalLog} writeRecord={writeRecord} />;
       case "finance":  return <FinanceScreen onBack={()=>setScreen("home")} entries={financeEntries} setEntries={setFinanceEntries} budgets={financeBudgets} setBudgets={setFinanceBudgets} writeRecord={writeRecord} />;
-      case "work":     return <ComingSoon label="Work" icon="work" accent={T.blue} onBack={()=>setScreen("home")} />;
+      case "work":     return <WorkScreen onBack={()=>setScreen("home")} workCerts={workCerts} setWorkCerts={setWorkCerts} />;
       case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord, rules, setRules, createRule }} />;
       case "projects": return <ProjectsListScreen onBack={()=>setScreen("home")} projects={projects} setProjects={setProjects} onOpenProject={(id)=>{ setActiveProjectId(id); setScreen("projectChat"); }} />;
       case "projectChat": return <ProjectChatScreen onBack={()=>setScreen("projects")} projectId={activeProjectId} projects={projects} setProjects={setProjects} appState={{ tasks, calEvents, writeRecord }} />;
-      default:         return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} />;
+      default:         return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} workCerts={workCerts} />;
     }
   };
 
