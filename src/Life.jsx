@@ -877,13 +877,14 @@ function getAnthropicKey() {
   return localStorage.getItem("tars_anthropic_key") || "";
 }
 
-async function callClaudeRaw({ system, messages, tools, model }) {
+async function callClaudeRaw({ system, messages, tools, model, maxTokens }) {
   const apiKey = getAnthropicKey();
   if (!apiKey) throw new Error("NO_KEY");
 
   const body = {
     model: model || "claude-haiku-4-5-20251001",
-    max_tokens: 1024,
+    max_tokens: maxTokens || 1024, // callers can raise this for calls that genuinely need more room
+    // than a normal chat reply — e.g. document generation — everything else keeps the 1024 default.
     system: system || "",
     messages,
   };
@@ -918,9 +919,44 @@ const SONNET = "claude-sonnet-4-6";
 const HAIKU  = "claude-haiku-4-5-20251001";
 
 // Simple version — no tools, just text in, text out
-async function callClaude({ system, messages, model }) {
-  const data = await callClaudeRaw({ system, messages: messages.map(m => ({ role: m.role, content: m.content })), model });
+async function callClaude({ system, messages, model, maxTokens }) {
+  const data = await callClaudeRaw({ system, messages: messages.map(m => ({ role: m.role, content: m.content })), model, maxTokens });
   return data.content?.map(b => b.text || "").join("") || "";
+}
+
+// ── DOCUMENT GENERATION — shared by both main TARS and Project TARS ─────────
+// Deliberately NOT a data write: doesn't touch writeRecord, doesn't create an app
+// record, and never needs to survive a reload — it's a one-shot text file handed
+// straight to the browser's download mechanism. Runs as its own call, separate from
+// the normal chat reply, with a much higher output cap (3000 vs. the usual 1024) —
+// a real summary needs more room than a quick chat answer does. `contextText` is
+// the raw source material to summarise: main TARS passes its live STATE_SLICES data,
+// Project TARS passes its own conversation transcript (which IS its memory).
+async function generateAndDownloadDocument({ title, contextText }) {
+  const apiKey = getAnthropicKey();
+  if (!apiKey) return { success:false, reason:"No Anthropic API key set — add one via TARS settings first." };
+  try {
+    const text = await callClaude({
+      model: SONNET,
+      maxTokens: 3000,
+      system: `You write clean, simple plain-text documents for Neil to read on his phone, saved as a .txt file. Rules: ALL CAPS section headers, plain dashes (-) for list items, one blank line between sections, no markdown syntax at all (no #, no **, no _, no backticks). No preamble before the content and no sign-off after it — start directly with the document itself. Be concise and factual — key points only. Never restate a full conversation or pad for length; this should read like a clean handover note, not a transcript.`,
+      messages: [{ role:"user", content:`Write a document titled "${title}" using the following as source material:\n\n${contextText}` }],
+    });
+    if (!text || !text.trim()) return { success:false, reason:"Got an empty response back — try again." };
+    const safeName = (title || "document").replace(/[^a-z0-9\- ]/gi, "").trim().replace(/\s+/g, "_").slice(0,60) || "document";
+    const blob = new Blob([text], { type:"text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${safeName}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return { success:true };
+  } catch (err) {
+    return { success:false, reason: err.message === "NO_KEY" ? "No Anthropic API key set." : (err.message || "generation failed") };
+  }
 }
 
 // Tool-use version — always uses Sonnet since tool use requires the more capable model
@@ -4027,6 +4063,11 @@ Write the fact as a clear, complete, standalone sentence — it needs to make se
 TIER B — patterns and preferences. Softer things that emerge from how a conversation goes rather than being stated outright — a preference, a communication tendency, something that landed well or didn't. You don't need to do anything active for these — they're picked up automatically once this conversation ends, no action needed from you. Don't claim these are "saved" the way Tier A facts are; if it comes up, something like "I'll keep that in mind" is honest, "I've saved that permanently" is not, because nothing permanent has happened yet at the point you'd be saying it.
 Never claim ANY memory action succeeded unless it was a genuine Tier A remember_fact action that you actually included — this app has a strict standing rule against confirming things that didn't really happen, and memory is no exception.
 
+DOCUMENT GENERATION — genuinely new capability:
+If Neil asks for a downloadable document, file, or summary he can save outside the app (e.g. "can you put my health progress into a document" or "give me a file I can download"), propose it in one short reply — a working title and a one-sentence description of what it'll cover — with the ACTION line in that SAME reply, same as any other action:
+ACTION:{"type":"generate_document","title":"Health Progress Summary","brief":"key metrics and trends over the last 3 months"}
+Do NOT write the actual document content in your reply — that happens separately, after Neil confirms, in a call with far more room than a normal reply gets. Once confirmed, a real plain-text file is generated and offered for download — Neil opens it on his phone outside the app. This is read-only: it never writes anything back into the app's data, and it draws only on the live data you can already see, nothing more.
+
 IMPORTANT: Only include the ACTION line when you are proposing an action that needs confirmation (except remember_fact, which never needs it). Never say you have done something without first getting confirmation via this flow. The ACTION line is machine-readable — do not wrap it in quotes or markdown. The "date" field must always be in YYYY-MM-DD format using the exact date you resolved from the reference table above, never a relative term. You DO have the ability to delete calendar events — never tell Neil you can't, use the delete_cal_event action instead.`;
   };
 
@@ -4481,6 +4522,8 @@ ${(() => {
         return { type:"log_health", payload:{ date:data.date, weight:data.weight, bodyFat:data.bodyFat, fatMass:data.fatMass, muscle:data.muscle, bp:data.bp, waist:data.waist }, description:`Log health check-in` };
       case "remember_fact":
         return { type: "remember_fact", payload: { fact: data.fact }, description: `Remember: ${data.fact}` };
+      case "generate_document":
+        return { type:"generate_document", payload:{ title:data.title||"Document", brief:data.brief||"" }, description:`Create a document: "${data.title||"Document"}"${data.brief?` — ${data.brief}`:""}` };
       case "create_rule": {
         const moduleLabel = MODULE_REGISTRY[data.trigger?.module]?.label || data.trigger?.module;
         const cond = data.trigger?.condition;
@@ -5351,7 +5394,21 @@ If multiple files were uploaded, treat them as related unless the content sugges
                 </div>
               )}
               <div style={{ display:"flex", gap:8 }}>
-                <button onClick={()=>{
+                <button onClick={async ()=>{
+                  if (pendingAction.type === "generate_document") {
+                    const action = pendingAction;
+                    setPendingAction(null);
+                    const genTs = new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"});
+                    setMessages(prev=>[...prev,{role:"assistant",content:"Generating your document…",ts:genTs}]);
+                    // Source material is TARS's own live data view — the same STATE_SLICES it
+                    // already sees every message — not the personality/rules half, which would
+                    // just be noise for a document that's supposed to be about Neil's data.
+                    const result = await generateAndDownloadDocument({ title: action.payload.title, contextText: buildDynamicSystemPrompt() });
+                    const content = result.success ? "Done — should be downloading now." : `Couldn't generate that — ${result.reason}.`;
+                    setMessages(prev=>[...prev,{role:"assistant",content,ts:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"})}]);
+                    speak(content);
+                    return;
+                  }
                   const result = executeAction(pendingAction);
                   const ts = new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"});
                   const content = result.success ? "Done." : `Couldn't actually do that — ${result.reason}. Nothing was changed.`;
@@ -5629,6 +5686,10 @@ ACTION:{"type":"generic","module":"<module>","op":"create|update|delete","id":"<
 
 MOVE / RESCHEDULE (e.g. a calendar event's date) — this is ALWAYS a single "update" op on the existing record's id, changing just the date field. Never create a new record and separately delete the old one for this — that only leaves duplicates or orphaned records if either half fails, and there's no reason to ever do it this way.
 
+DOCUMENT GENERATION — this is the main reason Neil uses Projects: plan something here, then get a clean summary out before deleting the project. If Neil asks for a downloadable document, file, or summary of this project (e.g. "can you summarise this into a file I can download" or "give me a document of our plan"), propose it in one short reply — a working title and a one-sentence description of what it'll cover — with the ACTION line in that SAME reply:
+ACTION:{"type":"generate_document","title":"Dubrovnik Trip Summary","brief":"key plans, bookings, and decisions from this project"}
+Do NOT write the actual document content in your reply — that happens separately after Neil confirms, using this project's own conversation as the source material. Once confirmed, a real plain-text file is generated and offered for download — Neil opens it on his phone outside the app, then typically deletes this project once he's checked it. This never writes anything back into the app's data.
+
 DATE FORMAT — CRITICAL: All dates you speak or write must be day-first. Spell the month out in full (e.g. "4 July 2026") or use DD/MM/YYYY numerically (e.g. "04/07/2026"). NEVER write MM/DD/YYYY American-style. The "date" field inside any ACTION block must always be YYYY-MM-DD internally (that's just data format, not what Neil reads) — but anything you say to Neil in plain text must be day-first.
 
 DATE REFERENCE (today and next 13 days):
@@ -5710,6 +5771,8 @@ This project's conversation history below IS its memory — there's no separate 
               : data.op === "update" ? `Update ${moduleLabel} record`
               : data.op === "delete" ? `Delete from ${moduleLabel}` : `${data.op} on ${moduleLabel}`;
             setPendingAction({ module:data.module, op:data.op, id:data.id, fields:data.fields||{}, description:desc });
+          } else if (data.type === "generate_document") {
+            setPendingAction({ type:"generate_document", title:data.title||"Document", brief:data.brief||"", description:`Create a document: "${data.title||"Document"}"${data.brief?` — ${data.brief}`:""}` });
           }
         } catch {}
       }
@@ -5792,6 +5855,8 @@ This project's conversation history below IS its memory — there's no separate 
             else if (data.op === "delete") desc = `Delete${titleHint ? ` "${titleHint}"` : ""}${dateHint} from ${ml}`;
             else desc = `${data.op} on ${ml}`;
             setPendingAction({ module:data.module, op:data.op, id:data.id, fields:data.fields||{}, description:desc });
+          } else if (data.type === "generate_document") {
+            setPendingAction({ type:"generate_document", title:data.title||"Document", brief:data.brief||"", description:`Create a document: "${data.title||"Document"}"${data.brief?` — ${data.brief}`:""}` });
           }
         } catch {}
       }
@@ -5898,7 +5963,22 @@ This project's conversation history below IS its memory — there's no separate 
           <div style={{ fontSize:12, color:T.gold, fontWeight:700, marginBottom:4 }}>⚡ Pending action</div>
           <div style={{ fontSize:12, color:T.text, marginBottom:10, lineHeight:1.5 }}>{pendingAction.description}</div>
           <div style={{ display:"flex", gap:8 }}>
-            <button onClick={()=>{
+            <button onClick={async ()=>{
+              if (pendingAction.type === "generate_document") {
+                const action = pendingAction;
+                setPendingAction(null);
+                const genTs = new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"});
+                setMessages(prev=>[...prev,{role:"assistant",content:"Generating your document…",ts:genTs}]);
+                // Source material is this project's own conversation — its full memory,
+                // exactly as Neil described the main use case: plan something here, get a
+                // clean summary out, delete the project once the file's downloaded and checked.
+                const transcript = messages.filter(m=>typeof m.content==="string").map(m=>`${m.role==="user"?"Neil":"TARS"}: ${m.content}`).join("\n");
+                const result = await generateAndDownloadDocument({ title: action.title, contextText: transcript });
+                const content = result.success ? "Done — should be downloading now." : `Couldn't generate that — ${result.reason}.`;
+                setMessages(prev=>[...prev,{role:"assistant",content,ts:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"})}]);
+                if (voiceEnabled) speakProject(content);
+                return;
+              }
               const result = executeProjectAction(pendingAction);
               const content = result.success ? "Done." : `Couldn't actually do that — ${result.reason}. Nothing was changed.`;
               setMessages(prev=>[...prev,{role:"assistant",content,ts:new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"})}]);
