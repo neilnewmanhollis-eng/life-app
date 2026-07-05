@@ -2860,8 +2860,18 @@ function CertEditModal({ cert, onClose, onSave, onDelete }) {
     name: "", certType: "CoP", issuingAuthority: "", regulationRef: "",
     issueDate: "", expiryDate: "", renewalType: "admin", courseDurationDays: "",
     bookingStatus: "none", bookingDate: "", bookingNotes: "", notes: "",
+    requirements: [],
   });
+  const [newReq, setNewReq] = useState("");
   const isNew = !cert;
+
+  const addRequirement = () => {
+    if (!newReq.trim()) return;
+    setForm(p => ({ ...p, requirements: [...(p.requirements||[]), { id: Date.now(), text: newReq.trim(), done: false }] }));
+    setNewReq("");
+  };
+  const toggleRequirement = (id) => setForm(p => ({ ...p, requirements: (p.requirements||[]).map(r => r.id===id ? { ...r, done: !r.done } : r) }));
+  const deleteRequirement = (id) => setForm(p => ({ ...p, requirements: (p.requirements||[]).filter(r => r.id!==id) }));
 
   const handleSave = () => {
     if (!form.name.trim() || !form.expiryDate) { alert("Name and expiry date are required."); return; }
@@ -2917,6 +2927,33 @@ function CertEditModal({ cert, onClose, onSave, onDelete }) {
         ]})}
         {form.bookingStatus === "booked" && field("bookingDate", "Booked date", "date")}
         {form.bookingStatus === "booked" && field("bookingNotes", "Booking notes (optional)", "textarea")}
+
+        <div style={{ marginBottom:12 }}>
+          <div style={{ fontSize:11, color:T.muted, marginBottom:6 }}>Revalidation requirements</div>
+          {(form.requirements||[]).length > 0 && (
+            <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:8 }}>
+              {(form.requirements||[]).map(r => (
+                <div key={r.id} style={{ display:"flex", alignItems:"center", gap:8, background:T.elevated, borderRadius:8, padding:"8px 10px" }}>
+                  <div onClick={()=>toggleRequirement(r.id)} style={{
+                    width:18, height:18, borderRadius:5, border:r.done?"none":`2px solid ${T.border}`,
+                    background:r.done?T.green:"transparent", display:"flex", alignItems:"center", justifyContent:"center",
+                    flexShrink:0, cursor:"pointer",
+                  }}>{r.done && <span style={{ color:"white", fontSize:11 }}>✓</span>}</div>
+                  <div style={{ flex:1, fontSize:12, color:r.done?T.muted:T.text, textDecoration:r.done?"line-through":"none" }}>{r.text}</div>
+                  <button onClick={()=>deleteRequirement(r.id)} style={{ background:"none", border:"none", color:T.muted, fontSize:14, cursor:"pointer", padding:2 }}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ display:"flex", gap:6 }}>
+            <input type="text" value={newReq} onChange={e=>setNewReq(e.target.value)}
+              onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); addRequirement(); } }}
+              placeholder="e.g. Advanced Fire Fighting revalidation"
+              style={{ flex:1, padding:"8px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", boxSizing:"border-box" }} />
+            <button onClick={addRequirement} style={{ padding:"8px 12px", borderRadius:8, border:"none", background:T.blue, color:"white", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>Add</button>
+          </div>
+        </div>
+
         {field("notes", "Notes (optional)", "textarea")}
         <div style={{ display:"flex", gap:8, marginTop:16 }}>
           {!isNew && <button onClick={()=>{ if(window.confirm("Delete this certificate? This can't be undone.")) { onDelete(cert.id); onClose(); } }}
@@ -2988,7 +3025,7 @@ function WorkScreen({ onBack, workCerts, setWorkCerts }) {
                     <div style={{ width:12, height:12, borderRadius:"50%", background:CERT_BADGE_COLORS[status], flexShrink:0 }} />
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{cert.name}</div>
-                      <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{cert.certType} · Expires {formatDateDDMMYYYY(cert.expiryDate)}{status==="booked" ? " · Renewal booked" : ""}</div>
+                      <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{cert.certType} · Expires {formatDateDDMMYYYY(cert.expiryDate)}{status==="booked" ? " · Renewal booked" : ""}{(cert.requirements&&cert.requirements.length>0) ? ` · ${cert.requirements.filter(r=>r.done).length}/${cert.requirements.length} requirements done` : ""}</div>
                     </div>
                   </div>
                 );
