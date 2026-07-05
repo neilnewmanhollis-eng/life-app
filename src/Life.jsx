@@ -2881,6 +2881,11 @@ function CertEditModal({ cert, onClose, onSave, onDelete }) {
   });
   const [newReq, setNewReq] = useState("");
   const isNew = !cert;
+  // Snapshot of the form exactly as it stood on open — compared against on close so an
+  // accidental tap-and-forget (e.g. brushing a date field while just reading) never saves
+  // silently. Captured once, on mount, via useRef's own "only runs once" semantics.
+  const initialSnapshot = useRef(JSON.stringify(form));
+  const hasChanges = () => JSON.stringify(form) !== initialSnapshot.current;
 
   const addRequirement = () => {
     if (!newReq.trim()) return;
@@ -2894,6 +2899,15 @@ function CertEditModal({ cert, onClose, onSave, onDelete }) {
     if (!form.name.trim() || !form.expiryDate) { alert("Name and expiry date are required."); return; }
     onSave({ ...form, id: cert?.id || Date.now() });
     onClose();
+  };
+
+  // Every way this modal can close (✕ button, tapping the backdrop) routes through here —
+  // never a silent close if something actually changed, but a truly untouched "just looking"
+  // visit closes instantly with no prompt at all.
+  const handleClose = () => {
+    if (!hasChanges()) { onClose(); return; }
+    const wantsSave = window.confirm(isNew ? "Save this certificate before closing?" : "Save these changes before closing?");
+    if (wantsSave) handleSave(); else onClose();
   };
 
   const field = (name, label, type, extra) => (
@@ -2915,11 +2929,11 @@ function CertEditModal({ cert, onClose, onSave, onDelete }) {
   );
 
   return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1000, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={onClose}>
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1000, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={handleClose}>
       <div style={{ background:T.card, borderRadius:"20px 20px 0 0", padding:20, width:"100%", maxWidth:480, maxHeight:"88vh", overflowY:"auto", border:`1px solid ${T.border}`, boxSizing:"border-box" }} onClick={e=>e.stopPropagation()}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
           <div style={{ fontSize:15, fontWeight:700, color:T.text }}>{isNew ? "Add Certificate" : "Edit Certificate"}</div>
-          <button onClick={onClose} style={{ background:"none", border:"none", color:T.muted, fontSize:18, cursor:"pointer", padding:4 }}>✕</button>
+          <button onClick={handleClose} style={{ background:"none", border:"none", color:T.muted, fontSize:18, cursor:"pointer", padding:4 }}>✕</button>
         </div>
         {field("name", "Certificate name", "text")}
         {field("certType", "Type", "select", { options:[
@@ -2927,6 +2941,7 @@ function CertEditModal({ cert, onClose, onSave, onDelete }) {
           { value:"CoP", label:"Certificate of Proficiency (CoP)" },
           { value:"Medical", label:"Medical" },
           { value:"Endorsement", label:"Endorsement" },
+          { value:"Travel", label:"Travel document (passport/visa)" },
           { value:"Other", label:"Other" },
         ]})}
         {field("issuingAuthority", "Issuing authority", "text")}
