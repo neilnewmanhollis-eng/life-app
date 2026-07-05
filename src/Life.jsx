@@ -237,10 +237,13 @@ function TodoScreen({ tasks, setTasks, writeRecord, onBack }) {
     if (selectedTask?.id===taskId) setSelectedTask(prev=>({...prev,subtasks:prev.subtasks.map(s=>s.id===subId?{...s,done:!s.done}:s)}));
   };
 
-  // Today view tasks — due today or overdue, not done
+  // Today view tasks — due today or overdue, not done. Sorted by priority (high first),
+  // matching the same sort already applied to the All tasks view.
+  const priorityRank = { high:0, med:1, low:2 };
+  const byPriority = (a,b) => (priorityRank[a.priority]??1) - (priorityRank[b.priority]??1);
   const todayTasks = tasks.filter(t => !t.done && (isToday(t.due) || isOverdue(t.due)));
-  const overdueTasks = todayTasks.filter(t => isOverdue(t.due));
-  const dueTodayTasks = todayTasks.filter(t => isToday(t.due));
+  const overdueTasks = todayTasks.filter(t => isOverdue(t.due)).sort(byPriority);
+  const dueTodayTasks = todayTasks.filter(t => isToday(t.due)).sort(byPriority);
 
   // All view tasks
   const allVisible = tasks.filter(t => {
@@ -249,8 +252,7 @@ function TodoScreen({ tasks, setTasks, writeRecord, onBack }) {
     return true;
   }).sort((a,b) => {
     if (a.done !== b.done) return a.done ? 1 : -1;
-    const pri = { high:0, med:1, low:2 };
-    return (pri[a.priority]||1) - (pri[b.priority]||1);
+    return byPriority(a,b);
   });
 
   const pendingCount = tasks.filter(t=>!t.done).length;
@@ -3513,6 +3515,14 @@ const MODULE_REGISTRY = {
     { name:"source", label:"Source", type:"select", options:["manual","receipt","tars"], required:false, editable:false },
   ], "value must always be positive."),
 
+  rotation: buildModuleEntry("Rotation blocks (Man of Steel)", "id", [
+    { name:"id", type:"id" },
+    { name:"start", label:"Join date", type:"date", required:true },
+    { name:"end", label:"Sign-off date", type:"date", required:true },
+    { name:"vessel", label:"Vessel", type:"text", required:false },
+    { name:"notes", label:"Notes", type:"textarea", required:false },
+  ], "Neil manages his own rotation dates separately and tells you when to update them — e.g. he may ask you to delete a whole year's blocks and re-enter fresh ones from a new planner document. Always confirm exactly which block(s) before deleting, and if he says something like \"delete all 2026 rotations,\" check the live list above first and delete each matching block individually rather than guessing which ones qualify."),
+
   // Placeholder modules — not yet built in the UI, but registered now so the pattern
   // is proven and TARS can be told about them ahead of time. When Work gets a real
   // screen, it slots into this same generic system with zero new action types.
@@ -3974,6 +3984,12 @@ For deleting a calendar event:
 Your natural response here, confirming exactly which event you're about to remove including its date. Confirm?
 ACTION:{"type":"delete_cal_event","title":"GP Appointment","date":"2026-07-04"}
 
+ROTATION BLOCKS — Neil manages his own actual rotation dates and tells you when to update them; you're not tracking this independently. Add, update, or delete via the generic format:
+ACTION:{"type":"generic","module":"rotation","op":"create","fields":{"start":"2026-07-22","end":"2026-09-16","vessel":"Man of Steel"}}
+If Neil says something like "delete all my 2026 rotation blocks" — check the live ROTATION BLOCKS list above, identify every block that genuinely falls in that range, state exactly which ones (with dates) before deleting, and if there's more than one, bundle them as separate ACTION lines in the same reply rather than doing them one at a time across several messages. Never guess which blocks qualify — always check the real list first.
+To update a block's dates directly (a genuine move, not delete+recreate) rather than replacing it:
+ACTION:{"type":"generic","module":"rotation","op":"update","id":"1719820800000","fields":{"end":"2026-09-20"}}
+
 AUTOMATION RULES — "when X happens, do Y": Neil can ask you to set up a standing rule that fires automatically in future, without him asking again each time. This is a genuinely new capability (Stage 7) — until now you could only act on direct requests in the moment.
 How it works: a rule watches for a specific thing happening in a specific module (e.g. "whenever a calorie entry is logged"), optionally with a simple condition (a field matching a value, or a time-of-day window), and when it matches, shows Neil a notification in the app's notification bell (top bar, next to the TARS button — this now genuinely works, badge shows unread count, tap to view). That is the ONLY thing a rule can currently do — show a notification. A rule can NEVER create, update, or delete anything by itself, and can never speak or interrupt Neil — it only ever adds a quiet notification he checks when he chooses to. If Neil asks for a rule that would need to actually take an action beyond notifying (e.g. "automatically add X to my calendar every time Y happens"), tell him plainly that's not supported yet — notification-only for now — rather than proposing something that oversteps this.
 Worked example — Neil's original motivating case, "remind me to take my evening supplements after I log dinner":
@@ -4127,9 +4143,9 @@ ${(() => {
       format: (evs) => evs.length === 0 ? "No events" : evs.map(e=>`  id:${e.id} | ${e.title} | ${e.date}${e.time?` ${e.time}`:""}${e.location?` (${e.location} local time)`:""} | ${e.type}`).join("\n")
     },
     {
-      label: "ROTATION BLOCKS (Man of Steel — for leave planning and days-on-board questions)",
+      label: "ROTATION BLOCKS (Man of Steel — for leave planning and days-on-board questions. Use the exact id when updating or deleting a specific block.)",
       data: rotationBlocks||[],
-      format: (blocks) => blocks.length === 0 ? "none set" : blocks.map(b=>`  ${b.start} to ${b.end}${b.notes?` (${b.notes})`:""}`).join("\n")
+      format: (blocks) => blocks.length === 0 ? "none set" : blocks.map(b=>`  id:${b.id} ${b.start} to ${b.end}${b.notes?` (${b.notes})`:""}`).join("\n")
     },
     {
       label: "CURRENT MEAL PLAN (meals selected for this week)",
@@ -4285,6 +4301,16 @@ ${(() => {
           return writeRecord("finance", "update", id, fields, { source: "tars" });
         } else if (op === "delete") {
           return writeRecord("finance", "delete", id, { source: "tars" });
+        }
+        break;
+      }
+      case "rotation": {
+        if (op === "create") {
+          return writeRecord("rotation", "create", null, { start:fields.start, end:fields.end, vessel:fields.vessel||"Man of Steel", notes:fields.notes||"" }, { source: "tars" });
+        } else if (op === "update") {
+          return writeRecord("rotation", "update", id, fields, { source: "tars" });
+        } else if (op === "delete") {
+          return writeRecord("rotation", "delete", id, { source: "tars" });
         }
         break;
       }
@@ -5930,8 +5956,8 @@ export default function LifeApp() {
   const [calEvents, setCalEvents] = usePersistentState("life_cal_events", INIT_CAL_EVENTS);
   const [rotationBlocks, setRotationBlocks] = usePersistentState("life_rotation_blocks", INIT_ROTATION);
 
-  const addRotation    = (blk) => setRotationBlocks(prev=>[...prev, {...blk, id:Date.now()}]);
-  const removeRotation = (id)  => setRotationBlocks(prev=>prev.filter(b=>b.id!==id));
+  const addRotation    = (blk) => writeRecord("rotation", "create", null, blk);
+  const removeRotation = (id)  => writeRecord("rotation", "delete", id);
 
   // ── writeRecord — THE unified write path (Stage 4). Every create/update/delete for
   // every module, regardless of whether it came from TARS chat, Project chat, or a
@@ -6088,6 +6114,16 @@ export default function LifeApp() {
       } else if (op === "delete") {
         if (!existsIn(calLog[dateKey])) return { success:false, reason:`no calorie entry found with id ${id} on ${dateKey}` };
         setCalLog(prev => ({ ...prev, [dateKey]: (prev[dateKey]||[]).filter(e => String(e.id)!==String(id)) }));
+        return { success: true };
+      }
+    } else if (module === "rotation") {
+      if (op === "create") {
+        setRotationBlocks(prev => [...prev, { id: Date.now(), vessel:"Man of Steel", notes:"", ...fields }]);
+        return { success: true };
+      } else if (op === "update" || op === "delete") {
+        if (!existsIn(rotationBlocks)) return { success:false, reason:`no rotation block found with id ${id}` };
+        if (op === "update") setRotationBlocks(prev => prev.map(b => String(b.id)===String(id) ? {...b, ...fields} : b));
+        else setRotationBlocks(prev => prev.filter(b => String(b.id)!==String(id)));
         return { success: true };
       }
     }
