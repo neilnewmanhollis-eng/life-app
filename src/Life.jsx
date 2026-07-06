@@ -969,6 +969,39 @@ function AICalLogger({ onAdd }) {
 // across browsers/engines. ──
 const MONTH_ABBR = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
 
+// ── PATCH 2 — keyword-based context windowing (opt-in, cautious by design) ──────
+// Neil's own idea: if he phrases a message with an explicit module cue ("look into my
+// health tab", "add this to my finance tracker"), only that module's STATE_SLICES data
+// needs to go out with that message — the rest is still genuinely available, just not
+// sent that time. Deliberately NOT an AI classifier — plain keyword matching against
+// Neil's own message text, done in JS before the API call: zero added cost, zero added
+// latency, and no risk of a model misjudging relevance.
+// SAFETY RULE, non-negotiable: if a message doesn't clearly and unambiguously match
+// modules, or matches none at all, send EVERYTHING — exactly like before this patch
+// existed. Narrowing only ever happens on a genuine, confident match. This is what
+// keeps this safe: the failure mode of "TARS didn't have data it actually needed" only
+// gets worse if this guesses aggressively, so it's built to guess conservatively instead.
+const MODULE_KEYWORDS = {
+  health:   ["health tab", "health data", "my health", "body fat", "my weight", "supplement", "exercise", "workout", "training session"],
+  calorie:  ["calorie", "calories", "kcal", "nutrition", "protein", "what have i eaten", "what did i eat"],
+  finance:  ["finance tracker", "finance", "budget", "expense", "spending", "spend", "transaction"],
+  calendar: ["calendar", "schedule", "my flight", "flights", "rotation", "shore leave", "upcoming event"],
+  tasks:    ["to do list", "to-do list", "todo list", "my tasks", "task list", "pending task"],
+  meals:    ["meal plan", "meal library", "cooked meal", "recipe", "what's for dinner", "what to cook"],
+};
+
+// Returns a Set of matched module keys, or null if nothing matched confidently
+// (meaning: send full context, unchanged default behaviour).
+function detectRelevantModules(text) {
+  if (!text || typeof text !== "string") return null;
+  const lower = text.toLowerCase();
+  const matched = new Set();
+  for (const [moduleKey, keywords] of Object.entries(MODULE_KEYWORDS)) {
+    if (keywords.some(kw => lower.includes(kw))) matched.add(moduleKey);
+  }
+  return matched.size > 0 ? matched : null;
+}
+
 function parseFlexibleDate(input) {
   if (input instanceof Date) return isNaN(input) ? null : input;
   if (!input || typeof input !== "string") return null;
@@ -4748,20 +4781,26 @@ LIVE DATA SECTIONS — FORMAT REFERENCE (cost/patch note: this used to be repeat
 - CURRENT MEAL PLAN / MEAL LIBRARY: meals selected for this week, and the library of available meals (use the library for calorie logging by meal name).
 - WORKOUT LOG: completed sessions, use for tracking progression.
 - COOKED MEALS & RATINGS: use this to discuss past meals, ratings, and what to suggest next.
-- FINANCE — THIS MONTH SUMMARY & BUDGET STATUS / RECENT EXPENSE HISTORY (last 90 days): use the exact id shown when editing or deleting an entry. For anything further back than 90 days (e.g. "expenses in March"), use search_finance_history rather than guessing or saying you don't have it.`;
+- FINANCE — THIS MONTH SUMMARY & BUDGET STATUS / RECENT EXPENSE HISTORY (last 90 days): use the exact id shown when editing or deleting an entry. For anything further back than 90 days (e.g. "expenses in March"), use search_finance_history rather than guessing or saying you don't have it.
+
+NOTE ON SECTION SELECTION: for cost reasons, some messages only include the live-data sections that clearly relate to what Neil's asking about that message, rather than every section every time — the rest genuinely still exists, it's just not included in that particular message. If you seem to be missing something you'd expect to see, say so plainly and ask Neil to rephrase or confirm what he needs — never conclude or imply that data doesn't exist just because it isn't in front of you this message.`;
   };
 
   // The dynamic half — genuinely changes every message, must never be cached
   // (caching this would either serve stale live data, or, since cache_control
   // requires an exact content match, simply fail to hit and get re-written every
   // time — either way there'd be no benefit to caching it alongside the static part).
-  const buildDynamicSystemPrompt = () => {
+  const buildDynamicSystemPrompt = (currentMessageText) => {
     const now = new Date();
     const today = now.toLocaleDateString("en-NZ", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
     const currentTime = now.toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit", hour12:false });
     const todayEntries = calLog[todayLabel] || [];
     const todayKcal = todayEntries.reduce((s,e)=>s+e.kcal,0);
     const todayProtein = todayEntries.reduce((s,e)=>s+e.protein,0);
+    // Patch 2 — null (default) when no message text is passed at all, e.g. Daily Brief,
+    // document generation, file/image analysis — those callers get full context,
+    // unchanged, deliberately. Only main chat's live sendMessage passes real text.
+    const relevantModules = detectRelevantModules(currentMessageText);
     return `LIVE DATA — right now:
 Today is ${today}. The current time on Neil's device is ${currentTime} (24-hour, local — this is his phone's actual clock, always trust it over any assumption). When he asks how long until something, or you're mentioning an upcoming event's timing yourself (like in the Daily Brief), calculate the actual gap between ${currentTime} and the event's time properly — same rule as dates: work it out precisely, don't estimate or guess at how much time has passed or is left.
 
@@ -4777,6 +4816,7 @@ ${(() => {
       // genuinely available — via the search_health_history tool — not lost. Same
       // reasoning as the existing 90-day window on COMPLETED TASKS above.
       label: "HEALTH — RECENT CHECK-IN HISTORY (last 90 days, oldest first — see format reference above)",
+      module: "health",
       data: (() => {
         const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
         return healthEntries
@@ -4800,6 +4840,7 @@ ${(() => {
     },
     {
       label: "HEALTH — LATEST PER METRIC (see format reference above)",
+      module: "health",
       data: healthEntries,
       format: (entries) => {
         if (!entries || entries.length === 0) return "No check-ins logged yet.";
@@ -4823,6 +4864,7 @@ ${(() => {
     },
     {
       label: "TODAY'S NUTRITION",
+      module: "calorie",
       data: { kcal: todayKcal, protein: todayProtein, entries: todayEntries },
       format: ({ kcal, protein, entries }) => {
         const entryList = entries.length > 0
@@ -4833,6 +4875,7 @@ ${(() => {
     },
     {
       label: "CALORIE HISTORY (last 7 days — see format reference above)",
+      module: "calorie",
       data: (() => {
         const entries = Object.entries(calLog)
           .filter(([date]) => date !== todayLabel)
@@ -4850,16 +4893,19 @@ ${(() => {
     },
     {
       label: "EXERCISE ROUTINE",
+      module: "health",
       data: EXERCISES,
       format: (ex) => `Bodyweight training (Mon/Wed/Fri), walking (Tue/Thu/Sat), rest (Sun).\nToday's training session:\n${ex.map(e=>`  - ${e.name}: ${e.detail} (${e.muscles})`).join("\n")}`
     },
     {
       label: "SUPPLEMENTS",
+      module: "health",
       data: SUPPLEMENTS,
       format: (s) => s.map(x=>`  - ${x.name} — ${x.when} (${x.phase})`).join("\n")
     },
     {
       label: "PENDING TASKS (see format reference above) — sorted by due date, soonest first; tasks with no due date listed last",
+      module: "tasks",
       data: tasks.filter(t=>!t.done).slice().sort((a,b) => {
         const da = a.due ? parseFlexibleDate(a.due) : null;
         const db = b.due ? parseFlexibleDate(b.due) : null;
@@ -4873,6 +4919,7 @@ ${(() => {
     },
     {
       label: "COMPLETED TASKS (last 90 days, most recent first — see format reference above)",
+      module: "tasks",
       data: (() => {
         const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
         return tasks
@@ -4903,6 +4950,7 @@ ${(() => {
       // Anything older than 90 days in the past is still real and available — via
       // search_calendar_history, same pattern as the other windowed modules.
       label: "CALENDAR (last 90 days + ALL upcoming events — see format reference above)",
+      module: "calendar",
       data: (() => {
         const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
         return calEvents
@@ -4914,23 +4962,27 @@ ${(() => {
     },
     {
       label: "ROTATION BLOCKS (Man of Steel — see format reference above)",
+      module: "calendar",
       data: rotationBlocks||[],
       format: (blocks) => blocks.length === 0 ? "none set" : blocks.map(b=>`  id:${b.id} ${b.start} to ${b.end}${b.notes?` (${b.notes})`:""}`).join("\n")
     },
     {
       label: "CURRENT MEAL PLAN (see format reference above)",
+      module: "meals",
       data: (() => { try { return JSON.parse(localStorage.getItem("meal_current")||"[]"); } catch { return []; } })(),
       format: (meals) => meals.length === 0 ? "No meals currently selected" : meals.map(m=>`  - ${m.name}: ${m.kcal}kcal, ${m.protein}g protein/serve (~$${m.costPerServe?.toFixed(0)||"?"}NZD/serve)`).join("\n"),
       skipIfEmpty: true
     },
     {
       label: "MEAL LIBRARY (see format reference above)",
+      module: "meals",
       data: (() => { try { return JSON.parse(localStorage.getItem("meal_library")||"[]").filter(m=>!m.cooked); } catch { return []; } })(),
       format: (meals) => meals.length === 0 ? "empty" : meals.map(m=>`  "${m.name}": ${m.kcal}kcal, ${m.protein}g protein`).join("\n"),
       skipIfEmpty: true
     },
     {
       label: "WORKOUT LOG (see format reference above)",
+      module: "health",
       data: (() => { try { return Object.entries(JSON.parse(localStorage.getItem("life_workout_log")||"{}")); } catch { return []; } })(),
       format: (sessions) => sessions.length === 0 ? "No sessions logged yet" : sessions.slice(-7).reverse().map(([date,s]) =>
         `  ${date}: ${s.exercises?.map(e=>`${e.name} ${e.setsCompleted}×${e.repsCompleted||"?"}`).join(", ")}${s.notes?` — ${s.notes}`:""}`
@@ -4939,12 +4991,14 @@ ${(() => {
     },
     {
       label: "COOKED MEALS & RATINGS (see format reference above)",
+      module: "meals",
       data: (() => { try { return JSON.parse(localStorage.getItem("meal_cooked")||"[]"); } catch { return []; } })(),
       format: (meals) => meals.length === 0 ? "none yet" : meals.map(m=>`  "${m.name}" — ${m.rating>0?`${m.rating}★`:"unrated"}${m.ratingNotes?` — "${m.ratingNotes}"`:""}${m.cookedDates?.length?` — cooked ${m.cookedDates.join(", ")}`:""}${m.saved?" — ★ SAVED FAVOURITE":""}`).join("\n"),
       skipIfEmpty: true
     },
     {
       label: "FINANCE — THIS MONTH SUMMARY & BUDGET STATUS (see format reference above)",
+      module: "finance",
       data: (() => {
         const now = new Date();
         const monthEntries = financeEntries.filter(e => {
@@ -4972,6 +5026,7 @@ ${(() => {
       // slice above already covers the current-month case; anything older than 90 days
       // goes through search_finance_history instead of growing this forever.
       label: "FINANCE — RECENT EXPENSE HISTORY (last 90 days — see format reference above)",
+      module: "finance",
       data: (() => {
         const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
         return financeEntries
@@ -4988,6 +5043,10 @@ ${(() => {
 
   return STATE_SLICES
     .filter(slice => !slice.skipIfEmpty || (Array.isArray(slice.data) ? slice.data.length > 0 : !!slice.data))
+    // Patch 2 — only narrows when relevantModules is a real, non-empty Set (a confident
+    // keyword match on Neil's current message). Entries with no `module` tag (Remembered
+    // Facts, Automation Rules) are cross-cutting and always included regardless.
+    .filter(slice => !relevantModules || !slice.module || relevantModules.has(slice.module))
     .map(slice => `${slice.label}:\n${slice.format(slice.data)}`)
     .join("\n\n");
 })()}
@@ -5009,7 +5068,7 @@ ${(() => {
   // pay off. Anthropic caches everything up to and including the block carrying
   // cache_control, so the static half goes first, marked, and the dynamic half (plus
   // whatever the caller appends — vault index etc) goes after, unmarked, always fresh.
-  const buildSystemPromptCached = (addendum) => {
+  const buildSystemPromptCached = (addendum, currentMessageText) => {
     // ttl:"1h" deliberately, not the 5-minute default — Neil chats in short bursts with
     // real thinking/typing pauses between messages (he's on a phone), and a 1-hour window
     // is far more forgiving of that than 5 minutes. Cache reads are still ~10% of input
@@ -5017,7 +5076,7 @@ ${(() => {
     // but only needs to hit twice to pay for itself, and stays warm across a whole session.
     const blocks = [
       { type: "text", text: buildStaticSystemPrompt(), cache_control: { type: "ephemeral", ttl: "1h" } },
-      { type: "text", text: buildDynamicSystemPrompt() + (addendum ? `\n\n${addendum}` : "") },
+      { type: "text", text: buildDynamicSystemPrompt(currentMessageText) + (addendum ? `\n\n${addendum}` : "") },
     ];
     return blocks;
   };
@@ -5847,7 +5906,7 @@ If multiple files were uploaded, treat them as related unless the content sugges
       // every time. The dynamic half (today's data, STATE_SLICES, vault index) is never
       // cached — it must always be fresh. TARS's actual knowledge and behaviour is
       // identical either way; this only changes what gets billed for repeating it.
-      const systemWithVault = buildSystemPromptCached(vaultAddendum);
+      const systemWithVault = buildSystemPromptCached(vaultAddendum, text);
 
       // ── Tools are always attached here — callClaudeWithTools uses Sonnet
       // regardless of this flag (see its definition), so gating tools by message
