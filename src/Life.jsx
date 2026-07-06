@@ -33,6 +33,28 @@ const T = {
   border:   "#1e2d4a",
 };
 
+// ─── NEW VISUAL THEME (in progress) ───────────────────────────────────────────
+// Screen-by-screen UI overhaul, agreed with Neil July 2026 — appearance/layout
+// only, zero change to how anything works underneath. T2 is deliberately kept
+// separate from the original T: only screens actually restyled use it, so
+// screens not yet touched keep looking exactly as before rather than picking
+// up a half-finished, inconsistent restyle. Once every screen is migrated,
+// T2 can simply replace T outright — not done yet, on purpose. Currently used
+// by: the persistent top bar (LifeApp), HomeScreen, HomePillPicker.
+const T2 = {
+  bg:         "#0B0B0E",
+  surface:    "#17181C",
+  iconBg:     "#241C14",
+  pillBg:     "#2A2016",
+  accent:     "#F0A93A",
+  text:       "#ECEAE6",
+  muted:      "#8A8A90",
+  border:     "#1D1E22",
+  successBg:  "#1F2A22",
+  successText:"#9FD4B8",
+  successDot: "#7BC49A",
+};
+
 // ─── INITIAL DATA ─────────────────────────────────────────────────────────────
 // USER (name/rotation/health/nextFlight hardcoded constants) removed entirely — name,
 // rotation, and nextFlight were dead code (defined, never referenced anywhere), and
@@ -124,6 +146,7 @@ const Icon = ({ name, size=22, color=T.text }) => {
     anchor:   <svg {...p}><circle cx="12" cy="5" r="3"/><line x1="12" y1="22" x2="12" y2="8"/><path d="M5 12H2a10 10 0 0020 0h-3"/></svg>,
     flight:   <svg {...p}><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 00-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>,
     hotel:    <svg {...p}><path d="M3 22V8l9-6 9 6v14"/><path d="M9 22V12h6v10"/></svg>,
+    dumbbell: <svg {...p}><path d="M6.5 6.5l11 11"/><path d="M5 5l2 2M17 17l2 2"/><rect x="2" y="9" width="4" height="6" rx="1"/><rect x="18" y="9" width="4" height="6" rx="1"/></svg>,
   };
   return icons[name] || icons.check;
 };
@@ -2778,7 +2801,128 @@ function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets, write
 // ═══════════════════════════════════════════════════════════════════════════════
 // ─── HOME SCREEN ──────────────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
-function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo, workCerts, healthEntries }) {
+// ── TARS idle tile — purely decorative, not a nav tile. Original abstracted
+// design (stacked panel segments, not a likeness of any copyrighted character):
+// gently rocks like it's shifting its stance, one segment idly pulsing amber,
+// crossfading every ~8s into TARS's existing rotation-aware one-liner (the
+// same quip that used to live in the old hero banner — just relocated, not
+// new logic). Respects prefers-reduced-motion: motion off, quip never shows,
+// tile settles to four static bars. Pure CSS, no animation library. ──
+function TarsIdleTile({ quip }) {
+  return (
+    <div style={{ background:T2.surface, borderRadius:16, padding:14, position:"relative", height:96, overflow:"hidden" }}>
+      <style>{`
+        @keyframes tarsTiltRock{0%,100%{transform:rotate(-3deg)}50%{transform:rotate(3deg)}}
+        @keyframes tarsSegGlow{0%,100%{background:${T2.border}}50%{background:${T2.accent}}}
+        @keyframes tarsIconFade{0%,35%{opacity:1}45%,90%{opacity:0}100%{opacity:1}}
+        @keyframes tarsQuipFade{0%,35%{opacity:0}45%,90%{opacity:1}100%{opacity:0}}
+        .tarsTiltStack{animation:tarsTiltRock 4s ease-in-out infinite}
+        .tarsSegPulse{animation:tarsSegGlow 4s ease-in-out infinite}
+        .tarsIconLayer{animation:tarsIconFade 8s ease-in-out infinite}
+        .tarsQuipLayer{animation:tarsQuipFade 8s ease-in-out infinite}
+        @media (prefers-reduced-motion: reduce) {
+          .tarsTiltStack, .tarsSegPulse, .tarsIconLayer, .tarsQuipLayer { animation: none; }
+        }
+      `}</style>
+      <div className="tarsIconLayer" style={{ position:"absolute", inset:14, display:"flex", alignItems:"center", justifyContent:"center" }}>
+        <div className="tarsTiltStack" style={{ display:"flex", flexDirection:"column", gap:4, width:48 }}>
+          <div style={{ height:14, width:48, borderRadius:4, background:T2.border }} />
+          <div style={{ height:14, width:48, borderRadius:4, background:T2.border }} />
+          <div className="tarsSegPulse" style={{ height:14, width:48, borderRadius:4, background:T2.border }} />
+          <div style={{ height:14, width:48, borderRadius:4, background:T2.border }} />
+        </div>
+      </div>
+      {quip ? (
+        <div className="tarsQuipLayer" style={{ position:"absolute", inset:14, display:"flex", alignItems:"center", opacity:0 }}>
+          <div style={{ fontSize:11, color:T2.text, lineHeight:1.5 }}>{quip}</div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// ── Configurable home-screen pills — a small registry, same pattern as
+// MODULE_REGISTRY: adding a new pill option later is one entry here, not new
+// branching logic scattered through the pill component. Each entry's compute()
+// takes a context object built fresh in HomeScreen and returns either a
+// {value, sub} pair to display, or null when there's genuinely nothing to show
+// (e.g. no flight booked) — a null result renders as a single faint dot,
+// never an empty box that could read as broken. ──
+const PILL_OPTIONS = [
+  { id:"weightToTarget", label:"Weight to target", icon:"health",
+    compute:(ctx) => ctx.weightLeft === "—" ? null : { value:`${ctx.weightLeft}kg`, sub:"to target" } },
+  { id:"nextFlight", label:"Next flight", icon:"flight",
+    compute:(ctx) => ctx.nextFlight ? { value:`${ctx.flightDaysLeft}d`, sub:"next flight" } : null },
+  { id:"rotationPhase", label:"Rotation phase", icon:"anchor",
+    compute:(ctx) => ({ value:`${ctx.rot.daysLeft}d`, sub:ctx.rot.phase }) },
+  { id:"calorieTracker", label:"Calories today", icon:"meals",
+    compute:(ctx) => ({ value:`${ctx.todayKcal}`, sub:"kcal today" }) },
+  { id:"exerciseDay", label:"Exercise today", icon:"dumbbell",
+    compute:(ctx) => ({ value:ctx.exerciseLabel, sub:"today" }) },
+  { id:"date", label:"Date", icon:"calendar",
+    compute:(ctx) => ({ value:ctx.dateShort, sub:ctx.dateWeekday }) },
+];
+
+function StatPillV2({ optionId, ctx, onTap }) {
+  const option = PILL_OPTIONS.find(o => o.id === optionId);
+  const result = option ? option.compute(ctx) : null;
+  return (
+    <div onClick={onTap} style={{ flex:1, minWidth:0, display:"flex", alignItems:"center", justifyContent:"center", gap:4, background:T2.surface, borderRadius:999, padding:"7px 6px", cursor:"pointer" }}>
+      {result ? (
+        <>
+          <Icon name={option.icon} size={12} color={T2.accent} />
+          <span style={{ fontSize:10, color:T2.text, fontWeight:700, whiteSpace:"nowrap" }}>{result.value}</span>
+          <span style={{ fontSize:9, color:T2.muted, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{result.sub}</span>
+        </>
+      ) : (
+        <span style={{ width:5, height:5, borderRadius:"50%", background:T2.border, flexShrink:0 }} />
+      )}
+    </div>
+  );
+}
+
+// ── Picker for which stat a given pill shows — same slide-up sheet pattern
+// as CertEditModal/ImportCertsModal, so it feels consistent with how the app
+// already asks Neil to choose something, rather than a native <select>. ──
+function HomePillPicker({ onClose, onSelect }) {
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1000, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={onClose}>
+      <div style={{ background:T2.surface, borderRadius:"20px 20px 0 0", padding:20, width:"100%", maxWidth:480, maxHeight:"70vh", overflowY:"auto", boxSizing:"border-box" }} onClick={e=>e.stopPropagation()}>
+        <div style={{ fontSize:14, fontWeight:700, color:T2.text, marginBottom:12 }}>Show in this pill</div>
+        {PILL_OPTIONS.map(opt => (
+          <div key={opt.id} onClick={()=>onSelect(opt.id)} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 8px", borderBottom:`1px solid ${T2.border}`, cursor:"pointer" }}>
+            <div style={{ width:32, height:32, borderRadius:10, background:T2.iconBg, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+              <Icon name={opt.icon} size={15} color={T2.accent} />
+            </div>
+            <div style={{ fontSize:13, color:T2.text }}>{opt.label}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Restyled module tile for the new Home grid — same footprint/shape for every
+// tile including the Work one, since only the Home screen's own nav tile is
+// in scope here; Work's actual screens and logic are untouched regardless.
+function HomeModuleTile({ icon, label, sublabel, badge, statusDot, onClick }) {
+  return (
+    <div onClick={onClick} style={{ background:T2.surface, borderRadius:16, padding:14, cursor:"pointer", position:"relative" }}>
+      {statusDot && <div style={{ position:"absolute", top:12, right:12, width:8, height:8, borderRadius:"50%", background:statusDot }} />}
+      <div style={{ width:32, height:32, borderRadius:10, background:T2.iconBg, display:"flex", alignItems:"center", justifyContent:"center", marginBottom:9 }}>
+        <Icon name={icon} size={16} color={T2.accent} />
+      </div>
+      <div style={{ fontSize:12, fontWeight:700, color:T2.text }}>{label}</div>
+      {badge ? (
+        <div style={{ display:"inline-block", background:T2.pillBg, borderRadius:999, padding:"2px 7px", marginTop:5, fontSize:8, color:T2.accent }}>{badge}</div>
+      ) : sublabel ? (
+        <div style={{ fontSize:9, color:T2.muted, marginTop:2 }}>{sublabel}</div>
+      ) : null}
+    </div>
+  );
+}
+
+function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo, workCerts, healthEntries, calLog, todayLabel, homePillConfig, setHomePillConfig }) {
   const rot = rotationInfo || { isOn:false, phase:"Off Rotation", daysLeft:0 };
   // Latest known weight, scanning backward through real entries — same pattern as
   // HealthScreen's latestMetric. Was previously a hardcoded real number that never
@@ -2800,63 +2944,84 @@ function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo,
     return certSeverity[s] > certSeverity[worst] ? s : worst;
   }, "green");
 
+  // Picker state — which of the 3 pill slots (if any) is currently open for editing
+  const [editingPillIndex, setEditingPillIndex] = useState(null);
+
+  // Context object handed to whichever PILL_OPTIONS.compute() each configured pill
+  // uses. All values here already existed elsewhere in the app or one screen up —
+  // nothing new is computed except the two small home-screen-only additions
+  // (flightDaysLeft, exerciseLabel, dateShort/dateWeekday), each a one-liner.
+  const todayEntries = (calLog && todayLabel) ? (calLog[todayLabel] || []) : [];
+  const todayKcal = todayEntries.reduce((s,e)=>s+e.kcal,0);
+  const flightDaysLeft = nextFlight ? Math.max(0, Math.ceil((parseFlexibleDate(nextFlight.date) - new Date()) / 86400000)) : null;
+  const todayDayAbbr = new Date().toLocaleDateString("en-NZ",{ weekday:"short" });
+  const todaysExercise = EXERCISE_PLAN.find(d => d.day === todayDayAbbr);
+  const exerciseLabel = todaysExercise ? (todaysExercise.type==="training" ? "Training day" : todaysExercise.type==="walk" ? "Walk day" : "Rest day") : "—";
+  const dateShort = new Date().toLocaleDateString("en-NZ",{ day:"numeric", month:"short" });
+  const dateWeekday = new Date().toLocaleDateString("en-NZ",{ weekday:"long" });
+  const pillCtx = { weightLeft, nextFlight, flightDaysLeft, rot, todayKcal, exerciseLabel, dateShort, dateWeekday };
+
+  const tarsQuip = rot.isOn
+    ? `${rot.daysLeft} days until shore leave. Man of Steel won't sail itself — actually it might.`
+    : nextFlight
+    ? `${rot.daysLeft} days until next rotation. Flight to ${nextFlight.title.split("→").pop().trim()} coming up.`
+    : `Off rotation. ${rot.daysLeft} days of freedom. Use them wisely.`;
+
   return (
-    <div>
-      {/* HERO */}
-      <div style={{ background:`linear-gradient(160deg, ${T.elevated} 0%, ${T.bg} 100%)`, padding:"28px 20px 24px", borderBottom:`1px solid ${T.border}` }}>
-        <div style={{ fontSize:10, fontWeight:700, letterSpacing:"0.12em", color:T.muted, textTransform:"uppercase", marginBottom:8 }}>{formatDate()}</div>
-        <div style={{ fontSize:26, fontWeight:800, color:T.text, lineHeight:1.2, marginBottom:4 }}>
-          {getGreeting()}, <span style={{ color:T.accent }}>Neil.</span>
-        </div>
-        <div style={{ fontSize:12, color:T.muted, fontStyle:"italic", marginBottom:20, lineHeight:1.5 }}>
-          <span style={{ color:T.blue, fontStyle:"normal", fontWeight:600 }}>TARS: </span>
-          {rot.isOn
-            ? `${rot.daysLeft} days until shore leave. Man of Steel won't sail itself — actually it might.`
-            : nextFlight
-            ? `${rot.daysLeft} days until next rotation. Flight to ${nextFlight.title.split("→").pop().trim()} coming up.`
-            : `Off rotation. ${rot.daysLeft} days of freedom. Use them wisely.`}
-        </div>
-        <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-          <StatPill icon={<Icon name="weight" size={13} color={T.blue}/>} label="Weight to target" value={`${weightLeft} kg`} color={T.blue} />
-          <StatPill icon={<Icon name="plane" size={13} color={T.accent}/>} label="Next flight" value={nextFlight ? nextFlight.date.split("-").slice(1).reverse().join(" ") : "None booked"} color={nextFlight?T.accent:T.muted} />
-          <StatPill icon="⚓" label={rot.phase} value={`${rot.daysLeft}d ${rot.isOn?"left":"to go"}`} color={rot.isOn?T.blue:T.green} />
-        </div>
+    <div style={{ background:T2.bg, minHeight:"100%", padding:"14px 16px 20px" }}>
+
+      {/* CONFIGURABLE PILL ROW — tap any pill to change what it shows */}
+      <div style={{ display:"flex", gap:6, marginBottom:14 }}>
+        {homePillConfig.map((optionId, i) => (
+          <StatPillV2 key={i} optionId={optionId} ctx={pillCtx} onTap={()=>setEditingPillIndex(i)} />
+        ))}
       </div>
 
-      <div style={{ padding:"20px 16px" }}>
-        {/* MODULE GRID */}
-        <SectionLabel>Modules</SectionLabel>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:20 }}>
-          <ModuleTile icon="health"   label="Health"    sublabel="Body & vitals"             accent={T.accent} onClick={()=>onNavigate("health")} />
-          <ModuleTile icon="tasks"    label="To Do"     sublabel={`${completedToday}/${tasks.length} today`} accent={T.green}  onClick={()=>onNavigate("tasks")} badge={pendingHigh||null} />
-          <ModuleTile icon="calendar" label="Calendar"  sublabel="Flights & rotation"        accent={T.gold}   onClick={()=>onNavigate("calendar")} />
-          <ModuleTile icon="finance"  label="Finance"   sublabel="Budget & spending"         accent={T.purple} onClick={()=>onNavigate("finance")} />
-          <ModuleTile icon="meals"    label="Meals"     sublabel="Plan, shop & cook"         accent={T.gold}   onClick={()=>onNavigate("meals")} />
-          <ModuleTile icon="work"     label="Work"      sublabel="Certs & vessel log"        accent={T.blue}   onClick={()=>onNavigate("work")} statusDot={(workCerts&&workCerts.length>0&&worstCertStatus!=="green") ? CERT_BADGE_COLORS[worstCertStatus] : null} />
-          <ModuleTile icon="projects" label="Projects"  sublabel="Plan with TARS"            accent={T.green}  onClick={()=>onNavigate("projects")} />
-        </div>
+      {/* MODULE GRID — 8 tiles: the TARS idle tile (not a nav tile) plus the
+          7 real module tiles, so the grid always fills evenly, no orphan tile
+          on its own row. */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
+        <TarsIdleTile quip={tarsQuip} />
+        <HomeModuleTile icon="health"   label="Health"   sublabel={currentWeight!=null ? `${currentWeight}kg` : "Body & vitals"} onClick={()=>onNavigate("health")} />
+        <HomeModuleTile icon="tasks"    label="Tasks"    sublabel={`${completedToday}/${tasks.length} today`} badge={pendingHigh||null} onClick={()=>onNavigate("tasks")} />
+        <HomeModuleTile icon="calendar" label="Calendar" sublabel="Flights & rotation" onClick={()=>onNavigate("calendar")} />
+        <HomeModuleTile icon="finance"  label="Finance"  sublabel="Budget & spending" onClick={()=>onNavigate("finance")} />
+        <HomeModuleTile icon="meals"    label="Meals"    sublabel="Plan, shop & cook" onClick={()=>onNavigate("meals")} />
+        <HomeModuleTile icon="work"     label="Work"     sublabel="Certs & vessel log" statusDot={(workCerts&&workCerts.length>0&&worstCertStatus!=="green") ? CERT_BADGE_COLORS[worstCertStatus] : null} onClick={()=>onNavigate("work")} />
+        <HomeModuleTile icon="projects" label="Projects" sublabel="Plan with TARS" onClick={()=>onNavigate("projects")} />
+      </div>
 
-        {/* TODAY'S TASKS */}
-        <SectionLabel>Today's tasks</SectionLabel>
-        <Card>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-            <div style={{ fontSize:12, fontWeight:700, color:T.text }}>Tasks</div>
-            <div style={{ fontSize:11, color:T.muted }}>{completedToday}/{tasks.length} done</div>
-          </div>
-          {tasks.filter(t=>t.priority==="high"||!t.done).slice(0,4).map(t=>(
-            <div key={t.id} onClick={()=>onToggleTask(t.id)} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 0", borderBottom:`1px solid ${T.border}`, cursor:"pointer" }}>
-              <div style={{ width:18, height:18, borderRadius:5, flexShrink:0, border:`2px solid ${t.done?T.green:T.border}`, background:t.done?T.green:"transparent", display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s" }}>
-                {t.done && <Icon name="check" size={11} color="white" />}
-              </div>
-              <span style={{ fontSize:12, color:t.done?T.muted:T.text, textDecoration:t.done?"line-through":"none", flex:1 }}>{t.text}</span>
-              <span style={{ fontSize:9, fontWeight:700, padding:"2px 6px", borderRadius:999, background:`${CAT_COLORS[t.cat]||T.blue}22`, color:CAT_COLORS[t.cat]||T.blue }}>{t.cat}</span>
+      {/* TODAY'S TASKS */}
+      <div style={{ background:T2.surface, borderRadius:16, padding:14 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+          <div style={{ fontSize:12, fontWeight:700, color:T2.text }}>Today's tasks</div>
+          <div style={{ fontSize:10, color:T2.muted }}>{completedToday}/{tasks.length} done</div>
+        </div>
+        {tasks.filter(t=>t.priority==="high"||!t.done).slice(0,4).map(t=>(
+          <div key={t.id} onClick={()=>onToggleTask(t.id)} style={{ display:"flex", alignItems:"center", gap:9, padding:"7px 0", borderBottom:`1px solid ${T2.border}`, cursor:"pointer" }}>
+            <div style={{ width:16, height:16, borderRadius:5, flexShrink:0, border:`1.5px solid ${t.done?T2.accent:T2.border}`, background:t.done?T2.accent:"transparent", display:"flex", alignItems:"center", justifyContent:"center" }}>
+              {t.done && <Icon name="check" size={10} color={T2.bg} />}
             </div>
-          ))}
-          <button onClick={()=>onNavigate("tasks")} style={{ marginTop:10, width:"100%", padding:"8px", borderRadius:8, background:"none", border:`1px solid ${T.border}`, color:T.muted, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>
-            View all tasks →
-          </button>
-        </Card>
+            <span style={{ fontSize:11, color:t.done?T2.muted:T2.text, textDecoration:t.done?"line-through":"none", flex:1 }}>{t.text}</span>
+            <span style={{ fontSize:9, fontWeight:700, padding:"2px 6px", borderRadius:999, background:T2.pillBg, color:T2.accent }}>{t.cat}</span>
+          </div>
+        ))}
+        <button onClick={()=>onNavigate("tasks")} style={{ marginTop:10, width:"100%", padding:"8px", borderRadius:8, background:"none", border:`1px solid ${T2.border}`, color:T2.muted, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>
+          View all tasks →
+        </button>
       </div>
+
+      {editingPillIndex !== null && (
+        <HomePillPicker
+          onClose={()=>setEditingPillIndex(null)}
+          onSelect={(optionId)=>{
+            const updated = homePillConfig.slice();
+            updated[editingPillIndex] = optionId;
+            setHomePillConfig(updated);
+            setEditingPillIndex(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -3686,6 +3851,7 @@ const GistSync = {
     "life_steps_log", "life_workout_log", "life_last_brief_date",
     "life_finance_entries", "life_finance_budgets",
     "life_notifications", "life_automation_rules", "life_notify_routine_actions", "life_work_certs",
+    "life_home_pills",
     "meal_library", "meal_current", "meal_cooked",
     "meal_shopping", "meal_regulars", "meal_pantry",
     "tars_vault",
@@ -5057,7 +5223,7 @@ OTHER — anything else`,
         systemAddendum = `The user has sent a photo of a purchase receipt. Read the merchant name and the TOTAL amount (not subtotal, not individual line items — the final amount paid, including any tax). Pick exactly ONE category from this list that best fits the overall purchase: ${FINANCE_CATEGORIES.join(", ")}. If the receipt has mixed items spanning categories (e.g. a supermarket run with both groceries and household items), just pick the dominant one — don't split it. State what you found plainly: "That's [merchant], $[total], I'd file that under [category]. Shall I log it?" Then emit an ACTION block: ACTION:{"type":"generic","module":"finance","op":"create","fields":{"date":"YYYY-MM-DD","category":"<exact category from the list>","value":<number>,"merchant":"<name>","notes":"","source":"receipt"}} — use today's date unless the receipt clearly shows a different date. If you can't read the total or merchant clearly, say so and ask Neil rather than guessing at numbers — a wrong dollar figure silently logged is worse than asking.`;
         userPrompt = "Read this receipt — merchant, total, and the best category for it.";
       } else if (imageType === "DOCUMENT") {
-        systemAddendum = `The user has sent a document image. Summarise the key information. If it contains dates, events, flights, or appointments, identify them and offer to add to the calendar. If it is a certificate or qualification, note the expiry date if visible and suggest adding to the Work module when built.`;
+        systemAddendum = `The user has sent a document image. Summarise the key information. If it contains dates, events, flights, or appointments, identify them and offer to add to the calendar. If it is a certificate or qualification, note the expiry date if visible — you have no access to the Work module and cannot add it there yourself, so don't suggest that; just surface the details from the image.`;
         userPrompt = "Summarise this document and identify anything worth adding to the app.";
       } else {
         systemAddendum = `The user has sent an image. Describe what you see and suggest how it might be useful in the Life app if relevant.`;
@@ -6599,6 +6765,11 @@ export default function LifeApp() {
   // this file lives in a public repo (see Life_App_Build_Guide.md's security note). ──
   const [workCerts, setWorkCerts] = usePersistentState("life_work_certs", []);
 
+  // ── Home screen's configurable pills — which stat each of the 3 pill slots
+  // shows. Defaults match the original fixed set so behaviour doesn't change
+  // until Neil actually opens a picker and chooses something different. ──
+  const [homePillConfig, setHomePillConfig] = usePersistentState("life_home_pills", ["weightToTarget", "calorieTracker", "rotationPhase"]);
+
   // ── CALENDAR STATE (source of truth for whole app) ──────────────────────────
   const [calEvents, setCalEvents] = usePersistentState("life_cal_events", INIT_CAL_EVENTS);
   const [rotationBlocks, setRotationBlocks] = usePersistentState("life_rotation_blocks", INIT_ROTATION);
@@ -6808,7 +6979,7 @@ export default function LifeApp() {
 
   const renderScreen = () => {
     switch(screen) {
-      case "home":     return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} workCerts={workCerts} healthEntries={healthEntries} />;
+      case "home":     return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} workCerts={workCerts} healthEntries={healthEntries} calLog={calLog} todayLabel={todayLabel} homePillConfig={homePillConfig} setHomePillConfig={setHomePillConfig} />;
       case "notifications": return (
         <div>
           <SectionHeader title="Notifications" onBack={()=>setScreen("home")} />
@@ -6880,31 +7051,34 @@ export default function LifeApp() {
       case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord, rules, setRules, createRule }} />;
       case "projects": return <ProjectsListScreen onBack={()=>setScreen("home")} projects={projects} setProjects={setProjects} onOpenProject={(id)=>{ setActiveProjectId(id); setScreen("projectChat"); }} />;
       case "projectChat": return <ProjectChatScreen onBack={()=>setScreen("projects")} projectId={activeProjectId} projects={projects} setProjects={setProjects} appState={{ tasks, calEvents, writeRecord }} />;
-      default:         return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} workCerts={workCerts} healthEntries={healthEntries} />;
+      default:         return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} workCerts={workCerts} healthEntries={healthEntries} calLog={calLog} todayLabel={todayLabel} homePillConfig={homePillConfig} setHomePillConfig={setHomePillConfig} />;
     }
   };
 
   return (
     <div style={{ background:T.bg, minHeight:"100vh", fontFamily:"'Inter', system-ui, -apple-system, sans-serif", color:T.text, width:"100%", position:"relative", overscrollBehaviorX:"none" }}>
-      <div style={{ position:"sticky", top:0, zIndex:50, background:`${T.bg}ee`, backdropFilter:"blur(12px)", borderBottom:`1px solid ${T.border}`, padding:"12px 20px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-        <button onClick={()=>setScreen("home")} style={{ background:"none", border:"none", padding:0, cursor:"pointer", fontSize:18, fontWeight:800, letterSpacing:"-0.02em", color:T.text, fontFamily:"inherit" }}>LIFE<span style={{ color:T.accent }}>.</span></button>
+      {/* Persistent top bar — restyled to the new theme (T2), same everywhere it already
+          rendered before (this sits outside renderScreen(), so it was already common to
+          every screen structurally; this change is visual only, same handlers). */}
+      <div style={{ position:"sticky", top:0, zIndex:50, background:`${T2.bg}ee`, backdropFilter:"blur(12px)", borderBottom:`1px solid ${T2.border}`, padding:"12px 20px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+        <button onClick={()=>setScreen("home")} style={{ background:"none", border:"none", padding:0, cursor:"pointer", fontSize:18, fontWeight:800, letterSpacing:"-0.02em", color:T2.text, fontFamily:"inherit" }}>LIFE<span style={{ color:T2.accent }}>.</span></button>
         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
           {/* Notification bell */}
           <button onClick={()=>setScreen("notifications")} style={{ position:"relative", background:"none", border:"none", cursor:"pointer", padding:4 }}>
             <span style={{ fontSize:18 }}>🔔</span>
             {unreadCount > 0 && (
-              <div style={{ position:"absolute", top:0, right:0, width:16, height:16, borderRadius:"50%", background:T.accent, color:"white", fontSize:9, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center" }}>{unreadCount}</div>
+              <div style={{ position:"absolute", top:0, right:0, width:16, height:16, borderRadius:"50%", background:T2.accent, color:T2.bg, fontSize:9, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center" }}>{unreadCount}</div>
             )}
           </button>
           {/* Automation rules — moved here from TARS settings so it's a peer of the bell, not buried */}
           <button onClick={()=>setScreen("automations")} style={{ position:"relative", background:"none", border:"none", cursor:"pointer", padding:4 }}>
             <span style={{ fontSize:18 }}>🤖</span>
             {activeRulesCount > 0 && (
-              <div style={{ position:"absolute", top:0, right:0, width:16, height:16, borderRadius:"50%", background:T.blue, color:"white", fontSize:9, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center" }}>{activeRulesCount}</div>
+              <div style={{ position:"absolute", top:0, right:0, width:16, height:16, borderRadius:"50%", background:T2.accent, color:T2.bg, fontSize:9, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center" }}>{activeRulesCount}</div>
             )}
           </button>
-          <button onClick={()=>setScreen("tars")} style={{ background:T.elevated, border:`1px solid ${T.border}`, borderRadius:999, padding:"6px 12px", display:"flex", alignItems:"center", gap:6, cursor:"pointer", color:T.blue, fontSize:11, fontWeight:700 }}>
-            <Icon name="mic" size={12} color={T.blue} /> TARS
+          <button onClick={()=>setScreen("tars")} style={{ background:T2.surface, border:`1px solid ${T2.border}`, borderRadius:999, padding:"6px 12px", display:"flex", alignItems:"center", gap:6, cursor:"pointer", color:T2.accent, fontSize:11, fontWeight:700 }}>
+            <Icon name="mic" size={12} color={T2.accent} /> TARS
           </button>
         </div>
       </div>
