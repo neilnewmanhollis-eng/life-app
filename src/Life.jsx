@@ -247,6 +247,29 @@ function tarsQuipForNow(pool) {
 // keys (lower/push/pull/core/flex) for filtering logic, this is just for what's shown.
 const AREA_LABELS = { lower:"Legs", push:"Upper body (push)", pull:"Upper body (pull)", core:"Core", flex:"Flexibility" };
 
+// ── Reference images + description, keyed by EXERCISE_LIBRARY id — deliberately
+// sparse right now. Images come from free-exercise-db (github.com/yuhonas/free-exercise-db),
+// released under the Unlicense (public domain, free for any use) — confirmed directly,
+// not assumed. Only entries actually verified as a genuine match get added here; the
+// rest of the library simply has no info button until checked, rather than guessing.
+// Descriptions are written fresh, not copied from the source dataset's own text.
+const EXERCISE_MEDIA = {
+  sq_body: {
+    images: [
+      "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Bodyweight_Squat/0.jpg",
+      "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Bodyweight_Squat/1.jpg",
+    ],
+    description: "Stand with feet shoulder-width apart, then bend your knees and lower your hips back and down as if sitting into a chair. Keep your chest up and push back to standing through your heels.",
+  },
+  walking_lunge: {
+    images: [
+      "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Bodyweight_Walking_Lunge/0.jpg",
+      "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Bodyweight_Walking_Lunge/1.jpg",
+    ],
+    description: "Step forward with one leg and lower your back knee toward the floor, keeping your front knee stacked over your ankle. Push off through your front foot to bring your feet back together, then step forward with the other leg.",
+  },
+};
+
 const EXERCISE_LIBRARY = [
   { id:"sq_body",       name:"Bodyweight Squats",                 area:"lower", tier:"beginner",     defaultSets:3, defaultReps:"10" },
   { id:"glute_bridge",  name:"Glute Bridges",                     area:"lower", tier:"beginner",     defaultSets:3, defaultReps:"12" },
@@ -2152,6 +2175,23 @@ function ExercisePickerSheet({ onClose, onSelect }) {
   );
 }
 
+function ExerciseInfoSheet({ exercise, media, onClose }) {
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1000, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={onClose}>
+      <div style={{ background:T.card, borderRadius:"20px 20px 0 0", padding:20, width:"100%", maxWidth:480, maxHeight:"80vh", overflowY:"auto", boxSizing:"border-box" }} onClick={e=>e.stopPropagation()}>
+        <div style={{ fontSize:14, fontWeight:700, color:T.text, marginBottom:8 }}>{exercise.name}</div>
+        <div style={{ fontSize:12, color:T.muted, lineHeight:1.5, marginBottom:14 }}>{media.description}</div>
+        <div style={{ display:"flex", gap:8 }}>
+          {media.images.map((src,i) => (
+            <img key={i} src={src} alt={`${exercise.name} — position ${i+1}`} style={{ flex:1, width:"50%", borderRadius:10, border:`1px solid ${T.border}`, objectFit:"cover" }} />
+          ))}
+        </div>
+        <div style={{ fontSize:10, color:T.muted, marginTop:10, textAlign:"center" }}>Reference photos: free-exercise-db (public domain)</div>
+      </div>
+    </div>
+  );
+}
+
 function WorkoutLogger({ today, exercises, onSave, onCancel }) {
   const [reps, setReps] = useState(() => Object.fromEntries(exercises.map(e=>([e.name, { sets:String(e.sets||3), reps:e.reps||"", notes:"" }]))));
   const [sessionNotes, setSessionNotes] = useState("");
@@ -2275,6 +2315,7 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
   const [loggingWorkout, setLoggingWorkout] = useState(false);
   const [editingTrainingDay, setEditingTrainingDay] = useState(null); // which day's picker is open
   const [editingRoutineSlot, setEditingRoutineSlot] = useState(null); // which of the 6 slot indices is open
+  const [viewingExerciseInfo, setViewingExerciseInfo] = useState(null); // which resolved exercise's info sheet is open
 
   const saveActivity = () => {
     if (!stepsForm.steps && !stepsForm.sleep) return;
@@ -2636,7 +2677,10 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
                       )}
                     </div>
                     {resolved && (
-                      <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+                      <div style={{ display:"flex", gap:6, flexShrink:0, alignItems:"center" }}>
+                        {EXERCISE_MEDIA[resolved.id] && (
+                          <button onClick={()=>setViewingExerciseInfo(resolved.id)} style={{ width:26, height:26, borderRadius:"50%", border:`1px solid ${T.blue}`, background:"none", color:T.blue, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", justifyContent:"center", padding:0 }} aria-label={`How to do ${resolved.name}`}>i</button>
+                        )}
                         <input type="number" value={slot.sets ?? resolved.sets} onChange={e=>{
                           const v = e.target.value;
                           setExerciseRoutine(prev => prev.map((s,j)=>j===i?{...s, sets:v}:s));
@@ -2669,6 +2713,13 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
                   setExerciseRoutine(prev => prev.map((s,j)=>j===editingRoutineSlot?{ exerciseId, sets:null, reps:null }:s));
                   setEditingRoutineSlot(null);
                 }}
+              />
+            )}
+            {viewingExerciseInfo && (
+              <ExerciseInfoSheet
+                exercise={EXERCISE_LIBRARY.find(e=>e.id===viewingExerciseInfo)}
+                media={EXERCISE_MEDIA[viewingExerciseInfo]}
+                onClose={()=>setViewingExerciseInfo(null)}
               />
             )}
           </div>
