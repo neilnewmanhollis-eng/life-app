@@ -2814,12 +2814,12 @@ function TarsIdleTile({ quip }) {
       <style>{`
         @keyframes tarsTiltRock{0%,100%{transform:rotate(-3deg)}50%{transform:rotate(3deg)}}
         @keyframes tarsSegGlow{0%,100%{background:${T2.border}}50%{background:${T2.accent}}}
-        @keyframes tarsIconFade{0%,35%{opacity:1}45%,90%{opacity:0}100%{opacity:1}}
-        @keyframes tarsQuipFade{0%,35%{opacity:0}45%,90%{opacity:1}100%{opacity:0}}
+        @keyframes tarsIconFade{0%,52%{opacity:1}61%,91%{opacity:0}100%{opacity:1}}
+        @keyframes tarsQuipFade{0%,52%{opacity:0}61%,91%{opacity:1}100%{opacity:0}}
         .tarsTiltStack{animation:tarsTiltRock 4s ease-in-out infinite}
         .tarsSegPulse{animation:tarsSegGlow 4s ease-in-out infinite}
-        .tarsIconLayer{animation:tarsIconFade 8s ease-in-out infinite}
-        .tarsQuipLayer{animation:tarsQuipFade 8s ease-in-out infinite}
+        .tarsIconLayer{animation:tarsIconFade 11.5s ease-in-out infinite}
+        .tarsQuipLayer{animation:tarsQuipFade 11.5s ease-in-out infinite}
         @media (prefers-reduced-motion: reduce) {
           .tarsTiltStack, .tarsSegPulse, .tarsIconLayer, .tarsQuipLayer { animation: none; }
         }
@@ -7059,8 +7059,12 @@ export default function LifeApp() {
     <div style={{ background:T.bg, minHeight:"100vh", fontFamily:"'Inter', system-ui, -apple-system, sans-serif", color:T.text, width:"100%", position:"relative", overscrollBehaviorX:"none" }}>
       {/* Persistent top bar — restyled to the new theme (T2), same everywhere it already
           rendered before (this sits outside renderScreen(), so it was already common to
-          every screen structurally; this change is visual only, same handlers). */}
-      <div style={{ position:"sticky", top:0, zIndex:50, background:`${T2.bg}ee`, backdropFilter:"blur(12px)", borderBottom:`1px solid ${T2.border}`, padding:"12px 20px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          every screen structurally). Changed from position:sticky to position:fixed —
+          sticky wasn't holding on Neil's device (scrolled away with the page instead of
+          staying put), fixed genuinely can't scroll away regardless of viewport quirks.
+          Explicit height (56px) so the content area below can reserve exactly that much
+          space and nothing sits underneath it. */}
+      <div style={{ position:"fixed", top:0, left:0, right:0, height:56, boxSizing:"border-box", zIndex:50, background:`${T2.bg}ee`, backdropFilter:"blur(12px)", borderBottom:`1px solid ${T2.border}`, padding:"12px 20px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
         <button onClick={()=>setScreen("home")} style={{ background:"none", border:"none", padding:0, cursor:"pointer", fontSize:18, fontWeight:800, letterSpacing:"-0.02em", color:T2.text, fontFamily:"inherit" }}>LIFE<span style={{ color:T2.accent }}>.</span></button>
         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
           {/* Notification bell */}
@@ -7082,7 +7086,7 @@ export default function LifeApp() {
           </button>
         </div>
       </div>
-      <div>{renderScreen()}</div>
+      <div style={{ paddingTop:56 }}>{renderScreen()}</div>
     </div>
   );
 }
