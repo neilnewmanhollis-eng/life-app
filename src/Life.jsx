@@ -34,38 +34,37 @@ const T = {
 };
 
 // ─── INITIAL DATA ─────────────────────────────────────────────────────────────
-const USER = {
-  name: "Neil",
-  rotation: { start: "2026-06-26", weeksOn: 8, weeksOff: 8 },
-  health: { weight: 89.0, target: 81, bodyFat: 25.2, fatMass: 22.4, muscle: 35.6, bp: "127/75" },
-  nextFlight: { route: "CHC → ORD", date: "24 Aug 2026", carrier: "United" },
-};
+// USER (name/rotation/health/nextFlight hardcoded constants) removed entirely — name,
+// rotation, and nextFlight were dead code (defined, never referenced anywhere), and
+// health baseline is now computed live from Neil's actual earliest health entry (see
+// baselineMetric() in HealthScreen) rather than a hardcoded real number sitting in the
+// public repo. Nothing in the app needs a USER constant anymore.
 
 const INIT_TASKS = [
   // Health — daily
-  { id:1,  text:"Take morning supplements", cat:"Health", priority:"high", due:"2026-07-02", done:false, notes:"Centrum, Magnesium Malate x2, Ashwagandha. Take with breakfast.", subtasks:[], pinned:true },
-  { id:2,  text:"Bodyweight training session", cat:"Health", priority:"high", due:"2026-07-02", done:false, notes:"Mon/Wed/Fri — squats, push-ups, rows, glute bridges, plank. Log it in Health > Exercise when done.", subtasks:[], pinned:false },
-  { id:3,  text:"Evening supplements with dinner", cat:"Health", priority:"med", due:"2026-07-02", done:false, notes:"Fish Oil x2, Vitamin D3. Take with main meal.", subtasks:[], pinned:false },
+  { id:1,  text:"Take morning supplements", cat:"Health", priority:"high", due:"", done:false, notes:"Take with breakfast.", subtasks:[], pinned:true },
+  { id:2,  text:"Bodyweight training session", cat:"Health", priority:"high", due:"", done:false, notes:"Log it in Health > Exercise when done.", subtasks:[], pinned:false },
+  { id:3,  text:"Evening supplements with dinner", cat:"Health", priority:"med", due:"", done:false, notes:"Take with main meal.", subtasks:[], pinned:false },
   // Admin — pre-rotation
-  { id:4,  text:"Confirm Dubrovnik flights are all ticketed", cat:"Admin", priority:"high", due:"2026-07-05", done:false, notes:"QF134 CHC→BNE 16 Jul, EK435 BNE→DXB 18 Jul, EK2012 DXB→ZAG 19 Jul, OU300 ZAG→DBV 19 Jul. All in vault and calendar.", subtasks:[], pinned:false },
-  { id:5,  text:"Pack for rotation", cat:"Admin", priority:"high", due:"2026-07-14", done:false, notes:"Joining Man of Steel in Dubrovnik 19 Jul. Rotation ~8 weeks.", subtasks:[
+  { id:4,  text:"Confirm flights are all ticketed", cat:"Admin", priority:"high", due:"", done:false, notes:"Check vault and calendar for full itinerary.", subtasks:[], pinned:false },
+  { id:5,  text:"Pack for rotation", cat:"Admin", priority:"high", due:"", done:false, notes:"", subtasks:[
     { id:"5a", text:"Uniform and epaulettes", done:false },
-    { id:"5b", text:"Supplements — full supply for 8 weeks", done:false },
-    { id:"5c", text:"Medications — Amlodipine prescription", done:false },
+    { id:"5b", text:"Supplements — full supply for rotation", done:false },
+    { id:"5c", text:"Medications", done:false },
     { id:"5d", text:"Safety certificates", done:false },
   ], pinned:false },
-  { id:6,  text:"Weekly health check-in — send Samsung Health screenshot to TARS", cat:"Health", priority:"med", due:"2026-07-09", done:false, notes:"Every Thursday 7am. Weight, body fat, muscle from Samsung Health. Send screenshot to TARS to auto-update stats.", subtasks:[], pinned:false },
-  // Work — Chief Officer pursuit
-  { id:7,  text:"Update CV for Chief Officer applications", cat:"Work", priority:"high", due:"2026-07-12", done:false, notes:"Goal: Chief Officer within 6-12 months. Need to highlight Man of Steel experience, watchkeeping hours, cargo/guest management.", subtasks:[
+  { id:6,  text:"Weekly health check-in", cat:"Health", priority:"med", due:"", done:false, notes:"Log weight, body fat, and muscle in Health.", subtasks:[], pinned:false },
+  // Work — career progression
+  { id:7,  text:"Update CV for next application", cat:"Work", priority:"high", due:"", done:false, notes:"", subtasks:[
     { id:"7a", text:"Update sea service record", done:false },
     { id:"7b", text:"Get reference from current Captain", done:false },
-    { id:"7c", text:"Review Chief Officer job boards", done:false },
+    { id:"7c", text:"Review job boards", done:false },
   ], pinned:false },
-  { id:8,  text:"Check certificate expiry dates before rotation", cat:"Work", priority:"high", due:"2026-07-10", done:false, notes:"STCW, GMDSS, Medical, Watchkeeping. Flag anything expiring during or before next rotation.", subtasks:[], pinned:false },
+  { id:8,  text:"Check certificate expiry dates before rotation", cat:"Work", priority:"high", due:"", done:false, notes:"Flag anything expiring during or before next rotation.", subtasks:[], pinned:false },
   // Shopping
-  { id:9,  text:"Supplement restock before rotation", cat:"Shopping", priority:"med", due:"2026-07-13", done:false, notes:"Need 8 week supply. Centrum, Magnesium Malate, Ashwagandha, Fish Oil, Vitamin D3.", subtasks:[], pinned:false },
+  { id:9,  text:"Supplement restock before rotation", cat:"Shopping", priority:"med", due:"", done:false, notes:"Check enough supply for a full rotation.", subtasks:[], pinned:false },
   // Admin
-  { id:10, text:"Arrange house while on rotation", cat:"Admin", priority:"med", due:"2026-07-12", done:false, notes:"Christchurch property — check mail, plants, any maintenance needs.", subtasks:[], pinned:false },
+  { id:10, text:"Arrange house while on rotation", cat:"Admin", priority:"med", due:"", done:false, notes:"Check mail, plants, any maintenance needs.", subtasks:[], pinned:false },
 ];
 
 const HEALTH_TARGETS = {
@@ -1914,6 +1913,17 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
     }
     return null;
   };
+  // Baseline is the EARLIEST known value for each metric — mirrors latestMetric but scans
+  // forward instead of backward. Replaces what used to be a hardcoded real number (Neil's
+  // actual starting weight/body fat etc, sitting in the public repo) with something computed
+  // from his real entries, correct for anyone, and never a privacy exposure.
+  const baselineMetric = (key) => {
+    for (let i = 0; i < entriesByDate.length; i++) {
+      const v = entriesByDate[i][key];
+      if (v !== null && v !== undefined && v !== "") return v;
+    }
+    return null;
+  };
   const addEntry = () => {
     if (!form.date || !form.weight) return;
     writeRecord("health", "create", null, {
@@ -1962,9 +1972,9 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
       <div style={{ padding:"12px 16px", background:T.elevated, borderBottom:`1px solid ${T.border}` }}>
         <div style={{ display:"flex", gap:16 }}>
           {[
-            { label:"Lost so far", value:latestMetric("weight")!=null ? `${(USER.health.weight - latestMetric("weight")).toFixed(1)} kg` : "—", color:T.green },
-            { label:"To target",   value:latestMetric("weight")!=null ? `${Math.max(0, latestMetric("weight") - USER.health.target).toFixed(1)} kg` : "—", color:T.accent },
-            { label:"Body fat",    value:latestMetric("bodyFat")!=null ? `${latestMetric("bodyFat")}%` : "—", color:latestMetric("bodyFat") < USER.health.bodyFat ? T.green : T.muted },
+            { label:"Lost so far", value:(latestMetric("weight")!=null && baselineMetric("weight")!=null) ? `${(baselineMetric("weight") - latestMetric("weight")).toFixed(1)} kg` : "—", color:T.green },
+            { label:"To target",   value:latestMetric("weight")!=null ? `${Math.max(0, latestMetric("weight") - HEALTH_TARGETS.weight.max).toFixed(1)} kg` : "—", color:T.accent },
+            { label:"Body fat",    value:(latestMetric("bodyFat")!=null && baselineMetric("bodyFat")!=null) ? `${latestMetric("bodyFat")}%` : "—", color:(latestMetric("bodyFat") < baselineMetric("bodyFat")) ? T.green : T.muted },
           ].map(s => (
             <div key={s.label}>
               <div style={{ fontSize:18, fontWeight:800, color:s.color }}>{s.value}</div>
@@ -1992,10 +2002,10 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
         {tab==="overview" && (
           <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-              <MetricCard label="Weight"   value={latestMetric("weight")}  baseline={USER.health.weight}  unit="kg" target={HEALTH_TARGETS.weight} />
-              <MetricCard label="Body Fat" value={latestMetric("bodyFat")} baseline={USER.health.bodyFat} unit="%" target={HEALTH_TARGETS.bodyFat} />
-              <MetricCard label="Fat Mass" value={latestMetric("fatMass")} baseline={USER.health.fatMass} unit="kg" target={HEALTH_TARGETS.fatMass} />
-              <MetricCard label="Muscle"   value={latestMetric("muscle")}  baseline={USER.health.muscle}  unit="kg" target={HEALTH_TARGETS.muscle} />
+              <MetricCard label="Weight"   value={latestMetric("weight")}  baseline={baselineMetric("weight")}  unit="kg" target={HEALTH_TARGETS.weight} />
+              <MetricCard label="Body Fat" value={latestMetric("bodyFat")} baseline={baselineMetric("bodyFat")} unit="%" target={HEALTH_TARGETS.bodyFat} />
+              <MetricCard label="Fat Mass" value={latestMetric("fatMass")} baseline={baselineMetric("fatMass")} unit="kg" target={HEALTH_TARGETS.fatMass} />
+              <MetricCard label="Muscle"   value={latestMetric("muscle")}  baseline={baselineMetric("muscle")}  unit="kg" target={HEALTH_TARGETS.muscle} />
             </div>
             <Card>
               <SectionLabel>Vitals</SectionLabel>
@@ -2768,9 +2778,17 @@ function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets, write
 // ═══════════════════════════════════════════════════════════════════════════════
 // ─── HOME SCREEN ──────────────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
-function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo, workCerts }) {
+function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo, workCerts, healthEntries }) {
   const rot = rotationInfo || { isOn:false, phase:"Off Rotation", daysLeft:0 };
-  const weightLeft = (USER.health.weight - USER.health.target).toFixed(1);
+  // Latest known weight, scanning backward through real entries — same pattern as
+  // HealthScreen's latestMetric. Was previously a hardcoded real number that never
+  // actually updated with progress; now genuinely reflects Neil's current weight.
+  const sortedHealthEntries = (healthEntries||[]).slice().sort((a,b)=>parseFlexibleDate(a.date)-parseFlexibleDate(b.date));
+  let currentWeight = null;
+  for (let i = sortedHealthEntries.length - 1; i >= 0; i--) {
+    if (sortedHealthEntries[i].weight != null) { currentWeight = sortedHealthEntries[i].weight; break; }
+  }
+  const weightLeft = currentWeight != null ? Math.max(0, currentWeight - HEALTH_TARGETS.weight.max).toFixed(1) : "—";
   const completedToday = tasks.filter(t=>t.done).length;
   const pendingHigh = tasks.filter(t=>!t.done && t.priority==="high").length;
   const flightDisplay = nextFlight ? nextFlight.title.split(" ")[0]+"→"+nextFlight.title.split("→").pop().trim() : "No flights";
@@ -6440,26 +6458,11 @@ This project's conversation history below IS its memory — there's no separate 
 }
 
 // ─── INITIAL CALENDAR DATA ────────────────────────────────────────────────────
-const INIT_ROTATION = [
-  // 2026 — confirmed
-  { id:1,  start:"2026-01-01", end:"2026-01-31", vessel:"Man of Steel", notes:"" },
-  { id:2,  start:"2026-02-01", end:"2026-02-03", vessel:"Man of Steel", notes:"" },
-  { id:3,  start:"2026-03-25", end:"2026-03-31", vessel:"Man of Steel", notes:"" },
-  { id:4,  start:"2026-05-01", end:"2026-05-24", vessel:"Man of Steel", notes:"" },
-  { id:5,  start:"2026-07-22", end:"2026-07-31", vessel:"Man of Steel", notes:"" },
-  { id:6,  start:"2026-08-01", end:"2026-08-31", vessel:"Man of Steel", notes:"" },
-  { id:7,  start:"2026-09-01", end:"2026-09-21", vessel:"Man of Steel", notes:"" },
-  { id:8,  start:"2026-11-01", end:"2026-11-30", vessel:"Man of Steel", notes:"" },
-  { id:9,  start:"2026-12-19", end:"2026-12-31", vessel:"Man of Steel", notes:"" },
-  // 2027 — unconfirmed placeholders
-  { id:10, start:"2027-02-18", end:"2027-02-28", vessel:"Man of Steel", notes:"⚠️ Unconfirmed" },
-  { id:11, start:"2027-03-01", end:"2027-03-31", vessel:"Man of Steel", notes:"⚠️ Unconfirmed" },
-  { id:12, start:"2027-04-01", end:"2027-04-09", vessel:"Man of Steel", notes:"⚠️ Unconfirmed" },
-  { id:13, start:"2027-06-11", end:"2027-06-30", vessel:"Man of Steel", notes:"⚠️ Unconfirmed" },
-  { id:14, start:"2027-07-01", end:"2027-07-31", vessel:"Man of Steel", notes:"⚠️ Unconfirmed" },
-  { id:15, start:"2027-08-01", end:"2027-08-03", vessel:"Man of Steel", notes:"⚠️ Unconfirmed" },
-  { id:16, start:"2027-10-01", end:"2027-10-31", vessel:"Man of Steel", notes:"⚠️ Unconfirmed" },
-];
+// Deliberately empty — Neil's real rotation schedule already lives in his actual local/Gist
+// data. This used to hold two years of real dates and the real vessel name, hardcoded into
+// the public repo. No migration depends on this having content (unlike INIT_TASKS below),
+// so it's safe to leave empty rather than genericized.
+const INIT_ROTATION = [];
 
 const INIT_CAL_EVENTS = [];
 
@@ -6536,10 +6539,11 @@ export default function LifeApp() {
   }, []);
 
   // ── HEALTH STATE (source of truth — TARS can write here) ───────────────────
-  const [healthEntries, setHealthEntries] = usePersistentState("life_health_entries", [{
-    id: 1, date:"26 Jun 2026", weight:USER.health.weight, bodyFat:USER.health.bodyFat,
-    fatMass:USER.health.fatMass, muscle:USER.health.muscle, bp:USER.health.bp,
-  }]);
+  // Deliberately empty default — this used to hardcode Neil's real starting weight, body
+  // fat, fat mass, muscle, and blood pressure directly into the public repo. Baseline is
+  // now computed live from whatever the earliest real entry actually is (see baselineMetric
+  // in HealthScreen), so no real health data needs to live in the source file at all.
+  const [healthEntries, setHealthEntries] = usePersistentState("life_health_entries", []);
   // ── One-time migration: Health entries never had unique IDs (they were "append-only,
   // no edit/delete" by design). That's changing — every entry needs a real id before generic
   // edit/delete can work on Health. Runs once, is a no-op on every subsequent load once
@@ -6804,7 +6808,7 @@ export default function LifeApp() {
 
   const renderScreen = () => {
     switch(screen) {
-      case "home":     return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} workCerts={workCerts} />;
+      case "home":     return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} workCerts={workCerts} healthEntries={healthEntries} />;
       case "notifications": return (
         <div>
           <SectionHeader title="Notifications" onBack={()=>setScreen("home")} />
@@ -6876,7 +6880,7 @@ export default function LifeApp() {
       case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord, rules, setRules, createRule }} />;
       case "projects": return <ProjectsListScreen onBack={()=>setScreen("home")} projects={projects} setProjects={setProjects} onOpenProject={(id)=>{ setActiveProjectId(id); setScreen("projectChat"); }} />;
       case "projectChat": return <ProjectChatScreen onBack={()=>setScreen("projects")} projectId={activeProjectId} projects={projects} setProjects={setProjects} appState={{ tasks, calEvents, writeRecord }} />;
-      default:         return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} workCerts={workCerts} />;
+      default:         return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} workCerts={workCerts} healthEntries={healthEntries} />;
     }
   };
 
