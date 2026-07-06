@@ -243,6 +243,10 @@ function tarsQuipForNow(pool) {
 // Every strength exercise tagged with an area (lower/push/pull/core) so a routine
 // can be checked for actual spread, not just difficulty. Beginner-focused throughout
 // per Neil's own steer — a "get moving, stay consistent" plan, not a gym program.
+// Friendly display labels for each area tag — the library itself uses short internal
+// keys (lower/push/pull/core/flex) for filtering logic, this is just for what's shown.
+const AREA_LABELS = { lower:"Legs", push:"Upper body (push)", pull:"Upper body (pull)", core:"Core", flex:"Flexibility" };
+
 const EXERCISE_LIBRARY = [
   { id:"sq_body",       name:"Bodyweight Squats",                 area:"lower", tier:"beginner",     defaultSets:3, defaultReps:"10" },
   { id:"glute_bridge",  name:"Glute Bridges",                     area:"lower", tier:"beginner",     defaultSets:3, defaultReps:"12" },
@@ -2134,8 +2138,11 @@ function ExercisePickerSheet({ onClose, onSelect }) {
             <div style={{ fontSize:10, fontWeight:700, color:T.muted, textTransform:"uppercase", letterSpacing:"0.05em", padding:"12px 8px 4px" }}>{tier.label}</div>
             {EXERCISE_LIBRARY.filter(e => e.tier === tier.id).map(ex => (
               <div key={ex.id} onClick={()=>onSelect(ex.id)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 8px", borderBottom:`1px solid ${T.border}`, cursor:"pointer" }}>
-                <div style={{ fontSize:13, color:T.text }}>{ex.name}</div>
-                <div style={{ fontSize:11, color:T.muted }}>{ex.defaultSets}×{ex.defaultReps}</div>
+                <div>
+                  <div style={{ fontSize:13, color:T.text }}>{ex.name}</div>
+                  <div style={{ fontSize:10, color:T.blue, marginTop:1 }}>{AREA_LABELS[ex.area]}</div>
+                </div>
+                <div style={{ fontSize:11, color:T.muted, flexShrink:0, paddingLeft:8 }}>{ex.defaultSets}×{ex.defaultReps}</div>
               </div>
             ))}
           </div>
@@ -2622,7 +2629,7 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
                       {resolved ? (
                         <>
                           <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{resolved.name}</div>
-                          <div style={{ fontSize:11, color:T.muted, textTransform:"capitalize" }}>{resolved.area} · {resolved.tier}</div>
+                          <div style={{ fontSize:11, color:T.muted }}>{AREA_LABELS[resolved.area]} · <span style={{textTransform:"capitalize"}}>{resolved.tier}</span></div>
                         </>
                       ) : (
                         <div style={{ fontSize:13, color:T.muted }}>. (tap to add an exercise)</div>
