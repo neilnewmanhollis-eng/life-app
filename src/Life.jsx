@@ -106,12 +106,12 @@ const SUPPLEMENTS = [
   { id:"s7", name:"Faction Labs Creatine × 1 scoop",when:"With meal", phase:"Week 6+" },
 ];
 
-const EXERCISE_PLAN = [
-  { day:"Mon", type:"training" }, { day:"Tue", type:"walk" },
-  { day:"Wed", type:"training" }, { day:"Thu", type:"walk" },
-  { day:"Fri", type:"training" }, { day:"Sat", type:"walk" },
-  { day:"Sun", type:"rest" },
-];
+// Default only now, not the live plan — real state lives in life_training_days
+// (persisted, editable per day, same pattern as the home screen pills). Kept as an
+// object keyed by day so picking/editing a single day is a simple lookup, not an
+// array search. This fixes a real bug too: TARS used to be told unconditionally
+// that today was always a training day, regardless of what day it actually was.
+const DEFAULT_TRAINING_DAYS = { Mon:"training", Tue:"walk", Wed:"training", Thu:"walk", Fri:"training", Sat:"walk", Sun:"rest" };
 
 // ── TARS idle tile quips — a fixed pool, deliberately not AI-generated (Neil's own
 // call: this is a purely decorative tile, it should never cost money, need a moment
@@ -238,13 +238,89 @@ function tarsQuipForNow(pool) {
   return pool[hash % pool.length];
 }
 
-const EXERCISES = [
-  { icon:"🦵", name:"Bodyweight Squats",        detail:"3 × 10–15 reps", muscles:"Quads, glutes, hamstrings" },
-  { icon:"💪", name:"Incline Push-ups",          detail:"3 × 8–12 reps",  muscles:"Chest, shoulders, triceps" },
-  { icon:"🏋️", name:"Door Frame / Table Rows",  detail:"3 × 8–12 reps",  muscles:"Back, biceps" },
-  { icon:"🍑", name:"Glute Bridges",             detail:"3 × 12–15 reps", muscles:"Glutes, lower back" },
-  { icon:"🧘", name:"Plank + Dead Bugs",         detail:"3 sets, build time", muscles:"Core stability" },
+// ── Exercise library — same registry pattern as MODULE_REGISTRY/PILL_OPTIONS: add
+// one entry here, it's available everywhere (picker, "choose for me", logging).
+// Every strength exercise tagged with an area (lower/push/pull/core) so a routine
+// can be checked for actual spread, not just difficulty. Beginner-focused throughout
+// per Neil's own steer — a "get moving, stay consistent" plan, not a gym program.
+const EXERCISE_LIBRARY = [
+  { id:"sq_body",       name:"Bodyweight Squats",                 area:"lower", tier:"beginner",     defaultSets:3, defaultReps:"10" },
+  { id:"glute_bridge",  name:"Glute Bridges",                     area:"lower", tier:"beginner",     defaultSets:3, defaultReps:"12" },
+  { id:"wall_pushup",   name:"Wall Push-ups",                     area:"push",  tier:"beginner",     defaultSets:3, defaultReps:"10" },
+  { id:"incline_pushup",name:"Incline Push-ups",                  area:"push",  tier:"beginner",     defaultSets:3, defaultReps:"8" },
+  { id:"table_row",     name:"Doorframe / Table Rows",            area:"pull",  tier:"beginner",     defaultSets:3, defaultReps:"8" },
+  { id:"snow_angel",    name:"Reverse Snow Angels",                area:"pull",  tier:"beginner",     defaultSets:3, defaultReps:"10" },
+  { id:"dead_bug",      name:"Dead Bugs",                          area:"core",  tier:"beginner",     defaultSets:3, defaultReps:"8/side" },
+  { id:"plank_knees",   name:"Plank (knees down)",                area:"core",  tier:"beginner",     defaultSets:3, defaultReps:"20 sec" },
+
+  { id:"walking_lunge", name:"Walking Lunges",                    area:"lower", tier:"intermediate", defaultSets:3, defaultReps:"10/side" },
+  { id:"single_leg_br", name:"Single-Leg Glute Bridge",           area:"lower", tier:"intermediate", defaultSets:3, defaultReps:"10/side" },
+  { id:"std_pushup",    name:"Standard Push-ups",                 area:"push",  tier:"intermediate", defaultSets:3, defaultReps:"10" },
+  { id:"pike_pushup",   name:"Pike Push-ups",                     area:"push",  tier:"intermediate", defaultSets:3, defaultReps:"8" },
+  { id:"table_row_ext", name:"Doorframe / Table Rows (feet out)", area:"pull",  tier:"intermediate", defaultSets:3, defaultReps:"10" },
+  { id:"snow_angel_h",  name:"Reverse Snow Angels w/ hold",       area:"pull",  tier:"intermediate", defaultSets:3, defaultReps:"10" },
+  { id:"plank_full",    name:"Plank (full)",                      area:"core",  tier:"intermediate", defaultSets:3, defaultReps:"30 sec" },
+  { id:"bicycle_crunch",name:"Bicycle Crunches",                  area:"core",  tier:"intermediate", defaultSets:3, defaultReps:"15/side" },
+
+  { id:"cat_cow",       name:"Cat-Cow Stretch",                   area:"flex",  tier:"flex", defaultSets:1, defaultReps:"8 reps" },
+  { id:"hip_flexor",    name:"Kneeling Hip Flexor Stretch",       area:"flex",  tier:"flex", defaultSets:1, defaultReps:"30 sec/side" },
+  { id:"hamstring",     name:"Hamstring Stretch (forward fold)",  area:"flex",  tier:"flex", defaultSets:1, defaultReps:"30 sec" },
+  { id:"chest_stretch", name:"Doorway Chest/Shoulder Stretch",    area:"flex",  tier:"flex", defaultSets:1, defaultReps:"30 sec/side" },
+  { id:"thoracic_rot",  name:"Seated Thoracic Rotation",          area:"flex",  tier:"flex", defaultSets:1, defaultReps:"8/side" },
+  { id:"quad_stretch",  name:"Standing Quad Stretch",             area:"flex",  tier:"flex", defaultSets:1, defaultReps:"30 sec/side" },
 ];
+
+// Sensible starting routine — first 6 beginner exercises, one from each strength
+// area covered twice over, matching where Neil actually is right now. Only used
+// to seed life_exercise_routine the first time; fully editable after that.
+const DEFAULT_EXERCISE_ROUTINE = ["sq_body","glute_bridge","wall_pushup","incline_pushup","table_row","dead_bug"]
+  .map(id => ({ exerciseId: id, sets: null, reps: null })); // null = use the library's own default until edited
+
+// Resolves one routine slot ({exerciseId, sets, reps}) against the library — sets/reps
+// on the slot itself override the library default once Neil's edited them, otherwise
+// falls back to the library's own sensible default. Returns null for a "." blank slot.
+function resolveRoutineSlot(slot) {
+  if (!slot || !slot.exerciseId) return null;
+  const ex = EXERCISE_LIBRARY.find(e => e.id === slot.exerciseId);
+  if (!ex) return null;
+  return { ...ex, sets: slot.sets ?? ex.defaultSets, reps: slot.reps ?? ex.defaultReps };
+}
+
+// "Choose for me" — entirely local, zero API cost, same principle as the pill/quip
+// logic elsewhere: real data in, deterministic result out, nothing AI involved. Picks
+// one exercise per core area (lower/push/pull/core) favouring whichever hasn't been
+// logged in the longest time (or never), matching whichever tier Neil's current routine
+// mostly sits in, then fills the last 2 slots with a flexibility pick and one more
+// least-recently-done pick so the sixth slot isn't wasted on pure repetition.
+function chooseRoutineForMe(workoutLog, currentRoutine) {
+  const sessions = Object.entries(workoutLog || {}).sort((a,b) => parseFlexibleDate(a[0]) - parseFlexibleDate(b[0]));
+  const lastDoneIndex = {}; // exercise name -> how many sessions ago it last appeared (lower = more recent)
+  sessions.forEach(([, session], i) => {
+    (session.exercises || []).forEach(e => { lastDoneIndex[e.name] = sessions.length - i; });
+  });
+  const recency = (ex) => lastDoneIndex[ex.name] ?? 999; // never logged = highest priority
+
+  const currentTiers = currentRoutine.map(resolveRoutineSlot).filter(Boolean).map(e => e.tier);
+  const beginnerCount = currentTiers.filter(t => t === "beginner").length;
+  const targetTier = currentTiers.length === 0 || beginnerCount >= currentTiers.length / 2 ? "beginner" : "intermediate";
+
+  const picked = [];
+  const pickBest = (pool) => {
+    const candidates = pool.filter(e => !picked.some(p => p.id === e.id)).sort((a,b) => recency(b) - recency(a));
+    return candidates[0] || null;
+  };
+
+  ["lower","push","pull","core"].forEach(area => {
+    const pick = pickBest(EXERCISE_LIBRARY.filter(e => e.area === area && e.tier === targetTier));
+    if (pick) picked.push(pick);
+  });
+  const flexPick = pickBest(EXERCISE_LIBRARY.filter(e => e.tier === "flex"));
+  if (flexPick) picked.push(flexPick);
+  const wildcard = pickBest(EXERCISE_LIBRARY.filter(e => e.tier === targetTier));
+  if (wildcard) picked.push(wildcard);
+
+  return picked.slice(0,6).map(e => ({ exerciseId: e.id, sets: null, reps: null }));
+}
 
 // ─── ICON COMPONENT ───────────────────────────────────────────────────────────
 const Icon = ({ name, size=22, color=T.text }) => {
@@ -2014,15 +2090,70 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
 
 
 
+// Picker for a single day's training-day type — same bottom-sheet pattern as
+// HomePillPicker elsewhere.
+function TrainingDayPicker({ day, onClose, onSelect }) {
+  const options = [
+    { id:"training", label:"Training day", icon:"💪" },
+    { id:"walk",     label:"Walk day",     icon:"🚶" },
+    { id:"rest",     label:"Rest day",     icon:"😴" },
+  ];
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1000, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={onClose}>
+      <div style={{ background:T.card, borderRadius:"20px 20px 0 0", padding:20, width:"100%", maxWidth:480, boxSizing:"border-box" }} onClick={e=>e.stopPropagation()}>
+        <div style={{ fontSize:14, fontWeight:700, color:T.text, marginBottom:12 }}>{day} — what kind of day?</div>
+        {options.map(opt => (
+          <div key={opt.id} onClick={()=>onSelect(opt.id)} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 8px", borderBottom:`1px solid ${T.border}`, cursor:"pointer" }}>
+            <span style={{ fontSize:20 }}>{opt.icon}</span>
+            <div style={{ fontSize:13, color:T.text }}>{opt.label}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Picker for one routine slot — "." (blank) first, then grouped by tier. Same sheet
+// pattern used everywhere else in the app for "choose one of these."
+function ExercisePickerSheet({ onClose, onSelect }) {
+  const tiers = [
+    { id:"beginner", label:"Beginner" },
+    { id:"intermediate", label:"Intermediate" },
+    { id:"flex", label:"Flexibility / Mobility" },
+  ];
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1000, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={onClose}>
+      <div style={{ background:T.card, borderRadius:"20px 20px 0 0", padding:20, width:"100%", maxWidth:480, maxHeight:"75vh", overflowY:"auto", boxSizing:"border-box" }} onClick={e=>e.stopPropagation()}>
+        <div style={{ fontSize:14, fontWeight:700, color:T.text, marginBottom:12 }}>Choose an exercise</div>
+        <div onClick={()=>onSelect(null)} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 8px", borderBottom:`1px solid ${T.border}`, cursor:"pointer" }}>
+          <span style={{ fontSize:16, color:T.muted, width:20, textAlign:"center" }}>.</span>
+          <div style={{ fontSize:13, color:T.muted }}>Leave blank (fewer exercises today)</div>
+        </div>
+        {tiers.map(tier => (
+          <div key={tier.id}>
+            <div style={{ fontSize:10, fontWeight:700, color:T.muted, textTransform:"uppercase", letterSpacing:"0.05em", padding:"12px 8px 4px" }}>{tier.label}</div>
+            {EXERCISE_LIBRARY.filter(e => e.tier === tier.id).map(ex => (
+              <div key={ex.id} onClick={()=>onSelect(ex.id)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 8px", borderBottom:`1px solid ${T.border}`, cursor:"pointer" }}>
+                <div style={{ fontSize:13, color:T.text }}>{ex.name}</div>
+                <div style={{ fontSize:11, color:T.muted }}>{ex.defaultSets}×{ex.defaultReps}</div>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function WorkoutLogger({ today, exercises, onSave, onCancel }) {
-  const [reps, setReps] = useState(() => Object.fromEntries(exercises.map(e=>([e.name, { sets:"3", reps:"", notes:"" }]))));
+  const [reps, setReps] = useState(() => Object.fromEntries(exercises.map(e=>([e.name, { sets:String(e.sets||3), reps:e.reps||"", notes:"" }]))));
   const [sessionNotes, setSessionNotes] = useState("");
 
   const save = () => {
     const completed = exercises.map(e => ({
       name: e.name,
-      setsCompleted: reps[e.name]?.sets || "3",
-      repsCompleted: reps[e.name]?.reps || "",
+      setsCompleted: reps[e.name]?.sets || String(e.sets||3),
+      repsCompleted: reps[e.name]?.reps || e.reps || "",
       notes: reps[e.name]?.notes || "",
     }));
     onSave({ exercises: completed, notes: sessionNotes, completedAt: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}) });
@@ -2032,7 +2163,7 @@ function WorkoutLogger({ today, exercises, onSave, onCancel }) {
     <div>
       {exercises.map(ex => (
         <div key={ex.name} style={{ marginBottom:12, paddingBottom:12, borderBottom:`1px solid ${T.border}` }}>
-          <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:6 }}>{ex.icon} {ex.name}</div>
+          <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:6 }}>{ex.name}</div>
           <div style={{ display:"flex", gap:8 }}>
             <div style={{ flex:1 }}>
               <div style={{ fontSize:9, color:T.muted, marginBottom:3 }}>Sets</div>
@@ -2041,7 +2172,7 @@ function WorkoutLogger({ today, exercises, onSave, onCancel }) {
             </div>
             <div style={{ flex:1 }}>
               <div style={{ fontSize:9, color:T.muted, marginBottom:3 }}>Reps</div>
-              <input type="text" placeholder={ex.detail.split(" ")[2]||"10"} value={reps[ex.name]?.reps} onChange={e=>setReps(p=>({...p,[ex.name]:{...p[ex.name],reps:e.target.value}}))}
+              <input type="text" placeholder={ex.reps||"10"} value={reps[ex.name]?.reps} onChange={e=>setReps(p=>({...p,[ex.name]:{...p[ex.name],reps:e.target.value}}))}
                 style={{ width:"100%", padding:"7px 8px", borderRadius:7, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
             </div>
             <div style={{ flex:2 }}>
@@ -2062,7 +2193,7 @@ function WorkoutLogger({ today, exercises, onSave, onCancel }) {
   );
 }
 
-function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRecord }) {
+function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRecord, trainingDays, setTrainingDays, exerciseRoutine, setExerciseRoutine }) {
   const [tab, setTab] = useState("overview");
   // entries and calLog now passed in from LifeApp (TARS can write to them)
   const [suppChecked, setSuppChecked] = useState({});
@@ -2135,6 +2266,8 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
   // Workout log state — was missing entirely, causing Exercise tab to crash on render
   const [workoutLog, setWorkoutLog] = usePersistentState("life_workout_log", {});
   const [loggingWorkout, setLoggingWorkout] = useState(false);
+  const [editingTrainingDay, setEditingTrainingDay] = useState(null); // which day's picker is open
+  const [editingRoutineSlot, setEditingRoutineSlot] = useState(null); // which of the 6 slot indices is open
 
   const saveActivity = () => {
     if (!stepsForm.steps && !stepsForm.sleep) return;
@@ -2417,11 +2550,15 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
         {/* EXERCISE */}
         {tab==="exercise" && (
           <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+            {/* Training days — tap any day to change training/walk/rest. Same picker
+                pattern as the home screen pills. This also fixes the real bug: TARS
+                used to be told every day was a training day regardless of reality —
+                it now reads this exact same state (see STATE_SLICES below). */}
             <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:5 }}>
-              {EXERCISE_PLAN.map(d=>(
-                <div key={d.day} style={{ borderRadius:10, padding:"8px 4px", textAlign:"center", background:d.type==="training"?T.elevated:d.type==="walk"?`${T.blue}18`:T.card, border:`1px solid ${d.type==="training"?T.blue:T.border}` }}>
-                  <div style={{ fontSize:10, fontWeight:700, color:d.type==="training"?T.blue:T.muted }}>{d.day}</div>
-                  <div style={{ fontSize:16, marginTop:4 }}>{d.type==="training"?"💪":d.type==="walk"?"🚶":"😴"}</div>
+              {Object.entries(trainingDays).map(([day,type])=>(
+                <div key={day} onClick={()=>setEditingTrainingDay(day)} style={{ cursor:"pointer", borderRadius:10, padding:"8px 4px", textAlign:"center", background:type==="training"?T.elevated:type==="walk"?`${T.blue}18`:T.card, border:`1px solid ${type==="training"?T.blue:T.border}` }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:type==="training"?T.blue:T.muted }}>{day}</div>
+                  <div style={{ fontSize:16, marginTop:4 }}>{type==="training"?"💪":type==="walk"?"🚶":"😴"}</div>
                 </div>
               ))}
             </div>
@@ -2447,7 +2584,7 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
                 ) : null
               )}
               {loggingWorkout && (
-                <WorkoutLogger today={today} exercises={EXERCISES} onSave={(data)=>{ setWorkoutLog(prev=>({...prev,[today]:data})); setLoggingWorkout(false); }} onCancel={()=>setLoggingWorkout(false)} />
+                <WorkoutLogger today={today} exercises={exerciseRoutine.map(resolveRoutineSlot).filter(Boolean)} onSave={(data)=>{ setWorkoutLog(prev=>({...prev,[today]:data})); setLoggingWorkout(false); }} onCancel={()=>setLoggingWorkout(false)} />
               )}
             </Card>
 
@@ -2468,38 +2605,65 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
             )}
 
             <Card>
-              <SectionLabel>Bodyweight Routine (3×/week)</SectionLabel>
-              {EXERCISES.map((e,i)=>(
-                <div key={i} style={{ display:"flex", gap:12, paddingBottom:12, marginBottom:i<EXERCISES.length-1?12:0, borderBottom:i<EXERCISES.length-1?`1px solid ${T.border}`:"none" }}>
-                  <span style={{ fontSize:22, flexShrink:0 }}>{e.icon}</span>
-                  <div>
-                    <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{e.name}</div>
-                    <div style={{ fontSize:12, color:T.blue, fontWeight:600 }}>{e.detail}</div>
-                    <div style={{ fontSize:11, color:T.muted }}>{e.muscles}</div>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:2 }}>
+                <SectionLabel>Bodyweight Routine</SectionLabel>
+                <button
+                  onClick={()=>setExerciseRoutine(chooseRoutineForMe(workoutLog, exerciseRoutine))}
+                  style={{ fontSize:11, fontWeight:700, padding:"5px 10px", borderRadius:8, border:`1px solid ${T.blue}`, background:"none", color:T.blue, cursor:"pointer", fontFamily:"inherit" }}
+                >
+                  🔄 Choose for me
+                </button>
+              </div>
+              {exerciseRoutine.map((slot,i) => {
+                const resolved = resolveRoutineSlot(slot);
+                return (
+                  <div key={i} style={{ display:"flex", gap:10, alignItems:"center", paddingBottom:12, marginBottom:i<exerciseRoutine.length-1?12:0, borderBottom:i<exerciseRoutine.length-1?`1px solid ${T.border}`:"none" }}>
+                    <div onClick={()=>setEditingRoutineSlot(i)} style={{ flex:1, cursor:"pointer" }}>
+                      {resolved ? (
+                        <>
+                          <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{resolved.name}</div>
+                          <div style={{ fontSize:11, color:T.muted, textTransform:"capitalize" }}>{resolved.area} · {resolved.tier}</div>
+                        </>
+                      ) : (
+                        <div style={{ fontSize:13, color:T.muted }}>. (tap to add an exercise)</div>
+                      )}
+                    </div>
+                    {resolved && (
+                      <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+                        <input type="number" value={slot.sets ?? resolved.sets} onChange={e=>{
+                          const v = e.target.value;
+                          setExerciseRoutine(prev => prev.map((s,j)=>j===i?{...s, sets:v}:s));
+                        }} style={{ width:36, padding:"5px 4px", borderRadius:6, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:11, fontFamily:"inherit", outline:"none", textAlign:"center" }} />
+                        <input type="text" value={slot.reps ?? resolved.reps} onChange={e=>{
+                          const v = e.target.value;
+                          setExerciseRoutine(prev => prev.map((s,j)=>j===i?{...s, reps:v}:s));
+                        }} style={{ width:56, padding:"5px 4px", borderRadius:6, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:11, fontFamily:"inherit", outline:"none", textAlign:"center" }} />
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
-            </Card>
-            <Card>
-              <SectionLabel>📺 Video Guides</SectionLabel>
-              {[
-                { title:"Nerd Fitness — Beginner Bodyweight Workout", sub:"Full routine: squats, push-ups, rows & plank · ~5 min", url:"https://www.youtube.com/results?search_query=nerd+fitness+beginner+bodyweight+workout" },
-                { title:"Athlean-X — How To Do The Dead Bug", sub:"Most people do this wrong — worth watching first · ~3 min", url:"https://www.youtube.com/results?search_query=athlean-x+dead+bug+exercise+how+to" },
-              ].map((v,i)=>(
-                <a key={i} href={v.url} target="_blank" rel="noreferrer" style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:i===0?`1px solid ${T.border}`:"none", textDecoration:"none" }}>
-                  <div style={{ width:34, height:34, background:"#ff0000", borderRadius:8, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                    <span style={{ color:"white", fontSize:13 }}>▶</span>
-                  </div>
-                  <div>
-                    <div style={{ fontSize:12, fontWeight:600, color:T.text }}>{v.title}</div>
-                    <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{v.sub}</div>
-                  </div>
-                </a>
-              ))}
+                );
+              })}
             </Card>
             <div style={{ background:`${T.green}18`, borderRadius:12, padding:12, fontSize:12, color:T.green, border:`1px solid ${T.green}33` }}>
               🎯 Target 8,000–10,000 steps on walk days. Keep sessions to 20–30 min.
             </div>
+
+            {editingTrainingDay && (
+              <TrainingDayPicker
+                day={editingTrainingDay}
+                onClose={()=>setEditingTrainingDay(null)}
+                onSelect={(type)=>{ setTrainingDays(prev=>({...prev,[editingTrainingDay]:type})); setEditingTrainingDay(null); }}
+              />
+            )}
+            {editingRoutineSlot !== null && (
+              <ExercisePickerSheet
+                onClose={()=>setEditingRoutineSlot(null)}
+                onSelect={(exerciseId)=>{
+                  setExerciseRoutine(prev => prev.map((s,j)=>j===editingRoutineSlot?{ exerciseId, sets:null, reps:null }:s));
+                  setEditingRoutineSlot(null);
+                }}
+              />
+            )}
           </div>
         )}
 
@@ -3115,7 +3279,7 @@ function HomeModuleTile({ icon, label, sublabel, badge, statusDot, onClick }) {
   );
 }
 
-function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo, workCerts, healthEntries, calLog, todayLabel, homePillConfig, setHomePillConfig }) {
+function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo, workCerts, healthEntries, calLog, todayLabel, homePillConfig, setHomePillConfig, trainingDays }) {
   const rot = rotationInfo || { isOn:false, phase:"Off Rotation", daysLeft:0 };
   // Latest known weight, scanning backward through real entries — same pattern as
   // HealthScreen's latestMetric. Was previously a hardcoded real number that never
@@ -3148,8 +3312,8 @@ function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo,
   const todayKcal = todayEntries.reduce((s,e)=>s+e.kcal,0);
   const flightDaysLeft = nextFlight ? Math.max(0, Math.ceil((parseFlexibleDate(nextFlight.date) - new Date()) / 86400000)) : null;
   const todayDayAbbr = new Date().toLocaleDateString("en-NZ",{ weekday:"short" });
-  const todaysExercise = EXERCISE_PLAN.find(d => d.day === todayDayAbbr);
-  const exerciseLabel = todaysExercise ? (todaysExercise.type==="training" ? "Training day" : todaysExercise.type==="walk" ? "Walk day" : "Rest day") : "—";
+  const todaysType = trainingDays?.[todayDayAbbr];
+  const exerciseLabel = todaysType==="training" ? "Training day" : todaysType==="walk" ? "Walk day" : todaysType==="rest" ? "Rest day" : "—";
   const dateShort = new Date().toLocaleDateString("en-NZ",{ day:"numeric", month:"short" });
   const dateWeekday = new Date().toLocaleDateString("en-NZ",{ weekday:"long" });
   const pillCtx = { weightLeft, nextFlight, flightDaysLeft, rot, todayKcal, exerciseLabel, dateShort, dateWeekday };
@@ -4043,6 +4207,7 @@ const GistSync = {
     "life_finance_entries", "life_finance_budgets",
     "life_notifications", "life_automation_rules", "life_notify_routine_actions", "life_work_certs",
     "life_home_pills",
+    "life_training_days", "life_exercise_routine", "life_routine_last_changed", "life_routine_suggested_at",
     "meal_library", "meal_current", "meal_cooked",
     "meal_shopping", "meal_regulars", "meal_pantry",
     "tars_vault",
@@ -4341,7 +4506,7 @@ function ProjectsListScreen({ onBack, projects, setProjects, onOpenProject }) {
 }
 
 function TarsScreen({ onBack, appState }) {
-  const { tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord, rules, setRules, createRule } = appState;
+  const { tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord, rules, setRules, createRule, trainingDays, exerciseRoutine } = appState;
 
   const [tarsTab, setTarsTab] = useState("chat");
   const [showSettings, setShowSettings] = useState(false);
@@ -4772,6 +4937,7 @@ LIVE DATA SECTIONS — FORMAT REFERENCE (cost/patch note: this used to be repeat
 - HEALTH — RECENT CHECK-IN HISTORY: oldest first, last 90 days. Use for recent trend questions. For anything further back (e.g. "what was my body fat in January"), use search_health_history rather than guessing or saying you don't have it — full history is always available that way. Entries are sparse — a blank field means unmeasured that day, not zero.
 - HEALTH — LATEST PER METRIC: each metric shows its own most recent measurement and date — they may be from different dates, since Neil only logs what he actually measured each time. Never assume a metric is current just because another one updated today.
 - CALORIE HISTORY: last 7 days, for questions about previous days (today's own entries are in TODAY'S NUTRITION, separate).
+- EXERCISE ROUTINE: reflects Neil's real, editable weekly schedule and chosen routine — always check today's actual type before assuming it's a training day; a "." slot means he's deliberately left it blank that day.
 - PENDING TASKS: use the exact id shown when marking one complete. Sorted by due date, soonest first; no-due-date tasks last.
 - COMPLETED TASKS: last 90 days only, most recent first — older completions aren't kept here to avoid unbounded growth over a year of use. Tasks completed before completion-date tracking existed have no date and aren't included.
 - AUTOMATION RULES: existing rules Neil has already set up — check before proposing a new one so you don't create a duplicate. Use the exact id when deleting one.
@@ -4892,10 +5058,29 @@ ${(() => {
       skipIfEmpty: true
     },
     {
-      label: "EXERCISE ROUTINE",
+      // The actual bug fix: this used to unconditionally claim every day was a
+      // training day, regardless of what day it actually was or what Neil's real
+      // plan said. Now reads the same real, editable state the Health screen itself
+      // uses — genuinely correct per day, and reflects Neil's real chosen routine
+      // (or a "." blank slot) rather than a fixed 5-exercise list.
+      label: "EXERCISE ROUTINE (see format reference above)",
       module: "health",
-      data: EXERCISES,
-      format: (ex) => `Bodyweight training (Mon/Wed/Fri), walking (Tue/Thu/Sat), rest (Sun).\nToday's training session:\n${ex.map(e=>`  - ${e.name}: ${e.detail} (${e.muscles})`).join("\n")}`
+      data: (() => {
+        const todayAbbr = new Date().toLocaleDateString("en-NZ",{ weekday:"short" });
+        const todayType = trainingDays?.[todayAbbr] || "rest";
+        const resolved = (exerciseRoutine||[]).map(resolveRoutineSlot).filter(Boolean);
+        return { todayType, resolved };
+      })(),
+      format: ({ todayType, resolved }) => {
+        const scheduleLine = Object.entries(trainingDays||{}).map(([d,t])=>`${d}: ${t}`).join(", ");
+        if (todayType !== "training") {
+          return `Weekly schedule — ${scheduleLine}.\nToday is a ${todayType} day, not a training day — don't tell Neil to do his routine today.`;
+        }
+        if (resolved.length === 0) {
+          return `Weekly schedule — ${scheduleLine}.\nToday is a training day, but Neil hasn't set an active routine yet (all slots blank).`;
+        }
+        return `Weekly schedule — ${scheduleLine}.\nToday is a training day. Neil's current routine:\n${resolved.map(e=>`  - ${e.name}: ${e.sets}×${e.reps} (${e.area}, ${e.tier})`).join("\n")}`;
+      }
     },
     {
       label: "SUPPLEMENTS",
@@ -7037,6 +7222,55 @@ export default function LifeApp() {
   // until Neil actually opens a picker and chooses something different. ──
   const [homePillConfig, setHomePillConfig] = usePersistentState("life_home_pills", ["weightToTarget", "calorieTracker", "rotationPhase"]);
 
+  // ── Training days + active exercise routine — lifted here (not local to Health
+  // screen) since three places need it: Health screen (edit), Home screen (today's
+  // label pill), and TARS (read-only, real day-of-week check — this is the actual
+  // fix for the "every day is a training day" bug). Same lift-to-LifeApp pattern as
+  // the home pill config just above. ──
+  const [trainingDays, setTrainingDays] = usePersistentState("life_training_days", DEFAULT_TRAINING_DAYS);
+  const [exerciseRoutine, setExerciseRoutine] = usePersistentState("life_exercise_routine", DEFAULT_EXERCISE_ROUTINE);
+
+  // ── "Time to mix it up?" suggestion — entirely local, zero API cost, exactly
+  // Neil's own idea: track how long the current routine (the actual exercise
+  // picks, not sets/reps tweaks) has been unchanged, and how many sessions he's
+  // logged in that time. If it's been 2+ weeks with real consistency, surface one
+  // suggestion through the existing notification bell — reusing infrastructure
+  // that's already there rather than building a new mechanism. Checked once per
+  // app load, not live on every keystroke — this is a low-urgency, long-horizon
+  // nudge, not something that needs instant reactivity. ──
+  const [routineLastChanged, setRoutineLastChanged] = usePersistentState("life_routine_last_changed", new Date().toISOString().slice(0,10));
+  const [routineSuggestedAt, setRoutineSuggestedAt] = usePersistentState("life_routine_suggested_at", null);
+  const routineIdsSignature = exerciseRoutine.map(s=>s.exerciseId).join(",");
+  const prevRoutineSignatureRef = useRef(routineIdsSignature);
+  useEffect(() => {
+    if (prevRoutineSignatureRef.current !== routineIdsSignature) {
+      prevRoutineSignatureRef.current = routineIdsSignature;
+      setRoutineLastChanged(new Date().toISOString().slice(0,10));
+      setRoutineSuggestedAt(null); // a genuine change resets the suggestion clock
+    }
+  }, [routineIdsSignature]);
+
+  useEffect(() => {
+    const changedDate = parseFlexibleDate(routineLastChanged);
+    if (!changedDate) return;
+    const daysSinceChange = Math.floor((new Date() - changedDate) / 86400000);
+    let workoutLogRaw = {};
+    try { workoutLogRaw = JSON.parse(localStorage.getItem("life_workout_log") || "{}"); } catch {}
+    const sessionsSinceChange = Object.keys(workoutLogRaw).filter(date => {
+      const d = parseFlexibleDate(date);
+      return d && d >= changedDate;
+    }).length;
+    const alreadySuggestedThisPeriod = routineSuggestedAt && parseFlexibleDate(routineSuggestedAt) >= changedDate;
+    if (daysSinceChange >= 14 && sessionsSinceChange >= 6 && !alreadySuggestedThisPeriod) {
+      setNotifications(prev => [...prev, {
+        message: "You've stuck with the same bodyweight routine for 2+ weeks of real sessions — want to mix it up? Health → Exercise → Choose for me.",
+        read: false,
+        time: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}),
+      }]);
+      setRoutineSuggestedAt(new Date().toISOString().slice(0,10));
+    }
+  }, []); // once per app load, deliberately — see comment above
+
   // ── CALENDAR STATE (source of truth for whole app) ──────────────────────────
   const [calEvents, setCalEvents] = usePersistentState("life_cal_events", INIT_CAL_EVENTS);
   const [rotationBlocks, setRotationBlocks] = usePersistentState("life_rotation_blocks", INIT_ROTATION);
@@ -7246,7 +7480,7 @@ export default function LifeApp() {
 
   const renderScreen = () => {
     switch(screen) {
-      case "home":     return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} workCerts={workCerts} healthEntries={healthEntries} calLog={calLog} todayLabel={todayLabel} homePillConfig={homePillConfig} setHomePillConfig={setHomePillConfig} />;
+      case "home":     return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} workCerts={workCerts} healthEntries={healthEntries} calLog={calLog} todayLabel={todayLabel} homePillConfig={homePillConfig} setHomePillConfig={setHomePillConfig} trainingDays={trainingDays} />;
       case "notifications": return (
         <div>
           <SectionHeader title="Notifications" onBack={()=>setScreen("home")} />
@@ -7312,13 +7546,13 @@ export default function LifeApp() {
       );
       case "tasks":    return <TodoScreen tasks={tasks} setTasks={setTasks} writeRecord={writeRecord} onBack={()=>setScreen("home")} />;
       case "calendar": return <CalendarScreen onBack={()=>setScreen("home")} calEvents={calEvents} rotationBlocks={rotationBlocks} addRotation={addRotation} removeRotation={removeRotation} tasks={tasks} writeRecord={writeRecord} />;
-      case "health":   return <HealthScreen onBack={()=>setScreen("home")} entries={healthEntries} setEntries={setHealthEntries} calLog={calLog} setCalLog={setCalLog} writeRecord={writeRecord} />;
+      case "health":   return <HealthScreen onBack={()=>setScreen("home")} entries={healthEntries} setEntries={setHealthEntries} calLog={calLog} setCalLog={setCalLog} writeRecord={writeRecord} trainingDays={trainingDays} setTrainingDays={setTrainingDays} exerciseRoutine={exerciseRoutine} setExerciseRoutine={setExerciseRoutine} />;
       case "finance":  return <FinanceScreen onBack={()=>setScreen("home")} entries={financeEntries} setEntries={setFinanceEntries} budgets={financeBudgets} setBudgets={setFinanceBudgets} writeRecord={writeRecord} />;
       case "work":     return <WorkScreen onBack={()=>setScreen("home")} workCerts={workCerts} setWorkCerts={setWorkCerts} />;
-      case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord, rules, setRules, createRule }} />;
+      case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord, rules, setRules, createRule, trainingDays, exerciseRoutine }} />;
       case "projects": return <ProjectsListScreen onBack={()=>setScreen("home")} projects={projects} setProjects={setProjects} onOpenProject={(id)=>{ setActiveProjectId(id); setScreen("projectChat"); }} />;
       case "projectChat": return <ProjectChatScreen onBack={()=>setScreen("projects")} projectId={activeProjectId} projects={projects} setProjects={setProjects} appState={{ tasks, calEvents, writeRecord }} />;
-      default:         return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} workCerts={workCerts} healthEntries={healthEntries} calLog={calLog} todayLabel={todayLabel} homePillConfig={homePillConfig} setHomePillConfig={setHomePillConfig} />;
+      default:         return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} workCerts={workCerts} healthEntries={healthEntries} calLog={calLog} todayLabel={todayLabel} homePillConfig={homePillConfig} setHomePillConfig={setHomePillConfig} trainingDays={trainingDays} />;
     }
   };
 
