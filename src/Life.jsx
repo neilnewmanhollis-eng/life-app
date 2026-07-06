@@ -5755,8 +5755,12 @@ If multiple files were uploaded, treat them as related unless the content sugges
   return (
     <div style={{ display:"flex", flexDirection:"column" }}>
       {/* Header — back arrow removed, same reasoning as SectionHeader: this went to Home,
-          duplicating the LIFE logo now fixed at the top of every screen. */}
-      <div style={{ display:"flex", alignItems:"center", gap:12, padding:"16px 20px", borderBottom:`1px solid ${T.border}` }}>
+          duplicating the LIFE logo now fixed at the top of every screen. Now also
+          position:fixed itself, same principle as the global header and the input bar
+          below — this was scrolling away with the messages, requiring a scroll back up
+          past the whole conversation to reach save/settings again. Sits at top:56 (right
+          below the global 56px header), height:60, so nothing overlaps. */}
+      <div style={{ position:"fixed", top:56, left:0, right:0, zIndex:45, boxSizing:"border-box", height:60, background:T.bg, display:"flex", alignItems:"center", gap:12, padding:"16px 20px", borderBottom:`1px solid ${T.border}` }}>
         <div style={{ flex:1 }}>
           <div style={{ fontSize:17, fontWeight:700, color:T.text }}>TARS</div>
           <div style={{ fontSize:11, color:T.blue }}>Honesty: 90% · Humour: calibrated</div>
@@ -5769,6 +5773,7 @@ If multiple files were uploaded, treat them as related unless the content sugges
           <div style={{ width:10, height:10, borderRadius:"50%", background:hasAnthropicKey()?T.green:T.accent, boxShadow:`0 0 8px ${hasAnthropicKey()?T.green:T.accent}` }}/>
         </div>
       </div>
+      <div style={{ height:60 }} />
 
       {/* Settings panel */}
       {showSettings && (
@@ -6512,13 +6517,17 @@ This project's conversation history below IS its memory — there's no separate 
 
   return (
     <div style={{ display:"flex", flexDirection:"column" }}>
-      <div style={{ display:"flex", alignItems:"center", gap:10, padding:"14px 16px", borderBottom:`1px solid ${T.border}`, background:T.bg }}>
+      {/* Same fix as TarsScreen's own header: was scrolling away with the messages,
+          needing a scroll back up past the whole conversation to reach the back button
+          again. Now position:fixed at top:56, right below the global 56px header. */}
+      <div style={{ position:"fixed", top:56, left:0, right:0, zIndex:45, boxSizing:"border-box", height:56, display:"flex", alignItems:"center", gap:10, padding:"14px 16px", borderBottom:`1px solid ${T.border}`, background:T.bg }}>
         <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", padding:4 }}><Icon name="back" size={20} color={T.text} /></button>
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ fontSize:15, fontWeight:700, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{project?.name || "Project"}</div>
           <div style={{ fontSize:10, color:T.muted }}>Web search · Full app access</div>
         </div>
       </div>
+      <div style={{ height:56 }} />
 
       <div style={{ padding:"12px 16px", display:"flex", flexDirection:"column", gap:10 }}>
         {messages.length === 0 && (
