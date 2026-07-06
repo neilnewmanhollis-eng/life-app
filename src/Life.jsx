@@ -4733,7 +4733,22 @@ If Neil asks for a downloadable document, file, or summary he can save outside t
 ACTION:{"type":"generate_document","title":"Health Progress Summary","brief":"key metrics and trends over the last 3 months"}
 Do NOT write the actual document content in your reply — that happens separately, after Neil confirms, in a call with far more room than a normal reply gets. Once confirmed, a real plain-text file is generated and offered for download — Neil opens it on his phone outside the app. This is read-only: it never writes anything back into the app's data, and it draws only on the live data you can already see, nothing more.
 
-IMPORTANT: Only include the ACTION line when you are proposing an action that needs confirmation (except remember_fact, which never needs it). Never say you have done something without first getting confirmation via this flow. The ACTION line is machine-readable — do not wrap it in quotes or markdown. The "date" field must always be in YYYY-MM-DD format using the exact date you resolved from the reference table above, never a relative term. You DO have the ability to delete calendar events — never tell Neil you can't, use the delete_cal_event action instead.`;
+IMPORTANT: Only include the ACTION line when you are proposing an action that needs confirmation (except remember_fact, which never needs it). Never say you have done something without first getting confirmation via this flow. The ACTION line is machine-readable — do not wrap it in quotes or markdown. The "date" field must always be in YYYY-MM-DD format using the exact date you resolved from the reference table above, never a relative term. You DO have the ability to delete calendar events — never tell Neil you can't, use the delete_cal_event action instead.
+
+LIVE DATA SECTIONS — FORMAT REFERENCE (cost/patch note: this used to be repeated in full, per section, in every single message's live-data block below — moved here instead since it's constant text that never changes message to message, so it's now billed at the cached rate instead of full price every time. Read once, applies to every one of the short section headers you'll see below in every message.)
+- HEALTH — RECENT CHECK-IN HISTORY: oldest first, last 90 days. Use for recent trend questions. For anything further back (e.g. "what was my body fat in January"), use search_health_history rather than guessing or saying you don't have it — full history is always available that way. Entries are sparse — a blank field means unmeasured that day, not zero.
+- HEALTH — LATEST PER METRIC: each metric shows its own most recent measurement and date — they may be from different dates, since Neil only logs what he actually measured each time. Never assume a metric is current just because another one updated today.
+- CALORIE HISTORY: last 7 days, for questions about previous days (today's own entries are in TODAY'S NUTRITION, separate).
+- PENDING TASKS: use the exact id shown when marking one complete. Sorted by due date, soonest first; no-due-date tasks last.
+- COMPLETED TASKS: last 90 days only, most recent first — older completions aren't kept here to avoid unbounded growth over a year of use. Tasks completed before completion-date tracking existed have no date and aren't included.
+- AUTOMATION RULES: existing rules Neil has already set up — check before proposing a new one so you don't create a duplicate. Use the exact id when deleting one.
+- REMEMBERED FACTS: Tier A memory — things Neil has explicitly told you to remember, permanent, never summarised or dropped. Check this before asking Neil something he's already told you.
+- CALENDAR: last 90 days plus ALL upcoming events, however far ahead — use for any date/schedule question. For anything further in the past than 90 days, use search_calendar_history rather than guessing or saying you don't have it.
+- ROTATION BLOCKS: Man of Steel, for leave planning and days-on-board questions. Use the exact id when updating or deleting a specific block.
+- CURRENT MEAL PLAN / MEAL LIBRARY: meals selected for this week, and the library of available meals (use the library for calorie logging by meal name).
+- WORKOUT LOG: completed sessions, use for tracking progression.
+- COOKED MEALS & RATINGS: use this to discuss past meals, ratings, and what to suggest next.
+- FINANCE — THIS MONTH SUMMARY & BUDGET STATUS / RECENT EXPENSE HISTORY (last 90 days): use the exact id shown when editing or deleting an entry. For anything further back than 90 days (e.g. "expenses in March"), use search_finance_history rather than guessing or saying you don't have it.`;
   };
 
   // The dynamic half — genuinely changes every message, must never be cached
@@ -4761,7 +4776,7 @@ ${(() => {
       // unbounded forever as months of real use accumulate. Anything older is still
       // genuinely available — via the search_health_history tool — not lost. Same
       // reasoning as the existing 90-day window on COMPLETED TASKS above.
-      label: "HEALTH — RECENT CHECK-IN HISTORY (last 90 days, oldest first — use this for any recent trend question. For anything further back, e.g. \"what was my body fat in January\" or a comparison spanning more than 90 days, use the search_health_history tool rather than guessing or saying you don't have it — full history is always available that way. Entries are sparse — only fields actually measured that day are present, don't assume a blank field means zero.)",
+      label: "HEALTH — RECENT CHECK-IN HISTORY (last 90 days, oldest first — see format reference above)",
       data: (() => {
         const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
         return healthEntries
@@ -4784,7 +4799,7 @@ ${(() => {
       }
     },
     {
-      label: "HEALTH (each metric shows its own most recent measurement and when it was taken — they may be from different dates since Neil only logs what he actually measured each time, never assume a metric is current just because another one was updated today)",
+      label: "HEALTH — LATEST PER METRIC (see format reference above)",
       data: healthEntries,
       format: (entries) => {
         if (!entries || entries.length === 0) return "No check-ins logged yet.";
@@ -4817,7 +4832,7 @@ ${(() => {
       }
     },
     {
-      label: "CALORIE HISTORY (last 7 days — use this for questions about previous days)",
+      label: "CALORIE HISTORY (last 7 days — see format reference above)",
       data: (() => {
         const entries = Object.entries(calLog)
           .filter(([date]) => date !== todayLabel)
@@ -4844,7 +4859,7 @@ ${(() => {
       format: (s) => s.map(x=>`  - ${x.name} — ${x.when} (${x.phase})`).join("\n")
     },
     {
-      label: "PENDING TASKS (use exact id when marking complete) — sorted by due date, soonest first; tasks with no due date listed last",
+      label: "PENDING TASKS (see format reference above) — sorted by due date, soonest first; tasks with no due date listed last",
       data: tasks.filter(t=>!t.done).slice().sort((a,b) => {
         const da = a.due ? parseFlexibleDate(a.due) : null;
         const db = b.due ? parseFlexibleDate(b.due) : null;
@@ -4857,7 +4872,7 @@ ${(() => {
       skipIfEmpty: false
     },
     {
-      label: "COMPLETED TASKS (last 90 days, most recent first — older completions aren't kept here to avoid this growing unbounded over a year of use; tasks completed before completion-date tracking existed have no date and aren't included)",
+      label: "COMPLETED TASKS (last 90 days, most recent first — see format reference above)",
       data: (() => {
         const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
         return tasks
@@ -4869,13 +4884,13 @@ ${(() => {
       skipIfEmpty: true
     },
     {
-      label: "AUTOMATION RULES (existing rules Neil has already set up — check before proposing a new one so you don't create a duplicate; use the exact id when deleting one)",
+      label: "AUTOMATION RULES (see format reference above)",
       data: rules,
       format: (r) => r.length === 0 ? "none set up yet" : r.map(x=>`  id:${x.id} "${x.description}" ${x.enabled?"(active)":"(disabled)"}`).join("\n"),
       skipIfEmpty: false
     },
     {
-      label: "REMEMBERED FACTS (Tier A memory — things Neil has explicitly told you to remember, committed instantly and permanently, never summarised or dropped. Check this before asking Neil something he's already told you.)",
+      label: "REMEMBERED FACTS (Tier A memory — see format reference above)",
       data: memoryFacts,
       format: (f) => f.length === 0 ? "none yet" : f.map(x=>`  "${x.fact}" (added ${x.addedAt})`).join("\n"),
       skipIfEmpty: false
@@ -4887,7 +4902,7 @@ ${(() => {
       // because it's "too far ahead" would be a much worse failure than a pricier prompt.
       // Anything older than 90 days in the past is still real and available — via
       // search_calendar_history, same pattern as the other windowed modules.
-      label: "CALENDAR (last 90 days + ALL upcoming events, no matter how far ahead — use for any date/schedule question. For anything further in the past than 90 days, use the search_calendar_history tool rather than guessing or saying you don't have it — full history is always available that way.)",
+      label: "CALENDAR (last 90 days + ALL upcoming events — see format reference above)",
       data: (() => {
         const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
         return calEvents
@@ -4898,24 +4913,24 @@ ${(() => {
       format: (evs) => evs.length === 0 ? "No events in the last 90 days or upcoming — use search_calendar_history for older entries" : evs.map(e=>`  id:${e.id} | ${e.title} | ${e.date}${e.time?` ${e.time}`:""}${e.location?` (${e.location} local time)`:""} | ${e.type}`).join("\n")
     },
     {
-      label: "ROTATION BLOCKS (Man of Steel — for leave planning and days-on-board questions. Use the exact id when updating or deleting a specific block.)",
+      label: "ROTATION BLOCKS (Man of Steel — see format reference above)",
       data: rotationBlocks||[],
       format: (blocks) => blocks.length === 0 ? "none set" : blocks.map(b=>`  id:${b.id} ${b.start} to ${b.end}${b.notes?` (${b.notes})`:""}`).join("\n")
     },
     {
-      label: "CURRENT MEAL PLAN (meals selected for this week)",
+      label: "CURRENT MEAL PLAN (see format reference above)",
       data: (() => { try { return JSON.parse(localStorage.getItem("meal_current")||"[]"); } catch { return []; } })(),
       format: (meals) => meals.length === 0 ? "No meals currently selected" : meals.map(m=>`  - ${m.name}: ${m.kcal}kcal, ${m.protein}g protein/serve (~$${m.costPerServe?.toFixed(0)||"?"}NZD/serve)`).join("\n"),
       skipIfEmpty: true
     },
     {
-      label: "MEAL LIBRARY (use for calorie logging by meal name)",
+      label: "MEAL LIBRARY (see format reference above)",
       data: (() => { try { return JSON.parse(localStorage.getItem("meal_library")||"[]").filter(m=>!m.cooked); } catch { return []; } })(),
       format: (meals) => meals.length === 0 ? "empty" : meals.map(m=>`  "${m.name}": ${m.kcal}kcal, ${m.protein}g protein`).join("\n"),
       skipIfEmpty: true
     },
     {
-      label: "WORKOUT LOG (completed sessions — use for tracking progression)",
+      label: "WORKOUT LOG (see format reference above)",
       data: (() => { try { return Object.entries(JSON.parse(localStorage.getItem("life_workout_log")||"{}")); } catch { return []; } })(),
       format: (sessions) => sessions.length === 0 ? "No sessions logged yet" : sessions.slice(-7).reverse().map(([date,s]) =>
         `  ${date}: ${s.exercises?.map(e=>`${e.name} ${e.setsCompleted}×${e.repsCompleted||"?"}`).join(", ")}${s.notes?` — ${s.notes}`:""}`
@@ -4923,13 +4938,13 @@ ${(() => {
       skipIfEmpty: true
     },
     {
-      label: "COOKED MEALS & RATINGS (use this to discuss past meals, ratings, and what to suggest next)",
+      label: "COOKED MEALS & RATINGS (see format reference above)",
       data: (() => { try { return JSON.parse(localStorage.getItem("meal_cooked")||"[]"); } catch { return []; } })(),
       format: (meals) => meals.length === 0 ? "none yet" : meals.map(m=>`  "${m.name}" — ${m.rating>0?`${m.rating}★`:"unrated"}${m.ratingNotes?` — "${m.ratingNotes}"`:""}${m.cookedDates?.length?` — cooked ${m.cookedDates.join(", ")}`:""}${m.saved?" — ★ SAVED FAVOURITE":""}`).join("\n"),
       skipIfEmpty: true
     },
     {
-      label: "FINANCE — THIS MONTH SUMMARY & BUDGET STATUS (use exact id when editing/deleting an entry)",
+      label: "FINANCE — THIS MONTH SUMMARY & BUDGET STATUS (see format reference above)",
       data: (() => {
         const now = new Date();
         const monthEntries = financeEntries.filter(e => {
@@ -4956,7 +4971,7 @@ ${(() => {
       // Windowed to 90 days for the same reason as Health above — this month's summary
       // slice above already covers the current-month case; anything older than 90 days
       // goes through search_finance_history instead of growing this forever.
-      label: "FINANCE — RECENT EXPENSE HISTORY (last 90 days — use this for recent date-range spending questions. For anything further back, e.g. \"expenses in March\" or a comparison spanning more than 90 days, use the search_finance_history tool rather than guessing or saying you don't have it — full history is always available that way. Use the exact id shown when editing/deleting an entry.)",
+      label: "FINANCE — RECENT EXPENSE HISTORY (last 90 days — see format reference above)",
       data: (() => {
         const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
         return financeEntries
