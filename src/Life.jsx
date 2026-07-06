@@ -4133,7 +4133,7 @@ If you mention how soon something today is (e.g. "in 15 minutes," "this afternoo
   // OpenAI's inconsistent browser CORS support on /v1/audio/speech, without Puter's
   // subscription requirement). Key lives only on the Vercel proxy, never in this app. ──
   const TARS_VOICE = "onyx";  // alloy | echo | fable | onyx | nova | shimmer | ash | coral
-  const TARS_SPEED = 1.4;     // 0.25–4.0, 1.0 = normal
+  const TARS_SPEED = 1.2;     // 0.25–4.0, 1.0 = normal — trialling down from 1.4 at Neil's request
 
   const speak = (text) => {
     speakQueued(text, {
@@ -4285,6 +4285,9 @@ You have a search_vault tool. Use it whenever Neil asks about something that mig
 
 HEALTH/FINANCE HISTORY BEYOND 90 DAYS:
 The HEALTH and FINANCE data given to you live only covers the last 90 days — this keeps the app efficient as real history piles up over months. It is NOT the limit of what actually exists. For anything reaching further back — "what was my body fat in January", "expenses in March", "how has my weight changed since I started" — call search_health_history or search_finance_history rather than saying you don't have it or guessing from what's in front of you. Both accept an optional date range and return full matching history; omit both dates for full all-time history. Never tell Neil older data "isn't available" — it always is, one tool call away.
+
+CALENDAR HISTORY BEYOND 90 DAYS IN THE PAST:
+Calendar works differently — every upcoming event, no matter how far ahead, is always already in your live context. Only the PAST is windowed, to the last 90 days. For anything further back in the past — "when did I last go to Australia", "what happened in March last year" — call search_calendar_history. Never use this tool for anything upcoming; it only ever returns past events, since future ones are never hidden from you in the first place.
 
 LOCATION / NEARBY SEARCH:
 You have a search_places tool for finding real places near Neil's current physical location — restaurants, cafes, pharmacies, shops, anything he asks is "nearby" or "within X minutes". It requests his device's live GPS location and searches Google Places around it, so the results are genuinely current, not guessed. If he gives a time instead of a distance (e.g. "within 5 minutes"), convert it yourself using the tool's guidance — don't ask him to convert it. If location permission was denied or the API key isn't set up, the tool will tell you plainly — pass that along to Neil honestly rather than inventing place names or addresses from training knowledge, which would be dangerously wrong for anything address- or hours-specific.
@@ -4536,9 +4539,21 @@ ${(() => {
       skipIfEmpty: false
     },
     {
-      label: "FULL CALENDAR (every event — use for any date/schedule question)",
-      data: calEvents.slice().sort((a,b)=>new Date(a.date)-new Date(b.date)),
-      format: (evs) => evs.length === 0 ? "No events" : evs.map(e=>`  id:${e.id} | ${e.title} | ${e.date}${e.time?` ${e.time}`:""}${e.location?` (${e.location} local time)`:""} | ${e.type}`).join("\n")
+      // Windowed on the PAST side only — 90 days back, same pattern as Health/Finance.
+      // The FUTURE side is deliberately never windowed: rotation dates, flights, and
+      // upcoming events are exactly what matters most here, and silently hiding one
+      // because it's "too far ahead" would be a much worse failure than a pricier prompt.
+      // Anything older than 90 days in the past is still real and available — via
+      // search_calendar_history, same pattern as the other windowed modules.
+      label: "CALENDAR (last 90 days + ALL upcoming events, no matter how far ahead — use for any date/schedule question. For anything further in the past than 90 days, use the search_calendar_history tool rather than guessing or saying you don't have it — full history is always available that way.)",
+      data: (() => {
+        const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
+        return calEvents
+          .filter(e => new Date(e.date) >= cutoff) // covers recent past AND all future, unbounded forward
+          .slice()
+          .sort((a,b)=>new Date(a.date)-new Date(b.date));
+      })(),
+      format: (evs) => evs.length === 0 ? "No events in the last 90 days or upcoming — use search_calendar_history for older entries" : evs.map(e=>`  id:${e.id} | ${e.title} | ${e.date}${e.time?` ${e.time}`:""}${e.location?` (${e.location} local time)`:""} | ${e.type}`).join("\n")
     },
     {
       label: "ROTATION BLOCKS (Man of Steel — for leave planning and days-on-board questions. Use the exact id when updating or deleting a specific block.)",
@@ -5367,6 +5382,17 @@ If multiple files were uploaded, treat them as related unless the content sugges
           }
         }
       };
+      const calendarHistoryTool = {
+        name: "search_calendar_history",
+        description: "Retrieve calendar events older than 90 days in the past (which are already in your live context, along with every upcoming event — this tool is for PAST events only, never needed for anything upcoming). Use for questions like \"when did I last visit Australia\" or \"what happened in March last year\". Omit both dates for full all-time past history.",
+        input_schema: {
+          type: "object",
+          properties: {
+            fromDate: { type:"string", description:"Start date YYYY-MM-DD, inclusive. Omit for no lower bound." },
+            toDate: { type:"string", description:"End date YYYY-MM-DD, inclusive. Omit for no upper bound." },
+          }
+        }
+      };
 
       const toolHandlers = {
         search_vault: async (input) => {
@@ -5432,6 +5458,26 @@ If multiple files were uploaded, treat them as related unless the content sugges
           if (matches.length === 0) return "No Finance entries found in that range.";
           return matches.map(e => `id:${e.id} | ${e.date} | ${e.category} | $${e.value.toFixed(2)}${e.merchant?` | ${e.merchant}`:""}${e.source!=="manual"?` | via ${e.source}`:""}`).join("\n");
         },
+        search_calendar_history: async (input) => {
+          const from = input.fromDate ? parseFlexibleDate(input.fromDate) : null;
+          const to = input.toDate ? parseFlexibleDate(input.toDate) : null;
+          // Hard-capped to before the 90-day live window regardless of input — anything
+          // more recent (or upcoming) is already in context, so returning it here too
+          // would just be confusing duplication, not genuinely new information.
+          const windowCutoff = new Date(); windowCutoff.setDate(windowCutoff.getDate() - 90);
+          const matches = calEvents
+            .filter(e => {
+              const d = parseFlexibleDate(e.date);
+              if (!d || d >= windowCutoff) return false;
+              if (from && d < from) return false;
+              if (to && d > to) return false;
+              return true;
+            })
+            .slice()
+            .sort((a,b) => parseFlexibleDate(a.date) - parseFlexibleDate(b.date));
+          if (matches.length === 0) return "No past calendar events found in that range.";
+          return matches.map(e=>`id:${e.id} | ${e.title} | ${e.date}${e.time?` ${e.time}`:""}${e.location?` (${e.location} local time)`:""} | ${e.type}`).join("\n");
+        },
       };
 
       const vaultAddendum = vault.length > 0
@@ -5453,7 +5499,7 @@ If multiple files were uploaded, treat them as related unless the content sugges
       const reply = await callClaudeWithTools({
         system: systemWithVault,
         messages: apiMessages,
-        tools: [vaultTool, healthHistoryTool, financeHistoryTool, WEB_SEARCH_TOOL, PLACES_SEARCH_TOOL],
+        tools: [vaultTool, healthHistoryTool, financeHistoryTool, calendarHistoryTool, WEB_SEARCH_TOOL, PLACES_SEARCH_TOOL],
         toolHandlers,
       });
 
@@ -5941,7 +5987,7 @@ function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState 
   const speakProject = (text) => {
     speakQueued(text, {
       audioRef, requestIdRef: speakReqId, voiceEnabled,
-      setSpeaking: () => {}, setVoiceError, voice: "onyx", speed: 1.4,
+      setSpeaking: () => {}, setVoiceError, voice: "onyx", speed: 1.2, // matches main chat's TARS_SPEED trial
     });
   };
 
@@ -5962,28 +6008,13 @@ function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState 
     setProjects(prev => prev.map(p => p.id === projectId ? { ...p, lastActive: Date.now() } : p));
   }, []);
 
-  const buildProjectPrompt = () => {
-    const now = new Date();
-    const today = now.toLocaleDateString("en-NZ", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
-    const currentTime = now.toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit", hour12:false });
-    const dateAnchor = [];
-    for (let i = 0; i < 14; i++) {
-      const d = new Date(now); d.setDate(now.getDate() + i);
-      const label = i === 0 ? "Today" : i === 1 ? "Tomorrow" : d.toLocaleDateString("en-NZ", { weekday:"long" });
-      dateAnchor.push(`${label}: ${d.toLocaleDateString("en-CA")} (${d.toLocaleDateString("en-NZ",{weekday:"long",day:"numeric",month:"long"})})`);
-    }
-    const pendingTasks = tasks.filter(t=>!t.done).slice().sort((a,b) => {
-      const da = a.due ? parseFlexibleDate(a.due) : null;
-      const db = b.due ? parseFlexibleDate(b.due) : null;
-      if (!da && !db) return 0;
-      if (!da) return 1;
-      if (!db) return -1;
-      return da - db;
-    }).map(t=>`id:${t.id} "${t.text}"${t.due?` (due ${t.due})`:""}`).join(", ") || "none";
-    const calendarEvents = calEvents.slice().sort((a,b) => parseFlexibleDate(a.date) - parseFlexibleDate(b.date))
-      .map(e => `  id:${e.id} | ${e.title} | ${e.date}${e.time?` ${e.time}`:""}${e.location?` (${e.location} local time)`:""} | ${e.type}`).join("\n") || "  none";
-    const vaultIndex = vault.map(d => `id:${d.id} | ${d.name} | ${d.docType} | ${d.summary?.slice(0,100)||""}`).join("\n") || "empty";
-
+  // ── PROMPT CACHING SPLIT — same reasoning as main chat's buildStaticSystemPrompt/
+  // buildDynamicSystemPrompt. The static half (identity, scope, action protocol, module
+  // registry, document generation instructions) barely changes within a given Project's
+  // lifetime — even the project name stays fixed for the conversation's duration, so it's
+  // safe to cache alongside the rest. The dynamic half (today's date, tasks, calendar,
+  // vault index) changes every message and is never cached. ──
+  const buildProjectStaticPrompt = () => {
     return `You are TARS, Neil's personal AI, currently working with him inside a focused PROJECT space called "${project?.name || "this project"}". This is a dedicated workspace for this specific topic — keep the conversation focused on it.
 
 VOICE: Same as always — direct, dry, specific, no corporate assistant energy, no markdown formatting since you don't need to (this is a text-only space, but keep it clean and conversational regardless).
@@ -6010,9 +6041,32 @@ DOCUMENT GENERATION — this is the main reason Neil uses Projects: plan somethi
 ACTION:{"type":"generate_document","title":"Dubrovnik Trip Summary","brief":"key plans, bookings, and decisions from this project"}
 Do NOT write the actual document content in your reply — that happens separately after Neil confirms, using this project's own conversation as the source material. Once confirmed, a real plain-text file is generated and offered for download — Neil opens it on his phone outside the app, then typically deletes this project once he's checked it. This never writes anything back into the app's data.
 
-DATE FORMAT — CRITICAL: All dates you speak or write must be day-first. Spell the month out in full (e.g. "4 July 2026") or use DD/MM/YYYY numerically (e.g. "04/07/2026"). NEVER write MM/DD/YYYY American-style. The "date" field inside any ACTION block must always be YYYY-MM-DD internally (that's just data format, not what Neil reads) — but anything you say to Neil in plain text must be day-first.
+DATE FORMAT — CRITICAL: All dates you speak or write must be day-first. Spell the month out in full (e.g. "4 July 2026") or use DD/MM/YYYY numerically (e.g. "04/07/2026"). NEVER write MM/DD/YYYY American-style. The "date" field inside any ACTION block must always be YYYY-MM-DD internally (that's just data format, not what Neil reads) — but anything you say to Neil in plain text must be day-first.`;
+  };
 
-DATE REFERENCE (today and next 13 days):
+  const buildProjectDynamicPrompt = () => {
+    const now = new Date();
+    const today = now.toLocaleDateString("en-NZ", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
+    const currentTime = now.toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit", hour12:false });
+    const dateAnchor = [];
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(now); d.setDate(now.getDate() + i);
+      const label = i === 0 ? "Today" : i === 1 ? "Tomorrow" : d.toLocaleDateString("en-NZ", { weekday:"long" });
+      dateAnchor.push(`${label}: ${d.toLocaleDateString("en-CA")} (${d.toLocaleDateString("en-NZ",{weekday:"long",day:"numeric",month:"long"})})`);
+    }
+    const pendingTasks = tasks.filter(t=>!t.done).slice().sort((a,b) => {
+      const da = a.due ? parseFlexibleDate(a.due) : null;
+      const db = b.due ? parseFlexibleDate(b.due) : null;
+      if (!da && !db) return 0;
+      if (!da) return 1;
+      if (!db) return -1;
+      return da - db;
+    }).map(t=>`id:${t.id} "${t.text}"${t.due?` (due ${t.due})`:""}`).join(", ") || "none";
+    const calendarEvents = calEvents.slice().sort((a,b) => parseFlexibleDate(a.date) - parseFlexibleDate(b.date))
+      .map(e => `  id:${e.id} | ${e.title} | ${e.date}${e.time?` ${e.time}`:""}${e.location?` (${e.location} local time)`:""} | ${e.type}`).join("\n") || "  none";
+    const vaultIndex = vault.map(d => `id:${d.id} | ${d.name} | ${d.docType} | ${d.summary?.slice(0,100)||""}`).join("\n") || "empty";
+
+    return `DATE REFERENCE (today and next 13 days):
 ${dateAnchor.join("\n")}
 
 LIVE DATA:
@@ -6024,6 +6078,17 @@ Vault documents available (use search_vault to read one in full if relevant): ${
 
 This project's conversation history below IS its memory — there's no separate save step, everything here persists automatically.`;
   };
+
+  // Plain concatenation — used by the file-upload path, a one-off call not worth caching
+  // individually, same reasoning as main chat's image/file analysis calls.
+  const buildProjectPrompt = () => buildProjectStaticPrompt() + "\n\n" + buildProjectDynamicPrompt();
+
+  // Cached array form — used by the main text-send path, the one that actually repeats
+  // in quick succession within a Project conversation.
+  const buildProjectPromptCached = () => [
+    { type: "text", text: buildProjectStaticPrompt(), cache_control: { type: "ephemeral", ttl: "1h" } },
+    { type: "text", text: buildProjectDynamicPrompt() },
+  ];
 
   const sendMessage = async (textOverride) => {
     const text = (textOverride !== undefined ? textOverride : input).trim();
@@ -6068,7 +6133,7 @@ This project's conversation history below IS its memory — there's no separate 
       };
 
       const reply = await callClaudeWithTools({
-        system: buildProjectPrompt(),
+        system: buildProjectPromptCached(),
         messages: apiMessages,
         tools: [vaultTool, WEB_SEARCH_TOOL],
         toolHandlers,
@@ -6747,7 +6812,6 @@ export default function LifeApp() {
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", background:T.card, borderRadius:12, padding:"12px 14px", border:`1px solid ${T.border}`, marginBottom:14 }}>
               <div style={{ paddingRight:12 }}>
                 <div style={{ fontSize:13, fontWeight:600, color:T.text }}>Notify on every TARS action</div>
-                <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>Off by default — routine actions (logging food, adding a task) stay quiet. Rule-triggered notifications always come through either way. Turn on if you ever want to double-check TARS is behaving as expected.</div>
               </div>
               <button
                 onClick={()=>setNotifyOnRoutineActions(v=>!v)}
