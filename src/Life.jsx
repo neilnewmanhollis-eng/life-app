@@ -5912,10 +5912,16 @@ If multiple files were uploaded, treat them as related unless the content sugges
       // regardless of this flag (see its definition), so gating tools by message
       // content saved nothing and risked Claude narrating a tool call as plain text
       // when the pattern-match missed a phrasing (e.g. "closest X" vs "X near me"). ──
+      // Patch 3 — these 6 tool schemas are constant (~600 tokens combined), same as the
+      // system prompt, but were never marked for caching — billed at full price every
+      // single message. cache_control on the LAST entry caches everything from the start
+      // of this array up to and including it, same mechanism as the static prompt above.
+      // Spread + cache_control here rather than mutating PLACES_SEARCH_TOOL's own
+      // definition, since that's a shared module-level constant used elsewhere too.
       const reply = await callClaudeWithTools({
         system: systemWithVault,
         messages: apiMessages,
-        tools: [vaultTool, healthHistoryTool, financeHistoryTool, calendarHistoryTool, WEB_SEARCH_TOOL, PLACES_SEARCH_TOOL],
+        tools: [vaultTool, healthHistoryTool, financeHistoryTool, calendarHistoryTool, WEB_SEARCH_TOOL, { ...PLACES_SEARCH_TOOL, cache_control: { type: "ephemeral", ttl: "1h" } }],
         toolHandlers,
       });
 
