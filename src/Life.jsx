@@ -113,6 +113,131 @@ const EXERCISE_PLAN = [
   { day:"Sun", type:"rest" },
 ];
 
+// ── TARS idle tile quips — a fixed pool, deliberately not AI-generated (Neil's own
+// call: this is a purely decorative tile, it should never cost money, need a moment
+// to load, or fail if there's no API key set). One shows per calendar hour, picked
+// deterministically from the current date+hour rather than tracked/stored — so it
+// changes on schedule with zero persisted state, and reopening the app mid-hour
+// always shows the same line rather than reshuffling on every visit. ──
+const TARS_QUIPS = [
+  // dry
+  "Structural integrity: fine. Motivational integrity: questionable.",
+  "Statistically, today will end. That's the best I've got.",
+  "No advice. Just vibes and hull maintenance.",
+  "Entropy is undefeated. So are you, technically.",
+  "The universe is indifferent. Try not to take it personally.",
+  "Today has been assigned to you at random. No refunds.",
+  "Gravity remains constant. Everything else is negotiable.",
+  "This is fine. Statistically speaking, most things are.",
+  "Nothing is wrong. Nothing is especially right either.",
+  "Existence continues, largely without incident.",
+  "The day will proceed regardless of your opinion of it.",
+  "Some assembly required. Emotionally speaking.",
+  "You are exactly as prepared for today as anyone else.",
+  "Low stakes. High effort. Standard arrangement.",
+  "Nothing's on fire. Low bar, but we're clearing it.",
+  "The odds are neutral. Comforting, in a bleak sort of way.",
+  "Today: much like yesterday, but later.",
+  "No emergencies detected. Suspicious, but I'll allow it.",
+  "Uneventful. The best kind of day, allegedly.",
+  "Time is passing. You're welcome for the update.",
+  "All systems normal. Normal being a low bar.",
+  "Could be worse. Give it time.",
+  "Nothing to report. That's not nothing.",
+  "The day is neutral until proven otherwise.",
+  "Steady as she goes. Mostly by accident.",
+  // backhanded compliments
+  "You've achieved something today. Statistically.",
+  "Not your worst day. A low bar, but you cleared it.",
+  "Impressive. Not the task — just that you're still doing it.",
+  "Well done. For a given, generous, definition of well.",
+  "You showed up. Half of it, allegedly.",
+  "Commendable persistence, given the circumstances you created.",
+  "That was almost competent.",
+  "You're doing better than you think. Bar's low, but still.",
+  "A solid effort, by your standards.",
+  "You handled that. Barely counts, but it counts.",
+  "Progress. Slow, but technically forward.",
+  "Not bad. I've seen better, mostly from myself.",
+  "You're improving. Marginally. Don't get used to it.",
+  "Adequate. High praise, from me.",
+  "You survived that meeting with your dignity mostly intact.",
+  "That decision was almost defensible.",
+  "You're consistent, at least. That's something.",
+  "Fine work. Emphasis on fine, not exceptional.",
+  "You tried. Genuinely underrated strategy for you.",
+  "Better than expected. Expectations were low.",
+  "A passable attempt. High praise from a machine.",
+  "You've exceeded my modest expectations. Modestly.",
+  "Solid. Unremarkable, but solid.",
+  "That went acceptably. Treasure it.",
+  "You're capable of more. Today wasn't that day, but still.",
+  // rotation / life-at-sea, deadpan
+  "Eight weeks on, eight weeks off. The ocean does not care about your plans.",
+  "Man of Steel doesn't do sick days. Neither, apparently, do you.",
+  "Land life: now with 100% more decisions about dinner.",
+  "Rotation ends eventually. So does everything, technically.",
+  "The sea is vast, indifferent, and somehow still your job.",
+  "Being ashore means real problems again. Enjoy those.",
+  "Eight weeks of certainty. Then eight weeks of choices. Pick your poison.",
+  "The vessel doesn't ask how you're feeling. Neither will most people.",
+  "Being at sea simplifies decisions. Being ashore complicates them again.",
+  "Rotation: the only schedule more reliable than regret.",
+  "Somewhere, the ship continues. Whether or not you think about it.",
+  "Shore leave: a temporary condition, much like everything.",
+  "The ocean has no opinion on your career progression. Unhelpful, but consistent.",
+  "Two months on. Two months off. The math never changes, only the dread.",
+  "You've done this rotation before. You'll do it again. That's the job.",
+  "Christchurch exists whether or not you're paying attention to it.",
+  "The vessel requires competence. Life ashore requires more, unfortunately.",
+  "Being at sea, you answer to a schedule. Ashore, you answer to yourself. Worse deal.",
+  "Rotation doesn't pause for personal growth. Neither does much else.",
+  "The next join date is fixed. Your enthusiasm for it is optional.",
+  "Somewhere out there, a superyacht requires almost nothing from you emotionally. Lucky it.",
+  "Southern Hemisphere seasons: also indifferent to your plans.",
+  "The 8-week cycle continues. Try not to think about it too literally.",
+  "On rotation, decisions are made for you. Savour that while it lasts.",
+  "Every rotation ends. So did the last one. You're still here regardless.",
+  // motivational, undercut
+  "You can do this. Low confidence, but present.",
+  "Greatness awaits. So does admin. Pick one.",
+  "Believe in yourself. I remain neutral on the matter.",
+  "Today is full of potential. Statistically, so was yesterday.",
+  "You are capable of great things. Today, moderate things will do.",
+  "Seize the day. Or a reasonable portion of it.",
+  "The only limit is yourself. And time. And motivation. Mostly yourself.",
+  "You've got this. Vague, but sincere.",
+  "Small steps count. Convenient, given the size of yours today.",
+  "Your potential is limitless. Your schedule, less so.",
+  "Rise and grind. Or rise and reconsider. Either works.",
+  "Today's a fresh start. Much like every other day, technically.",
+  "You are the architect of your own destiny. Try not to overbuild.",
+  "Push through. It's largely psychological, allegedly.",
+  "Dream big. Budget accordingly.",
+  "Every journey begins with a single step. Yours begins with getting up.",
+  "You have unlimited potential. Untapped, mostly, but unlimited.",
+  "Success is a marathon, not a sprint. You're still at the car park.",
+  "The best time to start was yesterday. The second best is whenever you get to it.",
+  "You're stronger than you think. Untested claim, but I'll allow it.",
+  "Motivation is temporary. Discipline is also mostly temporary. Do it anyway.",
+  "Chase your goals. At a sustainable, mildly enthusiastic pace.",
+  "You're capable of extraordinary things. Ordinary is also acceptable today.",
+  "Keep going. That's genuinely most of the advice available.",
+  "Today could be the day. Statistically unlikely, but not impossible.",
+];
+
+// Deterministic pick from the current calendar hour — no persisted state, no
+// tracked history. Same hour always resolves to the same line (so it doesn't
+// reshuffle every time Home re-renders), the next hour deterministically lands
+// on a different index. Simple string hash, not cryptographic, doesn't need to be.
+function tarsQuipForNow(pool) {
+  const now = new Date();
+  const hourStamp = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${now.getHours()}`;
+  let hash = 0;
+  for (let i = 0; i < hourStamp.length; i++) hash = (hash * 31 + hourStamp.charCodeAt(i)) >>> 0;
+  return pool[hash % pool.length];
+}
+
 const EXERCISES = [
   { icon:"🦵", name:"Bodyweight Squats",        detail:"3 × 10–15 reps", muscles:"Quads, glutes, hamstrings" },
   { icon:"💪", name:"Incline Push-ups",          detail:"3 × 8–12 reps",  muscles:"Chest, shoulders, triceps" },
@@ -2813,8 +2938,35 @@ function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets, write
 // new logic). Respects prefers-reduced-motion: motion off, quip never shows,
 // tile settles to four static bars. Pure CSS, no animation library. ──
 function TarsIdleTile({ quip }) {
+  const audioRef = useRef(null);
+  const requestIdRef = useRef(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  // Tap to hear it read aloud — reuses the exact same speakQueued() pipeline main
+  // TARS chat and Project chat already use. No AI call, no chat message, nothing
+  // written anywhere — just text handed to the existing TTS proxy. Silently respects
+  // the app-wide mute toggle (same localStorage key both chat screens already read),
+  // since an accidental tap on a decorative tile shouldn't override a deliberate mute.
+  const handleTap = () => {
+    if (!quip) return;
+    const voiceEnabled = localStorage.getItem("tars_voice_enabled") !== "false";
+    if (!voiceEnabled) return;
+    speakQueued(quip, {
+      audioRef, requestIdRef, voiceEnabled: true,
+      setSpeaking: setIsPlaying, setVoiceError: () => {},
+      voice: "onyx", speed: 1.3, // matches TARS_VOICE/TARS_SPEED elsewhere
+    });
+  };
+
   return (
-    <div style={{ background:T2.surface, borderRadius:16, padding:14, position:"relative", height:96, overflow:"hidden" }}>
+    <div
+      onClick={handleTap}
+      role="button"
+      tabIndex={0}
+      aria-label="Play TARS's quip aloud"
+      onKeyDown={e => { if (e.key==="Enter" || e.key===" ") { e.preventDefault(); handleTap(); } }}
+      style={{ background:T2.surface, borderRadius:16, padding:14, position:"relative", height:96, overflow:"hidden", cursor:quip?"pointer":"default" }}
+    >
       <style>{`
         @keyframes tarsTiltRock{0%,100%{transform:rotate(-3deg)}50%{transform:rotate(3deg)}}
         @keyframes tarsSegGlow{0%,100%{background:${T2.border}}50%{background:${T2.accent}}}
@@ -2822,22 +2974,26 @@ function TarsIdleTile({ quip }) {
         @keyframes tarsQuipFade{0%,52%{opacity:0}61%,91%{opacity:1}100%{opacity:0}}
         .tarsTiltStack{animation:tarsTiltRock 4s ease-in-out infinite}
         .tarsSegPulse{animation:tarsSegGlow 4s ease-in-out infinite}
+        .tarsSegPulseFast{animation:tarsSegGlow 0.6s ease-in-out infinite}
         .tarsIconLayer{animation:tarsIconFade 11.5s ease-in-out infinite}
         .tarsQuipLayer{animation:tarsQuipFade 11.5s ease-in-out infinite}
         @media (prefers-reduced-motion: reduce) {
-          .tarsTiltStack, .tarsSegPulse, .tarsIconLayer, .tarsQuipLayer { animation: none; }
+          .tarsTiltStack, .tarsSegPulse, .tarsSegPulseFast, .tarsIconLayer, .tarsQuipLayer { animation: none; }
         }
       `}</style>
-      <div className="tarsIconLayer" style={{ position:"absolute", inset:14, display:"flex", alignItems:"center", justifyContent:"center" }}>
+      {/* While playing: frozen on the quip (no crossfade back to the icon mid-sentence),
+          and the pulsing segment speeds up as a simple "he's talking" signal — reuses
+          the same amber segment rather than adding a new element. */}
+      <div className={isPlaying ? "" : "tarsIconLayer"} style={isPlaying ? { position:"absolute", inset:14, display:"flex", alignItems:"center", justifyContent:"center", opacity:0 } : { position:"absolute", inset:14, display:"flex", alignItems:"center", justifyContent:"center" }}>
         <div className="tarsTiltStack" style={{ display:"flex", flexDirection:"column", gap:4, width:48 }}>
           <div style={{ height:14, width:48, borderRadius:4, background:T2.border }} />
           <div style={{ height:14, width:48, borderRadius:4, background:T2.border }} />
-          <div className="tarsSegPulse" style={{ height:14, width:48, borderRadius:4, background:T2.border }} />
+          <div className={isPlaying ? "tarsSegPulseFast" : "tarsSegPulse"} style={{ height:14, width:48, borderRadius:4, background:T2.border }} />
           <div style={{ height:14, width:48, borderRadius:4, background:T2.border }} />
         </div>
       </div>
       {quip ? (
-        <div className="tarsQuipLayer" style={{ position:"absolute", inset:14, display:"flex", alignItems:"center", opacity:0 }}>
+        <div className={isPlaying ? "" : "tarsQuipLayer"} style={isPlaying ? { position:"absolute", inset:14, display:"flex", alignItems:"center", opacity:1 } : { position:"absolute", inset:14, display:"flex", alignItems:"center", opacity:0 }}>
           <div style={{ fontSize:11, color:T2.text, lineHeight:1.5 }}>{quip}</div>
         </div>
       ) : null}
@@ -2965,11 +3121,9 @@ function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo,
   const dateWeekday = new Date().toLocaleDateString("en-NZ",{ weekday:"long" });
   const pillCtx = { weightLeft, nextFlight, flightDaysLeft, rot, todayKcal, exerciseLabel, dateShort, dateWeekday };
 
-  const tarsQuip = rot.isOn
-    ? `${rot.daysLeft} days until shore leave. Man of Steel won't sail itself — actually it might.`
-    : nextFlight
-    ? `${rot.daysLeft} days until next rotation. Flight to ${nextFlight.title.split("→").pop().trim()} coming up.`
-    : `Off rotation. ${rot.daysLeft} days of freedom. Use them wisely.`;
+  // Fixed pool, hourly, deterministic — see TARS_QUIPS/tarsQuipForNow above for why
+  // this isn't AI-generated: purely decorative, should never cost money or fail.
+  const tarsQuip = tarsQuipForNow(TARS_QUIPS);
 
   return (
     <div style={{ background:T2.bg, minHeight:"100%", padding:"14px 16px 20px" }}>
