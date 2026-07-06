@@ -5753,7 +5753,7 @@ If multiple files were uploaded, treat them as related unless the content sugges
   }
 
   return (
-    <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 56px)" }}>
+    <div style={{ display:"flex", flexDirection:"column" }}>
       {/* Header — back arrow removed, same reasoning as SectionHeader: this went to Home,
           duplicating the LIFE logo now fixed at the top of every screen. */}
       <div style={{ display:"flex", alignItems:"center", gap:12, padding:"16px 20px", borderBottom:`1px solid ${T.border}` }}>
@@ -5874,9 +5874,12 @@ If multiple files were uploaded, treat them as related unless the content sugges
 
       {/* ── CHAT TAB ── */}
       {tarsTab === "chat" && (
-        <div style={{ display:"flex", flexDirection:"column", flex:1 }}>
-          {/* Messages */}
-          <div style={{ flex:1, overflowY:"auto", padding:"8px 16px 8px", display:"flex", flexDirection:"column", gap:10, minHeight:0 }}>
+        <div style={{ display:"flex", flexDirection:"column" }}>
+          {/* Messages — normal document flow now, not an internal scroll region. The
+              page itself scrolls (same as every other screen); only the input bar below
+              is pinned. paddingBottom reserves room so the fixed input bar never covers
+              the last message or a pending confirmation card. */}
+          <div style={{ padding:"8px 16px 8px", display:"flex", flexDirection:"column", gap:10 }}>
             {nudgeLoading && (
               <div style={{ display:"flex", alignItems:"flex-start" }}>
                 <div style={{ padding:"10px 16px", borderRadius:"4px 18px 18px 18px", background:T.card, border:`1px solid ${T.border}` }}>
@@ -6011,8 +6014,17 @@ If multiple files were uploaded, treat them as related unless the content sugges
             </div>
           )}
 
-          {/* Input bar */}
-          <div style={{ borderTop:`1px solid ${T.border}`, background:T.bg, padding:"8px 16px 20px" }}>
+          {/* Spacer — reserves room at the true end of the scrollable page (after messages
+              AND any pending action/file card, whichever renders last) so the now-fixed
+              input bar below never covers real content, regardless of which of those
+              conditional blocks is showing. */}
+          <div style={{ height:140 }} />
+
+          {/* Input bar — position:fixed, same principle as the header at the top of the
+              screen: pinned to the actual viewport edge, so it can't drift while scrolling
+              or end up short of the real bottom, regardless of mobile browser viewport
+              quirks (address bar show/hide, keyboard, PWA vs browser chrome). */}
+          <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:40, boxSizing:"border-box", borderTop:`1px solid ${T.border}`, background:T.bg, padding:"8px 16px 20px" }}>
             {/* Top row — camera, file, mute, stop */}
             <div style={{ display:"flex", gap:8, marginBottom:8 }}>
               <label style={{ flex:1, padding:"7px 0", borderRadius:10, border:`1px solid ${T.border}`, background:T.elevated, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
@@ -6499,7 +6511,7 @@ This project's conversation history below IS its memory — there's no separate 
   };
 
   return (
-    <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 56px)" }}>
+    <div style={{ display:"flex", flexDirection:"column" }}>
       <div style={{ display:"flex", alignItems:"center", gap:10, padding:"14px 16px", borderBottom:`1px solid ${T.border}`, background:T.bg }}>
         <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", padding:4 }}><Icon name="back" size={20} color={T.text} /></button>
         <div style={{ flex:1, minWidth:0 }}>
@@ -6508,7 +6520,7 @@ This project's conversation history below IS its memory — there's no separate 
         </div>
       </div>
 
-      <div style={{ flex:1, overflowY:"auto", padding:"12px 16px", display:"flex", flexDirection:"column", gap:10, minHeight:0 }}>
+      <div style={{ padding:"12px 16px", display:"flex", flexDirection:"column", gap:10 }}>
         {messages.length === 0 && (
           <div style={{ textAlign:"center", color:T.muted, fontSize:12, padding:"40px 20px", lineHeight:1.6 }}>
             New project space for "{project?.name}". Ask TARS anything — he can search the web, check the vault, and update your tasks or calendar as you go.
@@ -6582,7 +6594,15 @@ This project's conversation history below IS its memory — there's no separate 
         </div>
       )}
 
-      <div style={{ borderTop:`1px solid ${T.border}`, padding:"10px 16px 20px" }}>
+      {/* Spacer — same reasoning as TarsScreen's: reserves room at the true end of the
+          scrollable page, after messages AND any pending action/file card, so the
+          fixed input bar below never covers real content. */}
+      <div style={{ height:150 }} />
+
+      {/* Input bar — position:fixed, same principle as the header and as TarsScreen's
+          own input bar fix: pinned to the actual viewport edge regardless of mobile
+          viewport quirks. */}
+      <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:40, boxSizing:"border-box", borderTop:`1px solid ${T.border}`, background:T.bg, padding:"10px 16px 20px" }}>
         {/* Top row — camera and file */}
         <div style={{ display:"flex", gap:8, marginBottom:8 }}>
           <label style={{ flex:1, padding:"7px 0", borderRadius:10, border:`1px solid ${T.border}`, background:T.elevated, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
