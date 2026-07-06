@@ -646,9 +646,13 @@ function SectionLabel({ children }) {
 }
 
 function SectionHeader({ title, onBack }) {
+  // Back arrow removed — every one of these screens' back button went to Home, which
+  // duplicates the LIFE logo/home button now permanently fixed at the top of every
+  // screen (see LifeApp's header). onBack is kept as a prop (unused for now) rather
+  // than ripped out of every call site, in case a genuinely different back-target
+  // ever needs this component again.
   return (
     <div style={{ display:"flex", alignItems:"center", gap:10, padding:"14px 16px", borderBottom:`1px solid ${T.border}` }}>
-      {onBack && <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", padding:4, color:T.text }}><Icon name="back" size={20} color={T.text} /></button>}
       <div style={{ fontSize:17, fontWeight:700, color:T.text }}>{title}</div>
     </div>
   );
@@ -5749,10 +5753,10 @@ If multiple files were uploaded, treat them as related unless the content sugges
   }
 
   return (
-    <div style={{ display:"flex", flexDirection:"column", minHeight:"100vh" }}>
-      {/* Header */}
+    <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 56px)" }}>
+      {/* Header — back arrow removed, same reasoning as SectionHeader: this went to Home,
+          duplicating the LIFE logo now fixed at the top of every screen. */}
       <div style={{ display:"flex", alignItems:"center", gap:12, padding:"16px 20px", borderBottom:`1px solid ${T.border}` }}>
-        <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted }}><Icon name="back" size={20} color={T.muted} /></button>
         <div style={{ flex:1 }}>
           <div style={{ fontSize:17, fontWeight:700, color:T.text }}>TARS</div>
           <div style={{ fontSize:11, color:T.blue }}>Honesty: 90% · Humour: calibrated</div>
@@ -5872,7 +5876,7 @@ If multiple files were uploaded, treat them as related unless the content sugges
       {tarsTab === "chat" && (
         <div style={{ display:"flex", flexDirection:"column", flex:1 }}>
           {/* Messages */}
-          <div style={{ flex:1, overflowY:"auto", padding:"8px 16px 8px", display:"flex", flexDirection:"column", gap:10, minHeight:300, maxHeight:"55vh" }}>
+          <div style={{ flex:1, overflowY:"auto", padding:"8px 16px 8px", display:"flex", flexDirection:"column", gap:10, minHeight:0 }}>
             {nudgeLoading && (
               <div style={{ display:"flex", alignItems:"flex-start" }}>
                 <div style={{ padding:"10px 16px", borderRadius:"4px 18px 18px 18px", background:T.card, border:`1px solid ${T.border}` }}>
@@ -6495,7 +6499,7 @@ This project's conversation history below IS its memory — there's no separate 
   };
 
   return (
-    <div style={{ display:"flex", flexDirection:"column", height:"100vh" }}>
+    <div style={{ display:"flex", flexDirection:"column", height:"calc(100vh - 56px)" }}>
       <div style={{ display:"flex", alignItems:"center", gap:10, padding:"14px 16px", borderBottom:`1px solid ${T.border}`, background:T.bg }}>
         <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", padding:4 }}><Icon name="back" size={20} color={T.text} /></button>
         <div style={{ flex:1, minWidth:0 }}>
@@ -6504,7 +6508,7 @@ This project's conversation history below IS its memory — there's no separate 
         </div>
       </div>
 
-      <div style={{ flex:1, overflowY:"auto", padding:"12px 16px", display:"flex", flexDirection:"column", gap:10 }}>
+      <div style={{ flex:1, overflowY:"auto", padding:"12px 16px", display:"flex", flexDirection:"column", gap:10, minHeight:0 }}>
         {messages.length === 0 && (
           <div style={{ textAlign:"center", color:T.muted, fontSize:12, padding:"40px 20px", lineHeight:1.6 }}>
             New project space for "{project?.name}". Ask TARS anything — he can search the web, check the vault, and update your tasks or calendar as you go.
