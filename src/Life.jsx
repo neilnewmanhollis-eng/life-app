@@ -4133,7 +4133,7 @@ If you mention how soon something today is (e.g. "in 15 minutes," "this afternoo
   // OpenAI's inconsistent browser CORS support on /v1/audio/speech, without Puter's
   // subscription requirement). Key lives only on the Vercel proxy, never in this app. ──
   const TARS_VOICE = "onyx";  // alloy | echo | fable | onyx | nova | shimmer | ash | coral
-  const TARS_SPEED = 1.2;     // 0.25–4.0, 1.0 = normal — trialling down from 1.4 at Neil's request
+  const TARS_SPEED = 1.3;     // 0.25–4.0, 1.0 = normal — was 1.4, trialled 1.2, now settled on 1.3 as the middle ground
 
   const speak = (text) => {
     speakQueued(text, {
@@ -5987,7 +5987,7 @@ function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState 
   const speakProject = (text) => {
     speakQueued(text, {
       audioRef, requestIdRef: speakReqId, voiceEnabled,
-      setSpeaking: () => {}, setVoiceError, voice: "onyx", speed: 1.2, // matches main chat's TARS_SPEED trial
+      setSpeaking: () => {}, setVoiceError, voice: "onyx", speed: 1.3, // matches main chat's TARS_SPEED
     });
   };
 
