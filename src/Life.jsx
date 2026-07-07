@@ -247,12 +247,15 @@ function tarsQuipForNow(pool) {
 // keys (lower/push/pull/core/flex) for filtering logic, this is just for what's shown.
 const AREA_LABELS = { lower:"Legs", push:"Upper body (push)", pull:"Upper body (pull)", core:"Core", flex:"Flexibility" };
 
-// ── Reference images + description, keyed by EXERCISE_LIBRARY id — deliberately
-// sparse right now. Images come from free-exercise-db (github.com/yuhonas/free-exercise-db),
-// released under the Unlicense (public domain, free for any use) — confirmed directly,
-// not assumed. Only entries actually verified as a genuine match get added here; the
-// rest of the library simply has no info button until checked, rather than guessing.
-// Descriptions are written fresh, not copied from the source dataset's own text.
+// ── Reference images + description, keyed by EXERCISE_LIBRARY id. Images come from
+// free-exercise-db (github.com/yuhonas/free-exercise-db), released under the Unlicense
+// (public domain, free for any use) — confirmed directly, not assumed. Full pass done
+// across all 22 library exercises: 10 have a genuine match here. The other 12
+// deliberately have NO entry — either nothing exists in the source dataset under any
+// close name, or the closest-named entry turned out to use different equipment/method
+// than ours (checked the actual instructions, not just the name) — rather than forcing
+// a mismatched reference in. Those 12 simply show no info button until a real source
+// is found. Descriptions below are written fresh, not copied from the source dataset.
 const EXERCISE_MEDIA = {
   sq_body: {
     images: [
@@ -267,6 +270,62 @@ const EXERCISE_MEDIA = {
       "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Bodyweight_Walking_Lunge/1.jpg",
     ],
     description: "Step forward with one leg and lower your back knee toward the floor, keeping your front knee stacked over your ankle. Push off through your front foot to bring your feet back together, then step forward with the other leg.",
+  },
+  incline_pushup: {
+    images: [
+      "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Incline_Push-Up/0.jpg",
+      "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Incline_Push-Up/1.jpg",
+    ],
+    description: "Place your hands on a raised surface like a bench or step, feet on the floor behind you, body in a straight line. Bend your elbows to lower your chest toward the surface, then push back up.",
+  },
+  dead_bug: {
+    images: [
+      "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Dead_Bug/0.jpg",
+      "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Dead_Bug/1.jpg",
+    ],
+    description: "Lie on your back with arms reaching up and knees bent at 90 degrees. Slowly lower one arm and the opposite leg toward the floor while keeping your lower back pressed down, then return and switch sides.",
+  },
+  plank_knees: {
+    images: [
+      "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Plank/0.jpg",
+      "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Plank/1.jpg",
+    ],
+    description: "Support your body on your forearms and knees (an easier alternative to full plank), keeping a straight line from head to hips. Brace your core and hold the position.",
+  },
+  plank_full: {
+    images: [
+      "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Plank/0.jpg",
+      "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Plank/1.jpg",
+    ],
+    description: "Support your body on your forearms and toes, keeping a straight line from head to heels. Brace your core and hold the position without letting your hips sag or lift.",
+  },
+  single_leg_br: {
+    images: [
+      "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Single_Leg_Glute_Bridge/0.jpg",
+      "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Single_Leg_Glute_Bridge/1.jpg",
+    ],
+    description: "Lie on your back with one knee bent and foot flat on the floor, the other leg extended straight up or out. Push through your planted heel to lift your hips, then lower back down.",
+  },
+  std_pushup: {
+    images: [
+      "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Pushups/0.jpg",
+      "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Pushups/1.jpg",
+    ],
+    description: "Start in a plank position with hands under your shoulders and body in a straight line. Bend your elbows to lower your chest toward the floor, then push back up.",
+  },
+  hip_flexor: {
+    images: [
+      "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Kneeling_Hip_Flexor/0.jpg",
+      "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Kneeling_Hip_Flexor/1.jpg",
+    ],
+    description: "Kneel with one foot forward and the other knee on the ground behind you. Shift your weight forward gently until you feel a stretch in the front of the hip on your back leg.",
+  },
+  hamstring: {
+    images: [
+      "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Hamstring_Stretch/0.jpg",
+      "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Hamstring_Stretch/1.jpg",
+    ],
+    description: "Sit with one leg extended straight in front of you and the other bent out to the side. Hinge forward from your hips, reaching toward your extended foot while keeping your back relatively straight.",
   },
 };
 
