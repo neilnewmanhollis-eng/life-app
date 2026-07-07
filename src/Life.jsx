@@ -3256,6 +3256,11 @@ function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets, write
 // same quip that used to live in the old hero banner — just relocated, not
 // new logic). Respects prefers-reduced-motion: motion off, quip never shows,
 // tile settles to four static bars. Pure CSS, no animation library. ──
+// Silver/metallic scheme, deliberately separate from the per-module accent colors —
+// TARS never had an "original" tile design to revert to (it's a new addition), so
+// this is its own distinct look rather than borrowing Health's or anyone else's accent.
+const TARS_METAL = { rest:"#94a3b8", lit:"#e2e8f0", label:"#cbd5e1" };
+
 function TarsIdleTile({ quip }) {
   const audioRef = useRef(null);
   const requestIdRef = useRef(0);
@@ -3288,7 +3293,7 @@ function TarsIdleTile({ quip }) {
     >
       <style>{`
         @keyframes tarsTiltRock{0%,100%{transform:rotate(-3deg)}50%{transform:rotate(3deg)}}
-        @keyframes tarsSegGlow{0%,100%{background:${T2.border}}50%{background:${T2.accent}}}
+        @keyframes tarsSegGlow{0%,100%{background:${TARS_METAL.rest}}50%{background:${TARS_METAL.lit}}}
         @keyframes tarsIconFade{0%,52%{opacity:1}61%,91%{opacity:0}100%{opacity:1}}
         @keyframes tarsQuipFade{0%,52%{opacity:0}61%,91%{opacity:1}100%{opacity:0}}
         .tarsTiltStack{animation:tarsTiltRock 4s ease-in-out infinite}
@@ -3305,10 +3310,10 @@ function TarsIdleTile({ quip }) {
           the same amber segment rather than adding a new element. */}
       <div className={isPlaying ? "" : "tarsIconLayer"} style={isPlaying ? { position:"absolute", inset:14, display:"flex", alignItems:"center", justifyContent:"center", opacity:0 } : { position:"absolute", inset:14, display:"flex", alignItems:"center", justifyContent:"center" }}>
         <div className="tarsTiltStack" style={{ display:"flex", flexDirection:"column", gap:4, width:48 }}>
-          <div style={{ height:14, width:48, borderRadius:4, background:T2.border }} />
-          <div style={{ height:14, width:48, borderRadius:4, background:T2.border }} />
-          <div className={isPlaying ? "tarsSegPulseFast" : "tarsSegPulse"} style={{ height:14, width:48, borderRadius:4, background:T2.border }} />
-          <div style={{ height:14, width:48, borderRadius:4, background:T2.border }} />
+          <div style={{ height:14, width:48, borderRadius:4, background:TARS_METAL.rest }} />
+          <div style={{ height:14, width:48, borderRadius:4, background:TARS_METAL.rest }} />
+          <div className={isPlaying ? "tarsSegPulseFast" : "tarsSegPulse"} style={{ height:14, width:48, borderRadius:4, background:TARS_METAL.rest }} />
+          <div style={{ height:14, width:48, borderRadius:4, background:TARS_METAL.rest }} />
         </div>
       </div>
       {quip ? (
@@ -3384,19 +3389,17 @@ function HomePillPicker({ onClose, onSelect }) {
 // Restyled module tile for the new Home grid — same footprint/shape for every
 // tile including the Work one, since only the Home screen's own nav tile is
 // in scope here; Work's actual screens and logic are untouched regardless.
-function HomeModuleTile({ icon, label, sublabel, badge, statusDot, onClick }) {
+function HomeModuleTile({ icon, label, sublabel, badge, statusDot, accent, onClick }) {
+  const a = accent || T2.accent; // per-module color, matching the original design; falls back to the shared accent if not specified
   return (
     <div onClick={onClick} style={{ background:T2.surface, borderRadius:16, padding:14, cursor:"pointer", position:"relative" }}>
       {statusDot && <div style={{ position:"absolute", top:12, right:12, width:8, height:8, borderRadius:"50%", background:statusDot }} />}
-      <div style={{ width:32, height:32, borderRadius:10, background:T2.iconBg, display:"flex", alignItems:"center", justifyContent:"center", marginBottom:9 }}>
-        <Icon name={icon} size={16} color={T2.accent} />
+      {badge ? <div style={{ position:"absolute", top:10, right:10, width:18, height:18, borderRadius:"50%", background:T.accent, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, fontWeight:800, color:"#fff" }}>{badge}</div> : null}
+      <div style={{ width:32, height:32, borderRadius:10, background:`${a}1f`, display:"flex", alignItems:"center", justifyContent:"center", marginBottom:9 }}>
+        <Icon name={icon} size={16} color={a} />
       </div>
       <div style={{ fontSize:12, fontWeight:700, color:T2.text }}>{label}</div>
-      {badge ? (
-        <div style={{ display:"inline-block", background:T2.pillBg, borderRadius:999, padding:"2px 7px", marginTop:5, fontSize:8, color:T2.accent }}>{badge}</div>
-      ) : sublabel ? (
-        <div style={{ fontSize:9, color:T2.muted, marginTop:2 }}>{sublabel}</div>
-      ) : null}
+      {sublabel ? <div style={{ fontSize:9, color:T2.muted, marginTop:2 }}>{sublabel}</div> : null}
     </div>
   );
 }
@@ -3459,13 +3462,13 @@ function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo,
           on its own row. */}
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
         <TarsIdleTile quip={tarsQuip} />
-        <HomeModuleTile icon="health"   label="Health"   sublabel={currentWeight!=null ? `${currentWeight}kg` : "Body & vitals"} onClick={()=>onNavigate("health")} />
-        <HomeModuleTile icon="tasks"    label="Tasks"    sublabel={`${completedToday}/${tasks.length} today`} badge={pendingHigh||null} onClick={()=>onNavigate("tasks")} />
-        <HomeModuleTile icon="calendar" label="Calendar" sublabel="Flights & rotation" onClick={()=>onNavigate("calendar")} />
-        <HomeModuleTile icon="finance"  label="Finance"  sublabel="Budget & spending" onClick={()=>onNavigate("finance")} />
-        <HomeModuleTile icon="meals"    label="Meals"    sublabel="Plan, shop & cook" onClick={()=>onNavigate("meals")} />
-        <HomeModuleTile icon="work"     label="Work"     sublabel="Certs & vessel log" statusDot={(workCerts&&workCerts.length>0&&worstCertStatus!=="green") ? CERT_BADGE_COLORS[worstCertStatus] : null} onClick={()=>onNavigate("work")} />
-        <HomeModuleTile icon="projects" label="Projects" sublabel="Plan with TARS" onClick={()=>onNavigate("projects")} />
+        <HomeModuleTile icon="health"   label="Health"   sublabel={currentWeight!=null ? `${currentWeight}kg` : "Body & vitals"} accent={T.accent} onClick={()=>onNavigate("health")} />
+        <HomeModuleTile icon="tasks"    label="Tasks"    sublabel={`${completedToday}/${tasks.length} today`} badge={pendingHigh||null} accent={T.green} onClick={()=>onNavigate("tasks")} />
+        <HomeModuleTile icon="calendar" label="Calendar" sublabel="Flights & rotation" accent={T.gold} onClick={()=>onNavigate("calendar")} />
+        <HomeModuleTile icon="finance"  label="Finance"  sublabel="Budget & spending" accent={T.purple} onClick={()=>onNavigate("finance")} />
+        <HomeModuleTile icon="meals"    label="Meals"    sublabel="Plan, shop & cook" accent={T.gold} onClick={()=>onNavigate("meals")} />
+        <HomeModuleTile icon="work"     label="Work"     sublabel="Certs & vessel log" accent={T.blue} statusDot={(workCerts&&workCerts.length>0&&worstCertStatus!=="green") ? CERT_BADGE_COLORS[worstCertStatus] : null} onClick={()=>onNavigate("work")} />
+        <HomeModuleTile icon="projects" label="Projects" sublabel="Plan with TARS" accent={T.green} onClick={()=>onNavigate("projects")} />
       </div>
 
       {/* TODAY'S TASKS */}
