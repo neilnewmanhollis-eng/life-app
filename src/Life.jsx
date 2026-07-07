@@ -3699,11 +3699,141 @@ function ImportCertsModal({ onClose, onImport }) {
   );
 }
 
-function WorkScreen({ onBack, workCerts, setWorkCerts }) {
+// ── SEA TIME — period entry modal. Same confirm-on-close dirty-check pattern as
+// CertEditModal, same isolation (no writeRecord, local state only). ──
+function SeaTimePeriodModal({ period, defaultVessel, onClose, onSave, onDelete }) {
+  const [form, setForm] = useState(() => period || {
+    vessel: defaultVessel || "", fromDate: "", toDate: "", watchDays: "", atAnchorDays: "",
+  });
+  const isNew = !period;
+  const initialSnapshot = useRef(JSON.stringify(form));
+  const hasChanges = () => JSON.stringify(form) !== initialSnapshot.current;
+
+  const handleSave = () => {
+    if (!form.vessel.trim() || !form.fromDate || !form.toDate) { alert("Vessel, onboard-from, and onboard-to dates are required."); return; }
+    onSave({ ...form, id: period?.id || Date.now() });
+    onClose();
+  };
+  const handleClose = () => {
+    if (!hasChanges()) { onClose(); return; }
+    const wantsSave = window.confirm(isNew ? "Save this period before closing?" : "Save these changes before closing?");
+    if (wantsSave) handleSave(); else onClose();
+  };
+
+  const field = (name, label, type) => (
+    <div style={{ marginBottom:12 }}>
+      <div style={{ fontSize:11, color:T.muted, marginBottom:4 }}>{label}</div>
+      <input type={type} value={form[name]||""} onChange={e=>setForm(p=>({...p,[name]:e.target.value}))}
+        style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", boxSizing:"border-box" }} />
+    </div>
+  );
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1000, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={handleClose}>
+      <div style={{ background:T.card, borderRadius:"20px 20px 0 0", padding:20, width:"100%", maxWidth:480, maxHeight:"85vh", overflowY:"auto", border:`1px solid ${T.border}`, boxSizing:"border-box" }} onClick={e=>e.stopPropagation()}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+          <div style={{ fontSize:15, fontWeight:700, color:T.text }}>{isNew ? "Add Period" : "Edit Period"}</div>
+          <button onClick={handleClose} style={{ background:"none", border:"none", color:T.muted, fontSize:18, cursor:"pointer", padding:4 }}>✕</button>
+        </div>
+        {field("vessel", "Vessel", "text")}
+        {field("fromDate", "Onboard from", "date")}
+        {field("toDate", "Onboard to", "date")}
+        {field("watchDays", "Watch days (>4h underway)", "number")}
+        {field("atAnchorDays", "At anchor days", "number")}
+        <div style={{ display:"flex", gap:8, marginTop:16 }}>
+          {!isNew && <button onClick={()=>{ if(window.confirm("Delete this period? This can't be undone.")) { onDelete(period.id); onClose(); } }}
+            style={{ padding:"10px 16px", borderRadius:10, border:`1px solid ${T.accent}44`, background:`${T.accent}18`, color:T.accent, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>Delete</button>}
+          <button onClick={handleSave} style={{ flex:1, padding:"10px 16px", borderRadius:10, border:"none", background:T.blue, color:"white", fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── SEA TIME — paste-import. Same mechanism as certificates: paste from Claude straight
+// into local storage, nothing new to secure. Format: { vessel, currentTo, periods:[...] }.
+// currentTo updates that vessel's "data current to" marker; periods get appended with
+// fresh ids, merging into whatever's already stored for that (or any) vessel. ──
+function SeaTimeImportModal({ onClose, onImport }) {
+  const [text, setText] = useState("");
+  const [error, setError] = useState(null);
+
+  const handleImport = () => {
+    setError(null);
+    let parsed;
+    try { parsed = JSON.parse(text); } catch {
+      setError("Couldn't read that — make sure the whole block was pasted, with nothing added or removed.");
+      return;
+    }
+    if (!parsed.vessel || !Array.isArray(parsed.periods)) {
+      setError("Nothing usable found in that text — check it's the right block.");
+      return;
+    }
+    const withIds = parsed.periods.map((p, i) => ({ ...p, vessel: parsed.vessel, id: Date.now() + i }));
+    onImport(withIds, parsed.vessel, parsed.currentTo || null);
+    onClose();
+  };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1000, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={onClose}>
+      <div style={{ background:T.card, borderRadius:"20px 20px 0 0", padding:20, width:"100%", maxWidth:480, maxHeight:"85vh", overflowY:"auto", border:`1px solid ${T.border}`, boxSizing:"border-box" }} onClick={e=>e.stopPropagation()}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+          <div style={{ fontSize:15, fontWeight:700, color:T.text }}>Import Sea Time</div>
+          <button onClick={onClose} style={{ background:"none", border:"none", color:T.muted, fontSize:18, cursor:"pointer", padding:4 }}>✕</button>
+        </div>
+        <div style={{ fontSize:12, color:T.muted, marginBottom:10, lineHeight:1.5 }}>Paste the block Claude gave you below — no need to read or understand it, just paste the whole thing exactly as given.</div>
+        {error && <div style={{ background:"#fee2e2", color:"#991b1b", borderRadius:8, padding:10, fontSize:12, marginBottom:10 }}>{error}</div>}
+        <textarea value={text} onChange={e=>setText(e.target.value)} rows={10} placeholder="Paste here…"
+          style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:11, fontFamily:"monospace", resize:"vertical", boxSizing:"border-box", marginBottom:14 }} />
+        <button onClick={handleImport} style={{ width:"100%", padding:"10px 16px", borderRadius:10, border:"none", background:T.blue, color:"white", fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>Import</button>
+      </div>
+    </div>
+  );
+}
+
+function WorkScreen({ onBack, workCerts, setWorkCerts, seatime, setSeatime, seatimeMeta, setSeatimeMeta }) {
   const [tab, setTab] = useState("certs"); // certs | seatime
   const [sortBy, setSortBy] = useState("expiry"); // expiry | type
   const [editingCert, setEditingCert] = useState(null); // record being edited, or {} sentinel for "new"
   const [importing, setImporting] = useState(false);
+
+  // ── SEA TIME derived state ──
+  const vessels = Array.from(new Set([...(seatime||[]).map(p=>p.vessel), ...Object.keys(seatimeMeta||{})])).filter(Boolean);
+  const [seaSubTab, setSeaSubTab] = useState("total"); // "total" or a vessel name
+  const [editingPeriod, setEditingPeriod] = useState(null); // record, or {} sentinel for new
+  const [importingSeatime, setImportingSeatime] = useState(false);
+
+  const onboardDays = (p) => {
+    const from = parseFlexibleDate(p.fromDate), to = parseFlexibleDate(p.toDate);
+    if (!from || !to) return 0;
+    return Math.round((to - from) / 86400000) + 1; // inclusive of both ends
+  };
+  const vesselPeriods = (v) => (seatime||[]).filter(p=>p.vessel===v).slice().sort((a,b)=>parseFlexibleDate(a.fromDate)-parseFlexibleDate(b.fromDate));
+  const vesselTotals = (v) => {
+    const periods = vesselPeriods(v);
+    return {
+      watchDays: periods.reduce((s,p)=>s+(Number(p.watchDays)||0), 0),
+      atAnchorDays: periods.reduce((s,p)=>s+(Number(p.atAnchorDays)||0), 0),
+      onboardDays: periods.reduce((s,p)=>s+onboardDays(p), 0),
+    };
+  };
+  const lifetimeTotals = vessels.reduce((acc, v) => {
+    const t = vesselTotals(v);
+    return { watchDays: acc.watchDays+t.watchDays, atAnchorDays: acc.atAnchorDays+t.atAnchorDays, onboardDays: acc.onboardDays+t.onboardDays };
+  }, { watchDays:0, atAnchorDays:0, onboardDays:0 });
+
+  const handleSavePeriod = (period) => {
+    setSeatime(prev => {
+      const exists = prev.some(p => p.id === period.id);
+      return exists ? prev.map(p => p.id === period.id ? period : p) : [...prev, period];
+    });
+  };
+  const handleDeletePeriod = (id) => setSeatime(prev => prev.filter(p => p.id !== id));
+  const handleImportSeatime = (newPeriods, vesselName, currentTo) => {
+    setSeatime(prev => [...prev, ...newPeriods]);
+    if (currentTo) setSeatimeMeta(prev => ({ ...prev, [vesselName]: currentTo }));
+    setSeaSubTab(vesselName); // jump straight to the vessel that was just updated
+  };
 
   const sorted = workCerts.slice().sort((a,b) => {
     if (sortBy === "type") return (a.certType||"").localeCompare(b.certType||"") || (a.name||"").localeCompare(b.name||"");
@@ -3732,8 +3862,97 @@ function WorkScreen({ onBack, workCerts, setWorkCerts }) {
       </div>
 
       {tab === "seatime" && (
-        <div style={{ padding:16, textAlign:"center", color:T.muted, fontSize:13, marginTop:20 }}>
-          Sea time tracking — coming soon.
+        <div style={{ padding:16 }}>
+          {/* Sub-tabs: Total + one per vessel that actually has data — nothing hardcoded,
+              a new vessel tab appears the moment its first period or import exists. */}
+          <div style={{ display:"flex", gap:6, marginBottom:12, flexWrap:"wrap" }}>
+            <button onClick={()=>setSeaSubTab("total")} style={{ padding:"6px 12px", borderRadius:8, border:`1px solid ${seaSubTab==="total"?T.blue:T.border}`, background:seaSubTab==="total"?`${T.blue}18`:"transparent", color:seaSubTab==="total"?T.blue:T.muted, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>Total</button>
+            {vessels.map(v => (
+              <button key={v} onClick={()=>setSeaSubTab(v)} style={{ padding:"6px 12px", borderRadius:8, border:`1px solid ${seaSubTab===v?T.blue:T.border}`, background:seaSubTab===v?`${T.blue}18`:"transparent", color:seaSubTab===v?T.blue:T.muted, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>{v}</button>
+            ))}
+          </div>
+
+          {seaSubTab === "total" ? (
+            <div>
+              <div style={{ background:T.card, borderRadius:14, padding:16, border:`1px solid ${T.border}`, marginBottom:14 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+                  <div style={{ fontSize:11, color:T.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>Lifetime Totals — All Vessels</div>
+                  <div style={{ display:"flex", gap:6 }}>
+                    <button onClick={()=>setImportingSeatime(true)} style={{ padding:"5px 9px", borderRadius:7, border:`1px solid ${T.border}`, background:T.elevated, color:T.muted, fontSize:10, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>Import</button>
+                    <button onClick={()=>setEditingPeriod({})} style={{ padding:"5px 9px", borderRadius:7, border:"none", background:T.blue, color:"white", fontSize:10, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>+ Add Vessel</button>
+                  </div>
+                </div>
+                <div style={{ fontSize:28, fontWeight:800, color:T.blue, marginTop:10 }}>{lifetimeTotals.watchDays}<span style={{ fontSize:13, fontWeight:600, color:T.muted }}> watch days</span></div>
+                <div style={{ display:"flex", gap:16, marginTop:8, fontSize:12, color:T.muted }}>
+                  <div>{lifetimeTotals.onboardDays} onboard days</div>
+                  <div>{lifetimeTotals.atAnchorDays} at anchor days</div>
+                </div>
+              </div>
+              {vessels.length === 0 ? (
+                <div style={{ textAlign:"center", padding:"30px 20px", color:T.muted, fontSize:13 }}>No sea time logged yet — use Import or + Add Vessel above to log your first period.</div>
+              ) : (
+                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                  {vessels.map(v => {
+                    const t = vesselTotals(v);
+                    return (
+                      <div key={v} onClick={()=>setSeaSubTab(v)} style={{ background:T.card, borderRadius:12, padding:12, border:`1px solid ${T.border}`, cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                        <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{v}</div>
+                        <div style={{ fontSize:12, color:T.muted }}>{t.watchDays} watch days</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div>
+              <div style={{ fontSize:11, color:T.muted, marginBottom:10 }}>
+                {seatimeMeta[seaSubTab] ? `Data current to ${formatDateDDMMYYYY(seatimeMeta[seaSubTab])}` : "No current-to date set yet"}
+              </div>
+              <div style={{ background:T.card, borderRadius:14, padding:16, border:`1px solid ${T.border}`, marginBottom:14 }}>
+                <div style={{ fontSize:24, fontWeight:800, color:T.blue }}>{vesselTotals(seaSubTab).watchDays}<span style={{ fontSize:13, fontWeight:600, color:T.muted }}> watch days</span></div>
+                <div style={{ display:"flex", gap:16, marginTop:6, fontSize:12, color:T.muted }}>
+                  <div>{vesselTotals(seaSubTab).onboardDays} onboard days</div>
+                  <div>{vesselTotals(seaSubTab).atAnchorDays} at anchor days</div>
+                </div>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:T.text }}>Periods</div>
+                <div style={{ display:"flex", gap:8 }}>
+                  <button onClick={()=>setImportingSeatime(true)} style={{ padding:"6px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.muted, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>Import</button>
+                  <button onClick={()=>setEditingPeriod({ vessel: seaSubTab })} style={{ padding:"6px 10px", borderRadius:8, border:"none", background:T.blue, color:"white", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>+ Add</button>
+                </div>
+              </div>
+              {vesselPeriods(seaSubTab).length === 0 ? (
+                <div style={{ textAlign:"center", padding:"20px", color:T.muted, fontSize:13 }}>No periods logged yet for {seaSubTab}.</div>
+              ) : (
+                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                  {vesselPeriods(seaSubTab).map(p => (
+                    <div key={p.id} onClick={()=>setEditingPeriod(p)} style={{ background:T.card, borderRadius:12, padding:12, border:`1px solid ${T.border}`, cursor:"pointer" }}>
+                      <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{formatDateDDMMYYYY(p.fromDate)} – {formatDateDDMMYYYY(p.toDate)}</div>
+                      <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{p.watchDays||0} watch days · {onboardDays(p)} onboard · {p.atAnchorDays||0} at anchor</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {editingPeriod !== null && (
+            <SeaTimePeriodModal
+              period={editingPeriod.id ? editingPeriod : null}
+              defaultVessel={editingPeriod.vessel}
+              onClose={()=>setEditingPeriod(null)}
+              onSave={handleSavePeriod}
+              onDelete={handleDeletePeriod}
+            />
+          )}
+          {importingSeatime && (
+            <SeaTimeImportModal
+              onClose={()=>setImportingSeatime(false)}
+              onImport={handleImportSeatime}
+            />
+          )}
         </div>
       )}
 
@@ -4322,7 +4541,7 @@ const GistSync = {
     "life_health_entries", "life_cal_log",
     "life_steps_log", "life_workout_log", "life_last_brief_date",
     "life_finance_entries", "life_finance_budgets",
-    "life_notifications", "life_automation_rules", "life_notify_routine_actions", "life_work_certs",
+    "life_notifications", "life_automation_rules", "life_notify_routine_actions", "life_work_certs", "life_work_seatime", "life_work_seatime_meta",
     "life_home_pills",
     "life_training_days", "life_exercise_routine", "life_routine_last_changed", "life_routine_suggested_at",
     "meal_library", "meal_current", "meal_cooked",
@@ -7333,6 +7552,14 @@ export default function LifeApp() {
   // empty, always — no real cert data is ever hardcoded here, even Neil's own, since
   // this file lives in a public repo (see Life_App_Build_Guide.md's security note). ──
   const [workCerts, setWorkCerts] = usePersistentState("life_work_certs", []);
+  // ── WORK SEA TIME — same isolation, same empty-default rule as certificates above.
+  // seatime: array of period records {id, vessel, fromDate, toDate, watchDays, atAnchorDays}.
+  // seatimeMeta: { [vesselName]: "YYYY-MM-DD" } — the latest date actually logged in the
+  // real vessel document last supplied for that vessel, NOT today's date or upload date.
+  // Kept separate from period records since it doesn't belong to any one period — it can
+  // be later than the last period's end date if Neil is currently off that vessel. ──
+  const [seatime, setSeatime] = usePersistentState("life_work_seatime", []);
+  const [seatimeMeta, setSeatimeMeta] = usePersistentState("life_work_seatime_meta", {});
 
   // ── Home screen's configurable pills — which stat each of the 3 pill slots
   // shows. Defaults match the original fixed set so behaviour doesn't change
@@ -7665,7 +7892,7 @@ export default function LifeApp() {
       case "calendar": return <CalendarScreen onBack={()=>setScreen("home")} calEvents={calEvents} rotationBlocks={rotationBlocks} addRotation={addRotation} removeRotation={removeRotation} tasks={tasks} writeRecord={writeRecord} />;
       case "health":   return <HealthScreen onBack={()=>setScreen("home")} entries={healthEntries} setEntries={setHealthEntries} calLog={calLog} setCalLog={setCalLog} writeRecord={writeRecord} trainingDays={trainingDays} setTrainingDays={setTrainingDays} exerciseRoutine={exerciseRoutine} setExerciseRoutine={setExerciseRoutine} />;
       case "finance":  return <FinanceScreen onBack={()=>setScreen("home")} entries={financeEntries} setEntries={setFinanceEntries} budgets={financeBudgets} setBudgets={setFinanceBudgets} writeRecord={writeRecord} />;
-      case "work":     return <WorkScreen onBack={()=>setScreen("home")} workCerts={workCerts} setWorkCerts={setWorkCerts} />;
+      case "work":     return <WorkScreen onBack={()=>setScreen("home")} workCerts={workCerts} setWorkCerts={setWorkCerts} seatime={seatime} setSeatime={setSeatime} seatimeMeta={seatimeMeta} setSeatimeMeta={setSeatimeMeta} />;
       case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord, rules, setRules, createRule, trainingDays, exerciseRoutine }} />;
       case "projects": return <ProjectsListScreen onBack={()=>setScreen("home")} projects={projects} setProjects={setProjects} onOpenProject={(id)=>{ setActiveProjectId(id); setScreen("projectChat"); }} />;
       case "projectChat": return <ProjectChatScreen onBack={()=>setScreen("projects")} projectId={activeProjectId} projects={projects} setProjects={setProjects} appState={{ tasks, calEvents, writeRecord }} />;
