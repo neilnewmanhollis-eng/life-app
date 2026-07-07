@@ -460,6 +460,7 @@ function getGreeting() {
 
 // ─── TASK SCREEN CONSTANTS ────────────────────────────────────────────────────
 const CATS = ["All","Health","Admin","Work","Home","Shopping","Entertainment"];
+const CAT_ICONS = { All:"🗂️", Health:"❤️", Admin:"📝", Work:"💼", Home:"🏠", Shopping:"🛒", Entertainment:"🎬" };
 const CAT_COLORS = { Health:T.accent, Admin:T.blue, Work:T.gold, Home:T.green, Shopping:T.purple, Entertainment:"#fb923c" };
 const PRIORITY_COLORS = { high:T.accent, med:T.gold, low:T.green };
 
@@ -660,7 +661,7 @@ function TodoScreen({ tasks, setTasks, writeRecord, onBack }) {
 
   return (
     <div>
-      <SectionHeader title="To Do" onBack={onBack} />
+      <SectionHeader title="Tasks" onBack={onBack} />
 
       <div style={{ padding:"12px 16px", background:T.elevated, borderBottom:`1px solid ${T.border}`, display:"flex", gap:20 }}>
         <div>
@@ -673,13 +674,9 @@ function TodoScreen({ tasks, setTasks, writeRecord, onBack }) {
         </div>
       </div>
 
-      {/* View toggle + stats */}
+      {/* View toggle */}
       <div style={{ padding:"10px 16px 0" }}>
-        <div style={{ display:"flex", gap:0, borderBottom:`1px solid ${T.border}`, marginBottom:12 }}>
-          {[["today","📅 Today"],["all","📋 All"]].map(([id,label])=>(
-            <button key={id} onClick={()=>setView(id)} style={{ flex:1, padding:"9px 4px", fontSize:12, fontWeight:600, border:"none", background:"none", cursor:"pointer", fontFamily:"inherit", color:view===id?T.blue:T.muted, borderBottom:view===id?`2px solid ${T.blue}`:"2px solid transparent" }}>{label}</button>
-          ))}
-        </div>
+        <SubTab tabs={[{id:"today",label:"Today",icon:"📅"},{id:"all",label:"All",icon:"📋"}]} active={view} onChange={setView} />
       </div>
 
       <div style={{ padding:"0 16px 24px" }}>
@@ -746,9 +743,9 @@ function TodoScreen({ tasks, setTasks, writeRecord, onBack }) {
         {view==="all" && (
           <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
             {/* Category filter */}
-            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap", justifyContent:"center" }}>
               {CATS.map(c=>(
-                <button key={c} onClick={()=>setFilter(c)} style={{ fontSize:11, padding:"4px 10px", borderRadius:999, border:`1px solid ${filter===c?(CAT_COLORS[c]||T.blue):T.border}`, background:filter===c?`${CAT_COLORS[c]||T.blue}22`:T.elevated, color:filter===c?(CAT_COLORS[c]||T.blue):T.muted, cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>{c}</button>
+                <button key={c} onClick={()=>setFilter(c)} style={{ fontSize:11, padding:"4px 10px", borderRadius:999, border:`1px solid ${filter===c?(CAT_COLORS[c]||T.blue):T.border}`, background:filter===c?`${CAT_COLORS[c]||T.blue}22`:T.elevated, color:filter===c?(CAT_COLORS[c]||T.blue):T.muted, cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>{CAT_ICONS[c]} {c}</button>
               ))}
             </div>
 
@@ -950,11 +947,24 @@ function SectionHeader({ title, onBack }) {
   );
 }
 
+// ── App-wide "master pillbox" tab control — full-width, evenly divided, wraps to
+// another full-width row if there are more options than fit legibly on one (same
+// generic wrap-when-needed principle as the smaller category-filter pills elsewhere,
+// just at the bigger/primary scale). One shared component so every consumer gets
+// the same look and any future fix lands everywhere at once. Optional `icon` per
+// tab entry — existing callers without one still work, just no icon shown. ──
 function SubTab({ tabs, active, onChange }) {
   return (
-    <div style={{ display:"flex", gap:0, borderBottom:`1px solid ${T.border}`, marginBottom:12 }}>
+    <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:12 }}>
       {tabs.map(t => (
-        <button key={t.id} onClick={() => onChange(t.id)} style={{ flex:1, padding:"9px 4px", fontSize:11, fontWeight:600, border:"none", background:"none", cursor:"pointer", fontFamily:"inherit", color:active===t.id?T.blue:T.muted, borderBottom:active===t.id?`2px solid ${T.blue}`:"2px solid transparent", whiteSpace:"nowrap" }}>{t.label}</button>
+        <button key={t.id} onClick={() => onChange(t.id)} style={{
+          flex:"1 1 28%", textAlign:"center", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
+          padding:"10px 6px", borderRadius:999, cursor:"pointer", fontFamily:"inherit",
+          fontSize:12, fontWeight:700,
+          border:`1px solid ${active===t.id?T.blue:T.border}`,
+          background:active===t.id?`${T.blue}22`:T.elevated,
+          color:active===t.id?T.blue:T.muted,
+        }}>{t.icon?`${t.icon} `:""}{t.label}</button>
       ))}
     </div>
   );
@@ -1051,30 +1061,6 @@ function TrendsCharts({ entries }) {
         );
       })}
     </div>
-  );
-}
-
-function WeeklySummary({ entries, calLog, stepsLog }) {
-  const last7 = Object.entries(calLog).slice(-7);
-  const avgKcal = last7.length > 0 ? Math.round(last7.reduce((s,[,v])=>s+v.reduce((a,e)=>a+e.kcal,0),0)/last7.length) : 0;
-  const avgProtein = last7.length > 0 ? Math.round(last7.reduce((s,[,v])=>s+v.reduce((a,e)=>a+e.protein,0),0)/last7.length) : 0;
-  const totalSteps = Object.values(stepsLog).reduce((s,v)=>s+(v.steps||0),0);
-  return (
-    <Card>
-      <SectionLabel>Weekly Summary</SectionLabel>
-      <div style={{ display:"flex", gap:12 }}>
-        {[
-          { label:"Avg calories", value:avgKcal||"—", unit:"kcal/day", color:T.blue },
-          { label:"Avg protein", value:avgProtein||"—", unit:"g/day", color:T.accent },
-          { label:"Total steps", value:totalSteps>0?totalSteps.toLocaleString():"—", unit:"this week", color:T.green },
-        ].map(s=>(
-          <div key={s.label} style={{ flex:1, textAlign:"center", background:T.elevated, borderRadius:10, padding:"10px 6px" }}>
-            <div style={{ fontSize:16, fontWeight:800, color:s.color }}>{s.value}</div>
-            <div style={{ fontSize:9, color:T.muted, marginTop:2 }}>{s.unit}</div>
-          </div>
-        ))}
-      </div>
-    </Card>
   );
 }
 
@@ -1832,10 +1818,18 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
   return (
     <div>
       {/* Tab bar */}
-      <div style={{ display:"flex", gap:0, borderBottom:`1px solid ${T.border}`, marginBottom:16, overflowX:"auto" }}>
-        {[["generate","✨ Generate"],["current",`🍽 Current${currentMeals.length>0?` (${currentMeals.length})`:""}` ],["shopping",`🛒 Shopping${shoppingList.length>0?` (${shoppingList.filter(i=>!i.checked).length})`:""}` ],["pantry","🫙 Pantry"],["cooked","⭐ Cooked"]].map(([id,label])=>(
-          <button key={id} onClick={()=>{ setTab(id); setCurrentMealView(null); }} style={{ flexShrink:0, padding:"10px 12px", fontSize:11, fontWeight:600, border:"none", background:"none", cursor:"pointer", fontFamily:"inherit", color:tab===id?T.blue:T.muted, borderBottom:tab===id?`2px solid ${T.blue}`:"2px solid transparent", whiteSpace:"nowrap" }}>{label}</button>
-        ))}
+      <div style={{ padding:"0 16px" }}>
+        <SubTab
+          tabs={[
+            {id:"generate", icon:"✨", label:"Generate"},
+            {id:"current",  icon:"🍽", label:`Current${currentMeals.length>0?` (${currentMeals.length})`:""}`},
+            {id:"shopping", icon:"🛒", label:`Shopping${shoppingList.length>0?` (${shoppingList.filter(i=>!i.checked).length})`:""}`},
+            {id:"pantry",   icon:"🫙", label:"Pantry"},
+            {id:"cooked",   icon:"⭐", label:"Cooked"},
+          ]}
+          active={tab}
+          onChange={(id)=>{ setTab(id); setCurrentMealView(null); }}
+        />
       </div>
 
       {/* ════ GENERATE TAB ════ */}
@@ -2364,13 +2358,6 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
     });
     setForm({ date:"", weight:"", bodyFat:"", fatMass:"", muscle:"", bp:"", waist:"" });
   };
-
-
-  // Steps & sleep state
-  const [stepsLog, setStepsLog] = usePersistentState("life_steps_log", {});
-  const [stepsForm, setStepsForm] = useState({ steps:"", sleep:"" });
-  const todayActivity = stepsLog[today] || null;
-
   // Supplement reminder state
   const [suppPrompt, setSuppPrompt] = useState(null); // "Breakfast" | "Dinner" | null
 
@@ -2381,17 +2368,11 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
   const [editingRoutineSlot, setEditingRoutineSlot] = useState(null); // which of the 6 slot indices is open
   const [viewingExerciseInfo, setViewingExerciseInfo] = useState(null); // which resolved exercise's info sheet is open
 
-  const saveActivity = () => {
-    if (!stepsForm.steps && !stepsForm.sleep) return;
-    setStepsLog(prev => ({ ...prev, [today]:{ steps:parseInt(stepsForm.steps)||0, sleep:stepsForm.sleep||"" } }));
-    setStepsForm({ steps:"", sleep:"" });
-  };
-
   const healthTabs = [
-    {id:"overview",label:"Overview"},{id:"trends",label:"Trends"},
-    {id:"history",label:"History"},{id:"activity",label:"Activity"},
-    {id:"calories",label:"Calories"},{id:"supplements",label:"Supps"},
-    {id:"exercise",label:"Exercise"},
+    {id:"overview",label:"Overview",icon:"📊"},{id:"trends",label:"Trends",icon:"📈"},
+    {id:"history",label:"History",icon:"📜"},
+    {id:"calories",label:"Calories",icon:"🔥"},{id:"supplements",label:"Supps",icon:"💊"},
+    {id:"exercise",label:"Exercise",icon:"💪"},
   ];
 
   return (
@@ -2416,15 +2397,15 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
 
       {/* Sub tabs */}
       <div style={{ padding:"12px 16px 0" }}>
-        <div style={{ display:"flex", gap:0, flexWrap:"wrap", marginBottom:16 }}>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap", justifyContent:"center", marginBottom:16 }}>
           {healthTabs.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)} style={{
-              padding:"8px 14px", border:"none", background:"none", cursor:"pointer", whiteSpace:"nowrap",
+              padding:"6px 14px", borderRadius:999, cursor:"pointer", whiteSpace:"nowrap",
               fontSize:12, fontWeight:600, fontFamily:"inherit",
+              border:`1px solid ${tab===t.id?T.accent:T.border}`,
+              background:tab===t.id?`${T.accent}22`:T.elevated,
               color: tab===t.id ? T.accent : T.muted,
-              borderBottom: tab===t.id ? `2px solid ${T.accent}` : "2px solid transparent",
-              transition:"all 0.15s",
-            }}>{t.label}</button>
+            }}>{t.icon} {t.label}</button>
           ))}
         </div>
 
@@ -2549,77 +2530,6 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
               📈 Charts update as you add check-ins via Samsung Health screenshots. Baseline is 26 Jun 2026.
             </div>
             <TrendsCharts entries={entriesByDate} />
-          </div>
-        )}
-
-        {/* ACTIVITY */}
-        {tab==="activity" && (
-          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-
-            {/* Today's activity */}
-            <Card>
-              <SectionLabel>Today — {today}</SectionLabel>
-              {todayActivity ? (
-                <div style={{ display:"flex", gap:20 }}>
-                  <div>
-                    <div style={{ fontSize:24, fontWeight:800, color:todayActivity.steps>=8000?T.green:todayActivity.steps>=5000?T.gold:T.accent }}>{todayActivity.steps?.toLocaleString()}</div>
-                    <div style={{ fontSize:11, color:T.muted }}>steps · target 8–10k</div>
-                    <div style={{ marginTop:6, height:6, background:T.elevated, borderRadius:999, width:120, overflow:"hidden" }}>
-                      <div style={{ height:"100%", width:`${Math.min(100,(todayActivity.steps/10000)*100)}%`, background:todayActivity.steps>=8000?T.green:T.gold, borderRadius:999 }} />
-                    </div>
-                  </div>
-                  {todayActivity.sleep && (
-                    <div>
-                      <div style={{ fontSize:24, fontWeight:800, color:T.blue }}>{todayActivity.sleep}</div>
-                      <div style={{ fontSize:11, color:T.muted }}>sleep last night</div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div style={{ fontSize:12, color:T.muted }}>Nothing logged yet today</div>
-              )}
-            </Card>
-
-            {/* Log today */}
-            <Card>
-              <SectionLabel>Log Today's Activity</SectionLabel>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:10 }}>
-                <div>
-                  <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Steps</div>
-                  <input type="number" value={stepsForm.steps} onChange={e=>setStepsForm(p=>({...p,steps:e.target.value}))}
-                    placeholder="e.g. 8500"
-                    style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
-                </div>
-                <div>
-                  <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Sleep</div>
-                  <input type="text" value={stepsForm.sleep} onChange={e=>setStepsForm(p=>({...p,sleep:e.target.value}))}
-                    placeholder="e.g. 7h 30m"
-                    style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
-                </div>
-              </div>
-              <div style={{ fontSize:11, color:T.muted, marginBottom:8 }}>💡 Or send a Samsung Health screenshot to TARS via the top bar to auto-fill</div>
-              <button onClick={saveActivity} style={{ width:"100%", padding:"10px", borderRadius:10, background:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Save</button>
-            </Card>
-
-            {/* Activity history */}
-            <Card>
-              <SectionLabel>Recent Activity</SectionLabel>
-              {Object.entries(stepsLog).reverse().map(([date, data], i, arr)=>(
-                <div key={date} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 0", borderBottom:i<arr.length-1?`1px solid ${T.border}`:"none" }}>
-                  <div style={{ fontSize:12, fontWeight:600, color:T.text }}>{date}</div>
-                  <div style={{ display:"flex", gap:16 }}>
-                    <div style={{ textAlign:"right" }}>
-                      <div style={{ fontSize:12, fontWeight:700, color:data.steps>=8000?T.green:T.gold }}>{data.steps?.toLocaleString()} steps</div>
-                    </div>
-                    {data.sleep && <div style={{ fontSize:12, color:T.blue, fontWeight:600 }}>{data.sleep}</div>}
-                  </div>
-                </div>
-              ))}
-              {Object.keys(stepsLog).length===0 && <div style={{ fontSize:12, color:T.muted, textAlign:"center", padding:"16px 0" }}>No activity logged yet</div>}
-            </Card>
-
-            {/* Weekly summary */}
-            <WeeklySummary entries={entries} calLog={calLog} stepsLog={stepsLog} />
           </div>
         )}
 
@@ -4620,7 +4530,7 @@ const GistSync = {
   DATA_KEYS: [
     "life_tasks", "life_cal_events", "life_rotation_blocks",
     "life_health_entries", "life_cal_log",
-    "life_steps_log", "life_workout_log", "life_last_brief_date",
+    "life_workout_log", "life_last_brief_date",
     "life_finance_entries", "life_finance_budgets",
     "life_notifications", "life_automation_rules", "life_notify_routine_actions", "life_work_certs", "life_work_seatime", "life_work_seatime_meta",
     "life_home_pills",
