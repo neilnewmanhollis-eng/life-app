@@ -811,6 +811,15 @@ function TodoScreen({ tasks, setTasks, writeRecord, onBack }) {
             <button onClick={()=>setShowDone(v=>!v)} style={{ padding:"9px", borderRadius:10, border:`1px solid ${T.border}`, background:"none", color:T.muted, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
               {showDone?"Hide":"Show"} completed ({tasks.filter(t=>t.done).length})
             </button>
+            {showDone && tasks.some(t=>t.done) && (
+              <button onClick={()=>{
+                const doneIds = tasks.filter(t=>t.done).map(t=>t.id);
+                confirm({ title:"Delete all completed?", message:`${doneIds.length} completed task${doneIds.length===1?"":"s"} will be removed. This can't be undone.`, confirmLabel:"Delete all", danger:true,
+                  onConfirm: () => { doneIds.forEach(id => writeRecord("tasks","delete",id)); } });
+              }} style={{ padding:"9px", borderRadius:10, border:`1px solid ${T.accent}33`, background:`${T.accent}11`, color:T.accent, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
+                Delete all completed
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -1117,6 +1126,7 @@ function TrendsCharts({ entries }) {
 }
 
 function AICalLogger({ onAdd }) {
+  const confirm = useConfirm();
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
@@ -1124,7 +1134,7 @@ function AICalLogger({ onAdd }) {
   const estimate = async () => {
     if (!text.trim()) return;
     const apiKey = getAnthropicKey();
-    if (!apiKey) { alert("Add your Anthropic API key via TARS settings."); return; }
+    if (!apiKey) { confirm({ title:"API key needed", message:"Add your Anthropic API key via TARS settings.", alertOnly:true, confirmLabel:"OK", onConfirm:()=>{} }); return; }
     setLoading(true);
     try {
       const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -1138,7 +1148,7 @@ function AICalLogger({ onAdd }) {
       const data = await response.json();
       const parsed = JSON.parse(data.content?.map(b=>b.text||"").join("").replace(/```json|```/g,"").trim());
       setResult(parsed);
-    } catch { alert("Could not estimate — try being more specific."); }
+    } catch { confirm({ title:"Couldn't estimate", message:"Try being more specific.", alertOnly:true, confirmLabel:"OK", onConfirm:()=>{} }); }
     setLoading(false);
   };
 
@@ -1696,7 +1706,7 @@ function MealPlanScreen({ calLog, setCalLog, todayLabel, writeRecord }) {
   // ── Generate meals ──
   const generateMeals = async () => {
     const apiKey = localStorage.getItem("tars_anthropic_key");
-    if (!apiKey) { alert("Add your Anthropic API key in TARS settings first."); return; }
+    if (!apiKey) { confirm({ title:"API key needed", message:"Add your Anthropic API key in TARS settings first.", alertOnly:true, confirmLabel:"OK", onConfirm:()=>{} }); return; }
     setGenerating(true);
     try {
       const pantryList = pantry.filter(p => p.status === "have").map(p => p.name).join(", ");
@@ -1740,7 +1750,7 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
       setSelectedIds(new Set());
       setWeeklyInstruction("");
     } catch(err) {
-      alert(`Could not generate meals: ${err.message}`);
+      confirm({ title:"Couldn't generate meals", message:err.message, alertOnly:true, confirmLabel:"OK", onConfirm:()=>{} });
     }
     setGenerating(false);
   };
@@ -1853,7 +1863,7 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
         const toAdd = items.filter(i => !existing.includes(i.name.toLowerCase())).map((i, idx) => ({ id: Date.now()+idx, ...i, status:"have" }));
         return [...prev, ...toAdd];
       });
-    } catch(err) { alert(`Could not read photo: ${err.message}`); }
+    } catch(err) { confirm({ title:"Couldn't read photo", message:err.message, alertOnly:true, confirmLabel:"OK", onConfirm:()=>{} }); }
     setPantryProcessing(false);
   };
 
@@ -2351,10 +2361,13 @@ function WorkoutLogger({ today, exercises, onSave, onCancel }) {
   );
 }
 
-function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRecord, trainingDays, setTrainingDays, exerciseRoutine, setExerciseRoutine }) {
+function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRecord, trainingDays, setTrainingDays, exerciseRoutine, setExerciseRoutine, supplements, setSupplements }) {
+  const confirm = useConfirm();
   const [tab, setTab] = useState("overview");
   // entries and calLog now passed in from LifeApp (TARS can write to them)
   const [suppChecked, setSuppChecked] = useState({});
+  const [addingSupp, setAddingSupp] = useState(false);
+  const [suppForm, setSuppForm] = useState({ name:"", when:"Breakfast", phase:"" });
   const [form, setForm] = useState({ date:"", weight:"", bodyFat:"", fatMass:"", muscle:"", bp:"", waist:"" });
   const [editingHealthEntry, setEditingHealthEntry] = useState(null); // Stage 5 — tap a History row to edit/delete it
 
@@ -2556,35 +2569,60 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
         {tab==="supplements" && (
           <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
             {[
-              { time:"🍳 Breakfast", items:SUPPLEMENTS.filter(s=>s.when==="Breakfast") },
-              { time:"🍽️ Dinner",    items:SUPPLEMENTS.filter(s=>s.when==="Dinner") },
-              { time:"😴 Bedtime",   items:SUPPLEMENTS.filter(s=>s.when==="Bedtime") },
-              { time:"🏋️ With meal", items:SUPPLEMENTS.filter(s=>s.when==="With meal") },
+              { time:"🍳 Breakfast", items:supplements.filter(s=>s.when==="Breakfast") },
+              { time:"🍽️ Dinner",    items:supplements.filter(s=>s.when==="Dinner") },
+              { time:"😴 Bedtime",   items:supplements.filter(s=>s.when==="Bedtime") },
+              { time:"🏋️ With meal", items:supplements.filter(s=>s.when==="With meal") },
             ].map(group => group.items.length > 0 && (
               <Card key={group.time}>
                 <SectionLabel>{group.time}</SectionLabel>
                 {group.items.map(s => (
-                  <div key={s.id} onClick={()=>toggleSupp(s.id)} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 0", borderBottom:`1px solid ${T.border}`, cursor:"pointer" }}>
-                    <div style={{ width:20, height:20, borderRadius:6, border:`2px solid ${suppChecked[s.id]?T.green:T.border}`, background:suppChecked[s.id]?T.green:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.15s" }}>
+                  <div key={s.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 0", borderBottom:`1px solid ${T.border}` }}>
+                    <div onClick={()=>toggleSupp(s.id)} style={{ width:20, height:20, borderRadius:6, border:`2px solid ${suppChecked[s.id]?T.green:T.border}`, background:suppChecked[s.id]?T.green:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.15s", cursor:"pointer" }}>
                       {suppChecked[s.id] && <Icon name="check" size={11} color="white" />}
                     </div>
-                    <div style={{ flex:1 }}>
+                    <div onClick={()=>toggleSupp(s.id)} style={{ flex:1, cursor:"pointer" }}>
                       <div style={{ fontSize:13, fontWeight:600, color:suppChecked[s.id]?T.muted:T.text, textDecoration:suppChecked[s.id]?"line-through":"none" }}>{s.name}</div>
                     </div>
-                    <span style={{ fontSize:9, fontWeight:700, padding:"2px 7px", borderRadius:999,
-                      background: s.phase==="Week 1"||s.phase==="Now" ? `${T.blue}22` : s.phase==="Week 3" ? `${T.gold}22` : `${T.purple}22`,
-                      color: s.phase==="Week 1"||s.phase==="Now" ? T.blue : s.phase==="Week 3" ? T.gold : T.purple,
-                    }}>{s.phase}</span>
+                    {s.phase && (
+                      <span style={{ fontSize:9, fontWeight:700, padding:"2px 7px", borderRadius:999,
+                        background: s.phase==="Week 1"||s.phase==="Now" ? `${T.blue}22` : s.phase==="Week 3" ? `${T.gold}22` : `${T.purple}22`,
+                        color: s.phase==="Week 1"||s.phase==="Now" ? T.blue : s.phase==="Week 3" ? T.gold : T.purple,
+                      }}>{s.phase}</span>
+                    )}
+                    <button onClick={()=>{ confirm({ title:"Remove supplement?", message:`"${s.name}" will be removed from your list.`, confirmLabel:"Remove", danger:true, onConfirm:()=>setSupplements(prev=>prev.filter(x=>x.id!==s.id)) }); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:14, padding:2, flexShrink:0 }}>✕</button>
                   </div>
                 ))}
               </Card>
             ))}
-            <div style={{ background:`${T.gold}18`, borderRadius:12, padding:12, fontSize:12, color:T.gold, border:`1px solid ${T.gold}33` }}>
-              ⚠️ Introduce one new supplement at a time. Creatine after GP consultation.
-            </div>
-            <div style={{ background:`${T.accent}18`, borderRadius:12, padding:12, fontSize:12, color:T.accent, border:`1px solid ${T.accent}33` }}>
-              🩺 Mention Ashwagandha & Creatine to your GP — check for interactions with any medication you're on.
-            </div>
+
+            {!addingSupp ? (
+              <button onClick={()=>setAddingSupp(true)} style={{ width:"100%", padding:"10px", borderRadius:10, background:T.elevated, color:T.blue, fontWeight:700, fontSize:13, border:`1px dashed ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>+ Add Supplement</button>
+            ) : (
+              <Card>
+                <SectionLabel>New Supplement</SectionLabel>
+                <input value={suppForm.name} onChange={e=>setSuppForm(p=>({...p,name:e.target.value}))} placeholder="Name, e.g. Vitamin D3 × 1"
+                  style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box", marginBottom:10 }} />
+                <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>When</div>
+                <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:10 }}>
+                  {["Breakfast","Dinner","Bedtime","With meal"].map(w=>(
+                    <button key={w} onClick={()=>setSuppForm(p=>({...p,when:w}))} style={{ padding:"6px 12px", borderRadius:999, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit",
+                      border:`1px solid ${suppForm.when===w?T.blue:T.border}`, background:suppForm.when===w?`${T.blue}22`:T.elevated, color:suppForm.when===w?T.blue:T.muted }}>{w}</button>
+                  ))}
+                </div>
+                <input value={suppForm.phase} onChange={e=>setSuppForm(p=>({...p,phase:e.target.value}))} placeholder="Optional tag, e.g. Week 1 (leave blank if none)"
+                  style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box", marginBottom:10 }} />
+                <div style={{ display:"flex", gap:8 }}>
+                  <button onClick={()=>{
+                    if (!suppForm.name.trim()) return;
+                    setSupplements(prev => [...prev, { id:`s${Date.now()}`, name:suppForm.name.trim(), when:suppForm.when, phase:suppForm.phase.trim() }]);
+                    setSuppForm({ name:"", when:"Breakfast", phase:"" });
+                    setAddingSupp(false);
+                  }} style={{ flex:1, padding:"10px", borderRadius:10, background:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Add</button>
+                  <button onClick={()=>{ setAddingSupp(false); setSuppForm({ name:"", when:"Breakfast", phase:"" }); }} style={{ padding:"10px 16px", borderRadius:10, background:"none", color:T.muted, fontWeight:700, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>Cancel</button>
+                </div>
+              </Card>
+            )}
           </div>
         )}
 
@@ -3334,7 +3372,7 @@ function HomeModuleTile({ icon, label, sublabel, badge, statusDot, accent, onCli
   );
 }
 
-function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo, workCerts, healthEntries, calLog, todayLabel, homePillConfig, setHomePillConfig, trainingDays }) {
+function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo, workCerts, healthEntries, calLog, todayLabel, homePillConfig, setHomePillConfig, trainingDays, calEvents }) {
   const rot = rotationInfo || { isOn:false, phase:"Off Rotation", daysLeft:0 };
   // Latest known weight, scanning backward through real entries — same pattern as
   // HealthScreen's latestMetric. Was previously a hardcoded real number that never
@@ -3369,6 +3407,7 @@ function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo,
   const todayDayAbbr = new Date().toLocaleDateString("en-NZ",{ weekday:"short" });
   const todaysType = trainingDays?.[todayDayAbbr];
   const exerciseLabel = todaysType==="training" ? "Training day" : todaysType==="walk" ? "Walk day" : todaysType==="rest" ? "Rest day" : "—";
+  const todaysCalCount = (calEvents||[]).filter(e => e.date === toISODate(new Date())).length;
   const dateShort = new Date().toLocaleDateString("en-NZ",{ day:"numeric", month:"short" });
   const dateWeekday = new Date().toLocaleDateString("en-NZ",{ weekday:"long" });
   const pillCtx = { weightLeft, nextFlight, flightDaysLeft, rot, todayKcal, exerciseLabel, dateShort, dateWeekday };
@@ -3404,7 +3443,7 @@ function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo,
         <TarsIdleTile quip={tarsQuip} onAdvance={advanceTarsQuip} />
         <HomeModuleTile icon="health"   label="Health"   sublabel={currentWeight!=null ? `${currentWeight}kg` : "Body & vitals"} accent={T.accent} onClick={()=>onNavigate("health")} />
         <HomeModuleTile icon="tasks"    label="Tasks"    sublabel={`${completedToday}/${tasks.length} today`} badge={pendingHigh||null} accent={T.green} onClick={()=>onNavigate("tasks")} />
-        <HomeModuleTile icon="calendar" label="Calendar" sublabel="Flights & rotation" accent={T.gold} onClick={()=>onNavigate("calendar")} />
+        <HomeModuleTile icon="calendar" label="Calendar" sublabel="Flights & rotation" badge={todaysCalCount||null} accent={T.gold} onClick={()=>onNavigate("calendar")} />
         <HomeModuleTile icon="finance"  label="Finance"  sublabel="Budget & spending" accent={T.purple} onClick={()=>onNavigate("finance")} />
         <HomeModuleTile icon="meals"    label="Meals"    sublabel="Plan, shop & cook" accent={T.gold} onClick={()=>onNavigate("meals")} />
         <HomeModuleTile icon="work"     label="Work"     sublabel="Certs & vessel log" accent={T.blue} statusDot={(workCerts&&workCerts.length>0&&worstCertStatus!=="green") ? CERT_BADGE_COLORS[worstCertStatus] : null} onClick={()=>onNavigate("work")} />
@@ -4045,6 +4084,7 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addRotation, remove
   const [uploadResult, setUploadResult] = useState(null);
   const [uploadError, setUploadError] = useState(null);
   const [rotForm, setRotForm] = useState({ start:"", end:"", notes:"" });
+  const [editingRotation, setEditingRotation] = useState(null); // rotation block id being edited, or null = add mode
 
   const DAYS = ["Mo","Tu","We","Th","Fr","Sa","Su"];
   const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -4111,7 +4151,12 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addRotation, remove
 
   const addRotBlock = () => {
     if (!rotForm.start || !rotForm.end) return;
-    addRotation({ start:rotForm.start, end:rotForm.end, vessel:"Man of Steel", notes:rotForm.notes });
+    if (editingRotation) {
+      writeRecord("rotation", "update", editingRotation, { start:rotForm.start, end:rotForm.end, notes:rotForm.notes });
+      setEditingRotation(null);
+    } else {
+      addRotation({ start:rotForm.start, end:rotForm.end, vessel:"Man of Steel", notes:rotForm.notes });
+    }
     setRotForm({ start:"", end:"", notes:"" });
     setCalTab("month");
   };
@@ -4309,19 +4354,28 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addRotation, remove
         {/* ROTATION */}
         {calTab==="rotation" && (
           <Card>
-            <SectionLabel>Add Rotation Block</SectionLabel>
+            <SectionLabel>{editingRotation ? "Edit Rotation Block" : "Add Rotation Block"}</SectionLabel>
             <div style={{ fontSize:11, color:T.muted, marginBottom:10 }}>Set your Man of Steel rotation dates. These colour the calendar dark navy.</div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
               <div><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Join date</div><input type="date" value={rotForm.start} onChange={e=>setRotForm(p=>({...p,start:e.target.value}))} style={inputSt} /></div>
               <div><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Sign off date</div><input type="date" value={rotForm.end} onChange={e=>setRotForm(p=>({...p,end:e.target.value}))} style={inputSt} /></div>
             </div>
             <input value={rotForm.notes} onChange={e=>setRotForm(p=>({...p,notes:e.target.value}))} placeholder="Notes (optional)" style={inputSt} />
-            <button onClick={addRotBlock} style={{ width:"100%", padding:"10px", borderRadius:10, background:"#1e3a5f", color:"#93c5fd", fontWeight:700, fontSize:13, border:`1px solid #2563eb44`, cursor:"pointer", fontFamily:"inherit", marginBottom:16 }}>Add Rotation</button>
+            <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+              <button onClick={addRotBlock} style={{ flex:1, padding:"10px", borderRadius:10, background:"#1e3a5f", color:"#93c5fd", fontWeight:700, fontSize:13, border:`1px solid #2563eb44`, cursor:"pointer", fontFamily:"inherit" }}>
+                {editingRotation ? "Save Changes" : "Add Rotation"}
+              </button>
+              {editingRotation && (
+                <button onClick={()=>{ setEditingRotation(null); setRotForm({ start:"", end:"", notes:"" }); }} style={{ padding:"10px 16px", borderRadius:10, background:"none", color:T.muted, fontWeight:700, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>
+                  Cancel
+                </button>
+              )}
+            </div>
 
             <SectionLabel>Current Rotations</SectionLabel>
             {rotationBlocks.map(b=>(
               <div key={b.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 0", borderBottom:`1px solid ${T.border}` }}>
-                <div style={{ flex:1 }}>
+                <div onClick={()=>{ setEditingRotation(b.id); setRotForm({ start:b.start, end:b.end, notes:b.notes||"" }); }} style={{ flex:1, cursor:"pointer" }}>
                   <div style={{ fontSize:13, fontWeight:600, color:"#93c5fd" }}>⚓ {b.vessel}</div>
                   <div style={{ fontSize:11, color:T.muted }}>{b.start} → {b.end}</div>
                   {b.notes && <div style={{ fontSize:11, color:T.muted }}>{b.notes}</div>}
@@ -4565,7 +4619,7 @@ const GistSync = {
     "life_finance_entries", "life_finance_budgets",
     "life_notifications", "life_automation_rules", "life_notify_routine_actions", "life_work_certs", "life_work_seatime", "life_work_seatime_meta",
     "life_home_pills", "life_tars_quip_state",
-    "life_training_days", "life_exercise_routine", "life_routine_last_changed", "life_routine_suggested_at",
+    "life_training_days", "life_exercise_routine", "life_routine_last_changed", "life_routine_suggested_at", "life_supplements",
     "meal_library", "meal_current", "meal_cooked",
     "meal_shopping", "meal_regulars", "meal_pantry",
     "tars_vault",
@@ -4867,7 +4921,7 @@ function ProjectsListScreen({ onBack, projects, setProjects, onOpenProject }) {
 }
 
 function TarsScreen({ onBack, appState }) {
-  const { tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord, rules, setRules, createRule, trainingDays, exerciseRoutine } = appState;
+  const { tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord, rules, setRules, createRule, trainingDays, exerciseRoutine, supplements } = appState;
   const confirm = useConfirm();
 
   const [tarsTab, setTarsTab] = useState("chat");
@@ -5448,8 +5502,8 @@ ${(() => {
     {
       label: "SUPPLEMENTS",
       module: "health",
-      data: SUPPLEMENTS,
-      format: (s) => s.map(x=>`  - ${x.name} — ${x.when} (${x.phase})`).join("\n")
+      data: supplements,
+      format: (s) => s.map(x=>`  - ${x.name} — ${x.when}${x.phase ? ` (${x.phase})` : ""}`).join("\n")
     },
     {
       label: "PENDING TASKS (see format reference above) — sorted by due date, soonest first; tasks with no due date listed last",
@@ -5915,7 +5969,7 @@ ${(() => {
   const startListening = () => {
     stopSpeaking(); // if TARS is mid-reply, talking over him means he should stop, not keep going under your voice
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) { alert("Speech recognition not supported. Use Chrome."); return; }
+    if (!SpeechRecognition) { confirm({ title:"Not supported", message:"Speech recognition isn't supported in this browser. Use Chrome.", alertOnly:true, confirmLabel:"OK", onConfirm:()=>{} }); return; }
     const recognition = new SpeechRecognition();
     recognition.lang = "en-NZ";
     recognition.interimResults = true;
@@ -6945,6 +6999,7 @@ If multiple files were uploaded, treat them as related unless the content sugges
 // IS the memory, persisted directly, read back in full next time the project is opened.
 function ProjectChatScreen({ onBack, projectId, projects, setProjects, appState }) {
   const { tasks, calEvents, writeRecord } = appState;
+  const confirm = useConfirm();
   const project = projects.find(p => p.id === projectId);
 
   const [messages, setMessages] = usePersistentState(`project_chat_${projectId}`, []);
@@ -7240,7 +7295,7 @@ This project's conversation history below IS its memory — there's no separate 
   const startListening = () => {
     stopProjectSpeaking(); // if TARS is mid-reply, talking over him means he should stop, not keep going under your voice
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) { alert("Speech recognition not supported. Use Chrome."); return; }
+    if (!SpeechRecognition) { confirm({ title:"Not supported", message:"Speech recognition isn't supported in this browser. Use Chrome.", alertOnly:true, confirmLabel:"OK", onConfirm:()=>{} }); return; }
     const recognition = new SpeechRecognition();
     recognition.lang = "en-NZ";
     recognition.interimResults = true;
@@ -7624,6 +7679,11 @@ export default function LifeApp() {
   // fix for the "every day is a training day" bug). Same lift-to-LifeApp pattern as
   // the home pill config just above. ──
   const [trainingDays, setTrainingDays] = usePersistentState("life_training_days", DEFAULT_TRAINING_DAYS);
+
+  // ── Supplements — lifted here for the same reason as trainingDays/exerciseRoutine
+  // above: Health screen edits it, TARS's STATE_SLICES needs the real current list,
+  // not the hardcoded SUPPLEMENTS constant (which is now just the seed default). ──
+  const [supplements, setSupplements] = usePersistentState("life_supplements", SUPPLEMENTS);
   const [exerciseRoutine, setExerciseRoutine] = usePersistentState("life_exercise_routine", DEFAULT_EXERCISE_ROUTINE);
 
   // ── "Time to mix it up?" suggestion — entirely local, zero API cost, exactly
@@ -7876,7 +7936,7 @@ export default function LifeApp() {
 
   const renderScreen = () => {
     switch(screen) {
-      case "home":     return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} workCerts={workCerts} healthEntries={healthEntries} calLog={calLog} todayLabel={todayLabel} homePillConfig={homePillConfig} setHomePillConfig={setHomePillConfig} trainingDays={trainingDays} />;
+      case "home":     return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} workCerts={workCerts} healthEntries={healthEntries} calLog={calLog} todayLabel={todayLabel} homePillConfig={homePillConfig} setHomePillConfig={setHomePillConfig} trainingDays={trainingDays} calEvents={calEvents} />;
       case "notifications": return (
         <div>
           <SectionHeader title="Notifications" onBack={()=>setScreen("home")} />
@@ -7942,13 +8002,13 @@ export default function LifeApp() {
       );
       case "tasks":    return <TodoScreen tasks={tasks} setTasks={setTasks} writeRecord={writeRecord} onBack={()=>setScreen("home")} />;
       case "calendar": return <CalendarScreen onBack={()=>setScreen("home")} calEvents={calEvents} rotationBlocks={rotationBlocks} addRotation={addRotation} removeRotation={removeRotation} tasks={tasks} writeRecord={writeRecord} />;
-      case "health":   return <HealthScreen onBack={()=>setScreen("home")} entries={healthEntries} setEntries={setHealthEntries} calLog={calLog} setCalLog={setCalLog} writeRecord={writeRecord} trainingDays={trainingDays} setTrainingDays={setTrainingDays} exerciseRoutine={exerciseRoutine} setExerciseRoutine={setExerciseRoutine} />;
+      case "health":   return <HealthScreen onBack={()=>setScreen("home")} entries={healthEntries} setEntries={setHealthEntries} calLog={calLog} setCalLog={setCalLog} writeRecord={writeRecord} trainingDays={trainingDays} setTrainingDays={setTrainingDays} exerciseRoutine={exerciseRoutine} setExerciseRoutine={setExerciseRoutine} supplements={supplements} setSupplements={setSupplements} />;
       case "finance":  return <FinanceScreen onBack={()=>setScreen("home")} entries={financeEntries} setEntries={setFinanceEntries} budgets={financeBudgets} setBudgets={setFinanceBudgets} writeRecord={writeRecord} />;
       case "work":     return <WorkScreen onBack={()=>setScreen("home")} workCerts={workCerts} setWorkCerts={setWorkCerts} seatime={seatime} setSeatime={setSeatime} seatimeMeta={seatimeMeta} setSeatimeMeta={setSeatimeMeta} />;
-      case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord, rules, setRules, createRule, trainingDays, exerciseRoutine }} />;
+      case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord, rules, setRules, createRule, trainingDays, exerciseRoutine, supplements }} />;
       case "projects": return <ProjectsListScreen onBack={()=>setScreen("home")} projects={projects} setProjects={setProjects} onOpenProject={(id)=>{ setActiveProjectId(id); setScreen("projectChat"); }} />;
       case "projectChat": return <ProjectChatScreen onBack={()=>setScreen("projects")} projectId={activeProjectId} projects={projects} setProjects={setProjects} appState={{ tasks, calEvents, writeRecord }} />;
-      default:         return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} workCerts={workCerts} healthEntries={healthEntries} calLog={calLog} todayLabel={todayLabel} homePillConfig={homePillConfig} setHomePillConfig={setHomePillConfig} trainingDays={trainingDays} />;
+      default:         return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} workCerts={workCerts} healthEntries={healthEntries} calLog={calLog} todayLabel={todayLabel} homePillConfig={homePillConfig} setHomePillConfig={setHomePillConfig} trainingDays={trainingDays} calEvents={calEvents} />;
     }
   };
 
