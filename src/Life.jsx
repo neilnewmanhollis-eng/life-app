@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, createContext, useContext } from "react";
 
 // ─── ANTHROPIC API HELPER ────────────────────────────────────────────────────
 // ─── PERSISTENT STATE HELPER ──────────────────────────────────────────────────
@@ -553,6 +553,7 @@ function CalHistory({ calLog }) {
 
 // TodoScreen — full tasks screen
 function TodoScreen({ tasks, setTasks, writeRecord, onBack }) {
+  const confirm = useConfirm();
   const [view, setView] = useState("today"); // "today" | "all"
   const [filter, setFilter] = useState("All");
   const [showDone, setShowDone] = useState(false);
@@ -590,7 +591,10 @@ function TodoScreen({ tasks, setTasks, writeRecord, onBack }) {
     writeRecord("tasks", "update", id, changes);
     if (selectedTask?.id === id) setSelectedTask(prev => ({...prev,...changes}));
   };
-  const deleteTask = (id, text) => { if(window.confirm(`Delete "${text}"?`)) { writeRecord("tasks", "delete", id); setSelectedTask(null); }};
+  const deleteTask = (id, text) => {
+    confirm({ title:"Delete task?", message:`"${text}" will be removed.`, confirmLabel:"Delete", danger:true,
+      onConfirm: () => { writeRecord("tasks", "delete", id); setSelectedTask(null); } });
+  };
   const toggleSubtask = (taskId, subId) => {
     setTasks(prev => prev.map(t => t.id===taskId ? {...t, subtasks:t.subtasks.map(s=>s.id===subId?{...s,done:!s.done}:s)} : t));
     if (selectedTask?.id===taskId) setSelectedTask(prev=>({...prev,subtasks:prev.subtasks.map(s=>s.id===subId?{...s,done:!s.done}:s)}));
@@ -907,6 +911,7 @@ function Card({ children, style }) {
 // This is what finally lets Neil fix a wrong entry himself in any module — Health,
 // Finance, and Calendar all get real edit/delete from this one component. ──
 function RecordEditModal({ module, record, onClose, writeRecord }) {
+  const confirm = useConfirm();
   const schema = MODULE_REGISTRY[module]?.fieldsSchema || [];
   const editableFields = schema.filter(f => f.type !== "id" && f.editable !== false);
   const [form, setForm] = useState(() => {
@@ -930,10 +935,12 @@ function RecordEditModal({ module, record, onClose, writeRecord }) {
   };
 
   const handleDelete = () => {
-    if (!window.confirm("Delete this entry? This can't be undone.")) return;
-    const result = writeRecord(module, "delete", record.id);
-    if (!result.success) { setError(result.reason); return; }
-    onClose();
+    confirm({ title:"Delete entry?", message:"This can't be undone.", confirmLabel:"Delete", danger:true,
+      onConfirm: () => {
+        const result = writeRecord(module, "delete", record.id);
+        if (!result.success) { setError(result.reason); return; }
+        onClose();
+      } });
   };
 
   return (
@@ -1623,6 +1630,7 @@ const searchPlacesHandler = async (input) => {
 
 // ─── MEAL PLANNING SCREEN ─────────────────────────────────────────────────────
 function MealPlanScreen({ calLog, setCalLog, todayLabel, writeRecord }) {
+  const confirm = useConfirm();
   // ── Persistent state ──
   const [mealLibrary, setMealLibrary]       = usePersistentState("meal_library", []);
   const [currentMeals, setCurrentMeals]     = usePersistentState("meal_current", []);
@@ -1953,7 +1961,7 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
                   </div>
                 </div>
                 <div style={{ padding:"6px 14px 12px", borderTop:`1px solid ${T.border}33`, display:"flex", gap:8 }}>
-                  <button onClick={e=>{ e.stopPropagation(); if(window.confirm(`Remove "${meal.name}"?`)) setMealLibrary(prev=>prev.filter(m=>m.id!==meal.id)); }} style={{ fontSize:10, padding:"5px 10px", borderRadius:8, border:`1px solid ${T.accent}33`, background:`${T.accent}11`, color:T.accent, cursor:"pointer", fontFamily:"inherit" }}>Remove</button>
+                  <button onClick={e=>{ e.stopPropagation(); confirm({ title:"Remove meal?", message:`"${meal.name}" will be removed from your meal library.`, confirmLabel:"Remove", danger:true, onConfirm:()=>setMealLibrary(prev=>prev.filter(m=>m.id!==meal.id)) }); }} style={{ fontSize:10, padding:"5px 10px", borderRadius:8, border:`1px solid ${T.accent}33`, background:`${T.accent}11`, color:T.accent, cursor:"pointer", fontFamily:"inherit" }}>Remove</button>
                 </div>
               </div>
             );
@@ -2012,7 +2020,7 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
           </div>
           {/* Actions */}
           <button onClick={()=>markCooked(viewMeal)} style={{ width:"100%", padding:"13px", borderRadius:12, background:T.green, color:"white", fontWeight:700, fontSize:14, border:"none", cursor:"pointer", fontFamily:"inherit" }}>✓ Mark as Cooked — log to today's calories</button>
-          <button onClick={()=>{ if(window.confirm(`Remove "${viewMeal.name}" from current meals without cooking?`)) { setCurrentMeals(prev=>prev.filter(m=>m.id!==viewMeal.id)); setCurrentMealView(null); }}} style={{ width:"100%", padding:"11px", borderRadius:12, background:T.elevated, color:T.muted, fontWeight:600, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>Remove from current meals</button>
+          <button onClick={()=>{ confirm({ title:"Remove from current meals?", message:`"${viewMeal.name}" will be removed without being marked as cooked.`, confirmLabel:"Remove", danger:true, onConfirm:()=>{ setCurrentMeals(prev=>prev.filter(m=>m.id!==viewMeal.id)); setCurrentMealView(null); } }); }} style={{ width:"100%", padding:"11px", borderRadius:12, background:T.elevated, color:T.muted, fontWeight:600, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>Remove from current meals</button>
         </div>
       )}
 
@@ -2044,7 +2052,7 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
                   <div style={{ fontSize:12, color:T.text }}>{r.name} <span style={{ color:T.muted, fontSize:10 }}>({r.cat})</span></div>
                   <div style={{ display:"flex", gap:6 }}>
                     <button onClick={()=>{ if(!shoppingList.find(i=>i.name.toLowerCase()===r.name.toLowerCase())) setShoppingList(prev=>[...prev,{...r,id:Date.now(),checked:false}]); }} style={{ fontSize:10, padding:"3px 8px", borderRadius:6, border:`1px solid ${T.blue}44`, background:`${T.blue}18`, color:T.blue, cursor:"pointer", fontFamily:"inherit" }}>+ Add</button>
-                    <button onClick={()=>{ if(window.confirm(`Remove "${r.name}" from My Regulars?`)) setMyRegulars(prev=>prev.filter(i=>i.id!==r.id)); }} style={{ fontSize:10, padding:"3px 8px", borderRadius:6, border:`1px solid ${T.accent}33`, background:"none", color:T.accent, cursor:"pointer", fontFamily:"inherit" }}>✕</button>
+                    <button onClick={()=>{ confirm({ title:"Remove from Regulars?", message:`"${r.name}" will be removed from My Regulars.`, confirmLabel:"Remove", danger:true, onConfirm:()=>setMyRegulars(prev=>prev.filter(i=>i.id!==r.id)) }); }} style={{ fontSize:10, padding:"3px 8px", borderRadius:6, border:`1px solid ${T.accent}33`, background:"none", color:T.accent, cursor:"pointer", fontFamily:"inherit" }}>✕</button>
                   </div>
                 </div>
               ))}
@@ -2068,7 +2076,7 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
             <div style={{ textAlign:"center", padding:"30px 20px", color:T.muted, fontSize:13 }}>Shopping list is empty. Confirm your meal selection to generate one.</div>
           )}
           {shoppingList.length > 0 && (
-            <button onClick={()=>{ if(window.confirm("Clear all checked items?")) setShoppingList(prev=>prev.filter(i=>!i.checked)); }} style={{ padding:"9px", borderRadius:10, border:`1px solid ${T.border}`, background:T.elevated, color:T.muted, fontWeight:600, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
+            <button onClick={()=>{ confirm({ title:"Clear checked items?", message:"All checked-off shopping items will be removed from the list.", confirmLabel:"Clear", danger:true, onConfirm:()=>setShoppingList(prev=>prev.filter(i=>!i.checked)) }); }} style={{ padding:"9px", borderRadius:10, border:`1px solid ${T.border}`, background:T.elevated, color:T.muted, fontWeight:600, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
               Clear checked items ({shoppingList.filter(i=>i.checked).length})
             </button>
           )}
@@ -2086,7 +2094,7 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
                   </div>
                   <div style={{ display:"flex", gap:6 }}>
                     {item.source!=="regulars" && <button onClick={()=>saveToRegulars(item)} title="Save to My Regulars" style={{ fontSize:9, padding:"3px 7px", borderRadius:6, border:`1px solid ${T.green}44`, background:`${T.green}11`, color:T.green, cursor:"pointer", fontFamily:"inherit" }}>★ Regular</button>}
-                    <button onClick={()=>{ if(window.confirm(`Remove "${item.name}"?`)) setShoppingList(prev=>prev.filter(i=>i.id!==item.id)); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:14 }}>✕</button>
+                    <button onClick={()=>{ confirm({ title:"Remove item?", message:`"${item.name}" will be removed from your shopping list.`, confirmLabel:"Remove", danger:true, onConfirm:()=>setShoppingList(prev=>prev.filter(i=>i.id!==item.id)) }); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:14 }}>✕</button>
                   </div>
                 </div>
               ))}
@@ -2153,7 +2161,7 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
                       style={{ fontSize:9, padding:"3px 7px", borderRadius:6, border:`1px solid ${T.border}`, background:T.elevated, color:T.muted, cursor:"pointer", fontFamily:"inherit" }}>
                       {item.type==="staple"?"→ fresh":"→ staple"}
                     </button>
-                    <button onClick={()=>{ if(window.confirm(`Remove "${item.name}" from pantry?`)) setPantry(prev=>prev.filter(p=>p.id!==item.id)); }}
+                    <button onClick={()=>{ confirm({ title:"Remove from pantry?", message:`"${item.name}" will be removed from your pantry.`, confirmLabel:"Remove", danger:true, onConfirm:()=>setPantry(prev=>prev.filter(p=>p.id!==item.id)) }); }}
                       style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:16, padding:"2px 4px" }}>✕</button>
                   </div>
                 ))}
@@ -4025,6 +4033,7 @@ function WorkScreen({ onBack, workCerts, setWorkCerts, seatime, setSeatime, seat
 }
 
 function CalendarScreen({ onBack, calEvents, rotationBlocks, addRotation, removeRotation, tasks, writeRecord }) {
+  const confirm = useConfirm();
   const now = new Date();
   const [viewMonth, setViewMonth] = useState(now.getMonth());
   const [viewYear,  setViewYear]  = useState(now.getFullYear());
@@ -4218,7 +4227,7 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addRotation, remove
                 {ev.notes && <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{ev.notes}</div>}
                 {ev.endDate && <div style={{ fontSize:10, color:T.gold }}>Until {ev.endDate}</div>}
               </div>
-              <button onClick={(evt)=>{ evt.stopPropagation(); if(window.confirm(`Delete "${ev.title}"?`)) writeRecord("calendar", "delete", ev.id); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:14, padding:2 }}>✕</button>
+              <button onClick={(evt)=>{ evt.stopPropagation(); confirm({ title:"Delete event?", message:`"${ev.title}" will be removed from your calendar.`, confirmLabel:"Delete", danger:true, onConfirm:()=>writeRecord("calendar", "delete", ev.id) }); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:14, padding:2 }}>✕</button>
             </div>
           ))}
           {selectedTasks.map(t=>(
@@ -4317,7 +4326,7 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addRotation, remove
                   <div style={{ fontSize:11, color:T.muted }}>{b.start} → {b.end}</div>
                   {b.notes && <div style={{ fontSize:11, color:T.muted }}>{b.notes}</div>}
                 </div>
-                <button onClick={()=>{ if(window.confirm(`Delete this rotation block (${b.start} to ${b.end})?`)) removeRotation(b.id); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:14 }}>✕</button>
+                <button onClick={()=>{ confirm({ title:"Delete rotation block?", message:`The block from ${b.start} to ${b.end} will be removed.`, confirmLabel:"Delete", danger:true, onConfirm:()=>removeRotation(b.id) }); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:14 }}>✕</button>
               </div>
             ))}
             {rotationBlocks.length===0 && <div style={{ fontSize:12, color:T.muted, textAlign:"center", padding:"12px 0" }}>No rotations set yet</div>}
@@ -4785,6 +4794,7 @@ const MODULE_REGISTRY = {
 
 // ─── PROJECTS — TOPIC LIST SCREEN ──────────────────────────────────────────────
 function ProjectsListScreen({ onBack, projects, setProjects, onOpenProject }) {
+  const confirm = useConfirm();
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
 
@@ -4799,9 +4809,11 @@ function ProjectsListScreen({ onBack, projects, setProjects, onOpenProject }) {
   };
 
   const deleteProject = (id, name) => {
-    if (!window.confirm(`Delete project "${name}"? This removes its entire conversation and cannot be undone.`)) return;
-    setProjects(prev => prev.filter(p => p.id !== id));
-    try { localStorage.removeItem(`project_chat_${id}`); } catch {}
+    confirm({ title:"Delete project?", message:`"${name}" and its entire conversation will be removed. This can't be undone.`, confirmLabel:"Delete", danger:true,
+      onConfirm: () => {
+        setProjects(prev => prev.filter(p => p.id !== id));
+        try { localStorage.removeItem(`project_chat_${id}`); } catch {}
+      } });
   };
 
   return (
@@ -4856,6 +4868,7 @@ function ProjectsListScreen({ onBack, projects, setProjects, onOpenProject }) {
 
 function TarsScreen({ onBack, appState }) {
   const { tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord, rules, setRules, createRule, trainingDays, exerciseRoutine } = appState;
+  const confirm = useConfirm();
 
   const [tarsTab, setTarsTab] = useState("chat");
   const [showSettings, setShowSettings] = useState(false);
@@ -4889,16 +4902,18 @@ function TarsScreen({ onBack, appState }) {
   };
 
   const handleRestoreFromGist = async () => {
-    if (!window.confirm("Restore all app data from your Gist backup? This will overwrite current data on this device.")) return;
-    setSyncStatus("syncing");
-    const result = await GistSync.pull();
-    if (result.ok) {
-      setSyncStatus("ok");
-      setTimeout(() => { setSyncStatus(""); window.location.reload(); }, 1500);
-    } else {
-      setSyncStatus("error");
-      setTimeout(() => setSyncStatus(""), 3000);
-    }
+    confirm({ title:"Restore from backup?", message:"This overwrites all current data on this device with your Gist backup.", confirmLabel:"Restore", danger:true,
+      onConfirm: async () => {
+        setSyncStatus("syncing");
+        const result = await GistSync.pull();
+        if (result.ok) {
+          setSyncStatus("ok");
+          setTimeout(() => { setSyncStatus(""); window.location.reload(); }, 1500);
+        } else {
+          setSyncStatus("error");
+          setTimeout(() => setSyncStatus(""), 3000);
+        }
+      } });
   };
 
   const handleSaveSession = async () => {
@@ -6630,7 +6645,7 @@ If multiple files were uploaded, treat them as related unless the content sugges
               <div style={{ fontSize:10, color:T.muted, marginBottom:8 }}>Profile: {MemoryStore.getProfile().length} chars · Sessions: {MemoryStore.getSessions().length} stored.</div>
             )}
             {(memoryFacts.length > 0 || MemoryStore.getProfile() || MemoryStore.getSessions().length > 0) && (
-              <button onClick={()=>{ if(window.confirm("Clear all TARS memory? This removes remembered facts, his personal profile, and session history. Cannot be undone.")) { MemoryStore.clearAll(); setMemoryFacts([]); window.location.reload(); }}}
+              <button onClick={()=>{ confirm({ title:"Clear all TARS memory?", message:"This removes remembered facts, his personal profile, and session history. Can't be undone.", confirmLabel:"Clear memory", danger:true, onConfirm:()=>{ MemoryStore.clearAll(); setMemoryFacts([]); window.location.reload(); } }); }}
                 style={{ width:"100%", padding:"7px", borderRadius:8, background:`${T.accent}11`, border:`1px solid ${T.accent}33`, color:T.accent, fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>
                 Clear All Memory
               </button>
@@ -7432,8 +7447,33 @@ const INIT_ROTATION = [];
 
 const INIT_CAL_EVENTS = [];
 
+// ── Shared confirm/alert dialog — replaces window.confirm()/window.alert() app-wide
+// (except inside Work, deliberately untouched — see CertEditModal/SeaTimePeriodModal/
+// WorkScreen, which keep their own native dialogs). The actual dialog state/UI lives
+// directly in LifeApp below, not a separate wrapper component — LifeApp itself has a
+// couple of call sites (e.g. Gist restore) that need to trigger it, and a component
+// can't consume a Context it's the one creating, only its descendants can. Exposed via
+// Context for every other screen, since call sites are spread across most of the
+// app — the alternative was threading one function through 7+ component signatures
+// just to reach a handful of delete buttons. `danger` swaps the icon/confirm-button
+// colour (red for destructive actions, blue otherwise); a message-only alert is
+// supported (no cancel button) for future use, though nothing currently needs it —
+// every real call site converted here was a two-choice confirm.
+const ConfirmDialogContext = createContext(() => {});
+function useConfirm() { return useContext(ConfirmDialogContext); }
+
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
 export default function LifeApp() {
+  // ── Confirm/alert dialog state — lives here directly (not a separate provider
+  // component) specifically so LifeApp's own handlers (Gist restore, below) can call
+  // confirm() as a plain local function, not through useConfirm() — a component can't
+  // consume a Context it's the one providing, only descendants can. Every other screen
+  // gets this via <ConfirmDialogContext.Provider> further down and useConfirm(). ──
+  const [confirmDialog, setConfirmDialog] = useState(null); // { title, message, confirmLabel, cancelLabel, danger, alertOnly, onConfirm, onCancel } | null
+  const confirm = (opts) => setConfirmDialog(opts);
+  const handleDialogConfirm = () => { const d = confirmDialog; setConfirmDialog(null); if (d?.onConfirm) d.onConfirm(); };
+  const handleDialogCancel = () => { const d = confirmDialog; setConfirmDialog(null); if (d?.onCancel) d.onCancel(); };
+
   // ── Fix the outer page white border — this isn't coming from anything inside this
   // component, it's the default browser body margin + white background on the page
   // shell outside React's control (index.html). This forces it to match the app at
@@ -7884,7 +7924,7 @@ export default function LifeApp() {
                       <div style={{ fontSize:13, fontWeight:600, color:r.enabled?T.text:T.muted }}>{r.description}</div>
                       <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>notifies: "{r.action?.message}"</div>
                     </div>
-                    <button onClick={()=>{ if(window.confirm(`Delete rule "${r.description}"?`)) setRules(prev=>prev.filter(x=>x.id!==r.id)); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:15, padding:2, flexShrink:0 }}>✕</button>
+                    <button onClick={()=>{ confirm({ title:"Delete rule?", message:`"${r.description}" will be removed.`, confirmLabel:"Delete", danger:true, onConfirm:()=>setRules(prev=>prev.filter(x=>x.id!==r.id)) }); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:15, padding:2, flexShrink:0 }}>✕</button>
                   </div>
                 ))}
               </div>
@@ -7913,6 +7953,7 @@ export default function LifeApp() {
   };
 
   return (
+    <ConfirmDialogContext.Provider value={confirm}>
     <div style={{ background:T.bg, minHeight:"100vh", fontFamily:"'Inter', system-ui, -apple-system, sans-serif", color:T.text, width:"100%", position:"relative", overscrollBehaviorX:"none" }}>
       {/* Persistent top bar — restyled to the new theme (T2), same everywhere it already
           rendered before (this sits outside renderScreen(), so it was already common to
@@ -7944,6 +7985,32 @@ export default function LifeApp() {
         </div>
       </div>
       <div style={{ paddingTop:56 }}>{renderScreen()}</div>
+
+      {/* Confirm/alert dialog itself — see the state/handlers defined at the top of
+          this component for why this lives here rather than a separate component. */}
+      {confirmDialog && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:2000, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={handleDialogCancel}>
+          <div style={{ width:"100%", maxWidth:480, background:T.card, borderRadius:"20px 20px 0 0", padding:"22px 20px 26px", boxSizing:"border-box" }} onClick={e=>e.stopPropagation()}>
+            <div style={{ width:36, height:4, background:T.border, borderRadius:999, margin:"0 auto 18px" }} />
+            <div style={{ width:44, height:44, borderRadius:12, background:confirmDialog.danger?`${T.accent}1f`:`${T.blue}1f`, display:"flex", alignItems:"center", justifyContent:"center", marginBottom:14 }}>
+              <Icon name={confirmDialog.danger ? "trash" : "check"} size={20} color={confirmDialog.danger ? T.accent : T.blue} />
+            </div>
+            <div style={{ fontSize:16, fontWeight:700, color:T.text, marginBottom:6 }}>{confirmDialog.title}</div>
+            <div style={{ fontSize:13, color:T.muted, lineHeight:1.5, marginBottom:22 }}>{confirmDialog.message}</div>
+            <div style={{ display:"flex", gap:10 }}>
+              {!confirmDialog.alertOnly && (
+                <button onClick={handleDialogCancel} style={{ flex:1, textAlign:"center", padding:12, borderRadius:12, border:`1px solid ${T.border}`, background:"none", color:T.muted, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>
+                  {confirmDialog.cancelLabel || "Cancel"}
+                </button>
+              )}
+              <button onClick={handleDialogConfirm} style={{ flex:1, textAlign:"center", padding:12, borderRadius:12, background:confirmDialog.danger?T.accent:T.blue, color:"#fff", fontSize:14, fontWeight:700, border:"none", cursor:"pointer", fontFamily:"inherit" }}>
+                {confirmDialog.confirmLabel || "OK"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+    </ConfirmDialogContext.Provider>
   );
 }
