@@ -1024,6 +1024,7 @@ function TrendsCharts({ entries }) {
   const metrics = [
     { key:"weight", label:"Weight (kg)", color:T.blue },
     { key:"bodyFat", label:"Body Fat (%)", color:T.accent },
+    { key:"fatMass", label:"Fat Mass (kg)", color:T.gold },
     { key:"muscle", label:"Muscle (kg)", color:T.green },
   ];
   return (
@@ -2323,7 +2324,6 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
   // Sorted by real date, not array/insertion order — logging a backdated entry no longer
   // wrongly becomes "latest" just because it was added most recently.
   const entriesByDate = entries.slice().sort((a,b) => parseFlexibleDate(a.date) - parseFlexibleDate(b.date));
-  const latest = entriesByDate[entriesByDate.length - 1] || entries[entries.length - 1];
   // Entries are sparse now (only fields actually measured get stored) — so "current weight"
   // and "current body fat" etc each need their own most-recent-known-value lookup, scanning
   // backwards through history, rather than trusting a single "latest" entry to have everything.
@@ -2369,7 +2369,7 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
   const [viewingExerciseInfo, setViewingExerciseInfo] = useState(null); // which resolved exercise's info sheet is open
 
   const healthTabs = [
-    {id:"overview",label:"Overview",icon:"📊"},{id:"trends",label:"Trends",icon:"📈"},
+    {id:"overview",label:"Overview",icon:"📊"},
     {id:"history",label:"History",icon:"📜"},
     {id:"calories",label:"Calories",icon:"🔥"},{id:"supplements",label:"Supps",icon:"💊"},
     {id:"exercise",label:"Exercise",icon:"💪"},
@@ -2418,30 +2418,7 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
               <MetricCard label="Fat Mass" value={latestMetric("fatMass")} baseline={baselineMetric("fatMass")} unit="kg" target={HEALTH_TARGETS.fatMass} />
               <MetricCard label="Muscle"   value={latestMetric("muscle")}  baseline={baselineMetric("muscle")}  unit="kg" target={HEALTH_TARGETS.muscle} />
             </div>
-            <Card>
-              <SectionLabel>Vitals</SectionLabel>
-              <div style={{ display:"flex", gap:24 }}>
-                <div><div style={{ fontSize:20, fontWeight:700, color:T.text }}>{latest.bp}</div><div style={{ fontSize:11, color:T.muted }}>BP · medicated</div></div>
-                <div><div style={{ fontSize:20, fontWeight:700, color:T.text }}>76 bpm</div><div style={{ fontSize:11, color:T.muted }}>Resting HR</div></div>
-              </div>
-            </Card>
-            <Card>
-              <SectionLabel>Daily Nutrition Targets</SectionLabel>
-              {[{l:"Calories",v:"1,900–2,000 kcal",s:"~500 kcal deficit"},{l:"Protein",v:"140–160g",s:"1.6g × bodyweight"}].map(n=>(
-                <div key={n.l} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
-                  <div><div style={{ fontSize:13, fontWeight:600, color:T.text }}>{n.l}</div><div style={{ fontSize:11, color:T.muted }}>{n.s}</div></div>
-                  <div style={{ fontSize:14, fontWeight:700, color:T.blue }}>{n.v}</div>
-                </div>
-              ))}
-            </Card>
-            <Card>
-              <SectionLabel>Phase</SectionLabel>
-              <div style={{ display:"flex", gap:10, opacity:1 }}>
-                <div style={{ width:8, height:8, borderRadius:"50%", background:T.blue, marginTop:5, flexShrink:0 }} />
-                <div><div style={{ fontSize:13, fontWeight:700, color:T.text }}>Phase 1 — Weeks 1–6</div><div style={{ fontSize:12, color:T.muted, marginTop:2 }}>Daily walking · 3×/week training · Protein focus</div></div>
-              </div>
-            </Card>
-
+            <TrendsCharts entries={entriesByDate} />
           </div>
         )}
 
@@ -2520,16 +2497,6 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
                 <div style={{ fontSize:10, color:T.muted, marginTop:8 }}>Tap any row to edit or delete it.</div>
               </div>
             </Card>
-          </div>
-        )}
-
-        {/* TRENDS */}
-        {tab==="trends" && (
-          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-            <div style={{ background:`${T.blue}18`, borderRadius:12, padding:12, fontSize:12, color:T.blue, border:`1px solid ${T.blue}33` }}>
-              📈 Charts update as you add check-ins via Samsung Health screenshots. Baseline is 26 Jun 2026.
-            </div>
-            <TrendsCharts entries={entriesByDate} />
           </div>
         )}
 
@@ -5092,8 +5059,7 @@ Communication style: casual, direct, brief. Doesn't want explanations when a sen
 HEALTH:
 Real baseline, current numbers, and targets are Neil's own tracked data — never state a specific weight, body fat, fat mass, or muscle figure from memory of this prompt. Check the live HEALTH data given to you each message for anything current, and REMEMBERED FACTS for anything Neil has told you directly (medications, conditions, GP advice) — never invent or assume either.
 If Neil has a medication on file in REMEMBERED FACTS, always flag any supplement interaction relevant to it when the topic comes up — don't name the medication yourself unprompted, just flag that a check with his GP is worth doing.
-Phase 1, weeks 1 to 6: daily walking 8000 to 10000 steps, bodyweight training 3 times a week, protein focus, alcohol reduction.
-Exercise: Mon Wed Fri bodyweight training. Tue Thu Sat walking. Sun rest.
+Exercise schedule and routine are Neil's own real, editable data — check the live EXERCISE ROUTINE data given to you each message rather than assuming a fixed schedule. Step counts and sleep are not tracked anywhere in this app — never ask about or reference either; on a walk day, assume it's been done rather than asking about it.
 
 NUTRITION:
 Targets: 1900 to 2000 calories, 140 to 160g protein daily.
@@ -5937,7 +5903,7 @@ ${(() => {
         model: HAIKU, // deliberate — one-word classification, no writes, genuinely low-stakes.
         system: `You are an image classifier. Look at this image and respond with exactly one word only:
 FOOD — if it shows food, a meal, a drink, a snack, or anything edible
-HEALTH — if it shows a Samsung Health screenshot, fitness app data, steps, sleep, weight, heart rate, or any health metrics
+HEALTH — if it shows a Samsung Health screenshot, fitness app data, weight, heart rate, or any health metrics
 RECEIPT — if it shows a purchase receipt, invoice, or till slip with a merchant name and a total amount
 DOCUMENT — if it shows any other document, certificate, letter, form, or text-heavy page
 OTHER — anything else`,
@@ -5961,7 +5927,7 @@ OTHER — anything else`,
         systemAddendum = `The user has sent a photo of food. Your job is to estimate calories and protein as accurately as possible using the crockery reference (28cm dinner plate, 22cm side plate, 20cm bowl) for portion sizing if a plate or bowl is visible. Give your best estimate — state the food, estimated calories, estimated protein, then ask to log it. Format: "That looks like [description], approximately [X] calories and [Y]g protein. Shall I log it?"`;
         userPrompt = "What food is this and what are the estimated calories and protein?";
       } else if (imageType === "HEALTH") {
-        systemAddendum = `The user has sent a Samsung Health screenshot or fitness data. Extract all visible health metrics — steps, distance, active time, sleep duration, sleep score, weight, heart rate, calories burned, or any other metrics shown. Present what you found clearly then ask which metrics to log to the health module.`;
+        systemAddendum = `The user has sent a Samsung Health screenshot or fitness data. Extract all visible health metrics — weight, heart rate, calories burned, or any other metrics shown (steps and sleep are not tracked in this app — ignore those even if visible in the screenshot). Present what you found clearly then ask which metrics to log to the health module.`;
         userPrompt = "Extract all health metrics from this screenshot.";
       } else if (imageType === "RECEIPT") {
         systemAddendum = `The user has sent a photo of a purchase receipt. Read the merchant name and the TOTAL amount (not subtotal, not individual line items — the final amount paid, including any tax). Pick exactly ONE category from this list that best fits the overall purchase: ${FINANCE_CATEGORIES.join(", ")}. If the receipt has mixed items spanning categories (e.g. a supermarket run with both groceries and household items), just pick the dominant one — don't split it. State what you found plainly: "That's [merchant], $[total], I'd file that under [category]. Shall I log it?" Then emit an ACTION block: ACTION:{"type":"generic","module":"finance","op":"create","fields":{"date":"YYYY-MM-DD","category":"<exact category from the list>","value":<number>,"merchant":"<name>","notes":"","source":"receipt"}} — use today's date unless the receipt clearly shows a different date. If you can't read the total or merchant clearly, say so and ask Neil rather than guessing at numbers — a wrong dollar figure silently logged is worse than asking.`;
@@ -6141,7 +6107,7 @@ OTHER — anything else`,
     const systemAddendum = `The user has uploaded ${staged.length > 1 ? `${staged.length} files: ${names}` : `a file: ${names}`}.${comment ? ` Their instruction: "${comment}"` : " No specific instruction given — use your judgement."}
 Your job: understand the full content of each file, then act on it.
 If it contains dates, events, flights, hotel bookings, appointments or a leave schedule → extract them all and offer to add to the calendar one by one or all at once.
-If it contains health data, weight, steps, or fitness metrics → extract and offer to log to the health module.
+If it contains health data, weight, or fitness metrics → extract and offer to log to the health module.
 If it contains food or nutrition information → extract and offer to log calories and protein.
 If it is a purchase receipt or invoice → read the merchant and TOTAL amount (not subtotal or line items), pick exactly one category from: ${FINANCE_CATEGORIES.join(", ")}, and offer to log it to Finance using ACTION:{"type":"generic","module":"finance","op":"create","fields":{"date":"YYYY-MM-DD","category":"<category>","value":<number>,"merchant":"<name>","notes":"","source":"receipt"}}. Ask rather than guess if the total isn't clearly readable.
 If it is a certificate, qualification or work document → summarise key details including any expiry dates.
