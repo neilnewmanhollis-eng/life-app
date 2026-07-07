@@ -3855,6 +3855,14 @@ function WorkScreen({ onBack, workCerts, setWorkCerts, seatime, setSeatime, seat
     if (currentTo) setSeatimeMeta(prev => ({ ...prev, [vesselName]: currentTo }));
     setSeaSubTab(vesselName); // jump straight to the vessel that was just updated
   };
+  // Deleting every period for a vessel isn't enough on its own to make its tab
+  // disappear — the "current to" date lives separately in seatimeMeta and keeps the
+  // tab alive even with zero periods. This clears both, in one real, confirmed action.
+  const handleDeleteVessel = (vesselName) => {
+    setSeatime(prev => prev.filter(p => p.vessel !== vesselName));
+    setSeatimeMeta(prev => { const next = { ...prev }; delete next[vesselName]; return next; });
+    setSeaSubTab("total");
+  };
 
   const sorted = workCerts.slice().sort((a,b) => {
     if (sortBy === "type") return (a.certType||"").localeCompare(b.certType||"") || (a.name||"").localeCompare(b.name||"");
@@ -3934,24 +3942,31 @@ function WorkScreen({ onBack, workCerts, setWorkCerts, seatime, setSeatime, seat
             </div>
           ) : (
             <div>
-              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
-                {editingCurrentTo ? (
-                  <>
-                    <input type="date" value={currentToDraft} onChange={e=>setCurrentToDraft(e.target.value)}
-                      style={{ padding:"6px 8px", borderRadius:6, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:11, fontFamily:"inherit" }} />
-                    <button onClick={()=>{ setSeatimeMeta(prev=>({...prev,[seaSubTab]:currentToDraft})); setEditingCurrentTo(false); }}
-                      style={{ padding:"5px 9px", borderRadius:6, border:"none", background:T.blue, color:"white", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>Save</button>
-                    <button onClick={()=>setEditingCurrentTo(false)} style={{ padding:"5px 9px", borderRadius:6, border:`1px solid ${T.border}`, background:"transparent", color:T.muted, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>Cancel</button>
-                  </>
-                ) : (
-                  <>
-                    <div style={{ fontSize:11, color:T.muted }}>
-                      {seatimeMeta[seaSubTab] ? `Data current to ${formatDateDDMMYYYY(seatimeMeta[seaSubTab])}` : "No current-to date set yet"}
-                    </div>
-                    <button onClick={()=>{ setCurrentToDraft(seatimeMeta[seaSubTab]||""); setEditingCurrentTo(true); }}
-                      style={{ background:"none", border:"none", color:T.blue, fontSize:11, cursor:"pointer", fontFamily:"inherit", padding:0 }}>edit</button>
-                  </>
-                )}
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:10 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  {editingCurrentTo ? (
+                    <>
+                      <input type="date" value={currentToDraft} onChange={e=>setCurrentToDraft(e.target.value)}
+                        style={{ padding:"6px 8px", borderRadius:6, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:11, fontFamily:"inherit" }} />
+                      <button onClick={()=>{ setSeatimeMeta(prev=>({...prev,[seaSubTab]:currentToDraft})); setEditingCurrentTo(false); }}
+                        style={{ padding:"5px 9px", borderRadius:6, border:"none", background:T.blue, color:"white", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>Save</button>
+                      <button onClick={()=>setEditingCurrentTo(false)} style={{ padding:"5px 9px", borderRadius:6, border:`1px solid ${T.border}`, background:"transparent", color:T.muted, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>Cancel</button>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ fontSize:11, color:T.muted }}>
+                        {seatimeMeta[seaSubTab] ? `Data current to ${formatDateDDMMYYYY(seatimeMeta[seaSubTab])}` : "No current-to date set yet"}
+                      </div>
+                      <button onClick={()=>{ setCurrentToDraft(seatimeMeta[seaSubTab]||""); setEditingCurrentTo(true); }}
+                        style={{ background:"none", border:"none", color:T.blue, fontSize:11, cursor:"pointer", fontFamily:"inherit", padding:0 }}>edit</button>
+                    </>
+                  )}
+                </div>
+                {/* Deleting all periods alone leaves this vessel's tab behind (its "current
+                    to" date persists separately) — this is the real, complete way to remove
+                    a vessel entirely, not a workaround. Confirmed, since it's destructive. */}
+                <button onClick={()=>{ if(window.confirm(`Delete "${seaSubTab}" entirely? This removes all its periods and its current-to date. This can't be undone.`)) handleDeleteVessel(seaSubTab); }}
+                  style={{ background:"none", border:"none", color:T.muted, fontSize:11, cursor:"pointer", fontFamily:"inherit", padding:0 }}>Delete vessel</button>
               </div>
               {/* Staleness nudge — purely informational, no urgency colour system like
                   certificates. ~224 days ≈ two full 8-on/8-off rotation cycles, Neil's
