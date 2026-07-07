@@ -41,18 +41,23 @@ const T = {
 // up a half-finished, inconsistent restyle. Once every screen is migrated,
 // T2 can simply replace T outright — not done yet, on purpose. Currently used
 // by: the persistent top bar (LifeApp), HomeScreen, HomePillPicker.
+// Reverted to the original T palette on Neil's request (kept the redesigned
+// layout — grid, pillboxes, TARS tile, fixed header — just repainted with the
+// app's original colors instead of the amber/dark-monolith palette). Values
+// are pulled directly from T so this stays a single source of truth rather
+// than a second set of hardcoded hex values that could drift out of sync.
 const T2 = {
-  bg:         "#0B0B0E",
-  surface:    "#17181C",
-  iconBg:     "#241C14",
-  pillBg:     "#2A2016",
-  accent:     "#F0A93A",
-  text:       "#ECEAE6",
-  muted:      "#8A8A90",
-  border:     "#1D1E22",
-  successBg:  "#1F2A22",
-  successText:"#9FD4B8",
-  successDot: "#7BC49A",
+  bg:         T.bg,
+  surface:    T.card,
+  iconBg:     T.elevated,
+  pillBg:     T.elevated,
+  accent:     T.accent,
+  text:       T.text,
+  muted:      T.muted,
+  border:     T.border,
+  successBg:  `${T.green}22`,
+  successText:T.green,
+  successDot: T.green,
 };
 
 // ─── INITIAL DATA ─────────────────────────────────────────────────────────────
