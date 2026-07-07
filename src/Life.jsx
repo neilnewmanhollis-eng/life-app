@@ -3394,12 +3394,12 @@ function HomeModuleTile({ icon, label, sublabel, badge, statusDot, accent, onCli
   return (
     <div onClick={onClick} style={{ background:T2.surface, borderRadius:16, padding:14, cursor:"pointer", position:"relative" }}>
       {statusDot && <div style={{ position:"absolute", top:12, right:12, width:8, height:8, borderRadius:"50%", background:statusDot }} />}
-      {badge ? <div style={{ position:"absolute", top:10, right:10, width:18, height:18, borderRadius:"50%", background:T.accent, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, fontWeight:800, color:"#fff" }}>{badge}</div> : null}
-      <div style={{ width:32, height:32, borderRadius:10, background:`${a}1f`, display:"flex", alignItems:"center", justifyContent:"center", marginBottom:9 }}>
-        <Icon name={icon} size={16} color={a} />
+      {badge ? <div style={{ position:"absolute", top:10, right:10, width:20, height:20, borderRadius:"50%", background:T.accent, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:800, color:"#fff" }}>{badge}</div> : null}
+      <div style={{ width:38, height:38, borderRadius:11, background:`${a}1f`, display:"flex", alignItems:"center", justifyContent:"center", marginBottom:10 }}>
+        <Icon name={icon} size={20} color={a} />
       </div>
-      <div style={{ fontSize:12, fontWeight:700, color:T2.text }}>{label}</div>
-      {sublabel ? <div style={{ fontSize:9, color:T2.muted, marginTop:2 }}>{sublabel}</div> : null}
+      <div style={{ fontSize:13, fontWeight:700, color:T2.text }}>{label}</div>
+      {sublabel ? <div style={{ fontSize:11, color:T2.muted, marginTop:2 }}>{sublabel}</div> : null}
     </div>
   );
 }
@@ -3479,11 +3479,11 @@ function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo,
         </div>
         {tasks.filter(t=>t.priority==="high"||!t.done).slice(0,4).map(t=>(
           <div key={t.id} onClick={()=>onToggleTask(t.id)} style={{ display:"flex", alignItems:"center", gap:9, padding:"7px 0", borderBottom:`1px solid ${T2.border}`, cursor:"pointer" }}>
-            <div style={{ width:16, height:16, borderRadius:5, flexShrink:0, border:`1.5px solid ${t.done?T2.accent:T2.border}`, background:t.done?T2.accent:"transparent", display:"flex", alignItems:"center", justifyContent:"center" }}>
-              {t.done && <Icon name="check" size={10} color={T2.bg} />}
+            <div style={{ width:16, height:16, borderRadius:5, flexShrink:0, border:`1.5px solid ${t.done?T.green:T2.border}`, background:t.done?T.green:"transparent", display:"flex", alignItems:"center", justifyContent:"center" }}>
+              {t.done && <Icon name="check" size={10} color="#fff" />}
             </div>
             <span style={{ fontSize:11, color:t.done?T2.muted:T2.text, textDecoration:t.done?"line-through":"none", flex:1 }}>{t.text}</span>
-            <span style={{ fontSize:9, fontWeight:700, padding:"2px 6px", borderRadius:999, background:T2.pillBg, color:T2.accent }}>{t.cat}</span>
+            <span style={{ fontSize:9, fontWeight:700, padding:"2px 6px", borderRadius:999, background:`${CAT_COLORS[t.cat]||T.blue}22`, color:CAT_COLORS[t.cat]||T.blue }}>{t.cat}</span>
           </div>
         ))}
         <button onClick={()=>onNavigate("tasks")} style={{ marginTop:10, width:"100%", padding:"8px", borderRadius:8, background:"none", border:`1px solid ${T2.border}`, color:T2.muted, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>
@@ -7997,18 +7997,18 @@ export default function LifeApp() {
           <button onClick={()=>setScreen("notifications")} style={{ position:"relative", background:"none", border:"none", cursor:"pointer", padding:4 }}>
             <span style={{ fontSize:18 }}>🔔</span>
             {unreadCount > 0 && (
-              <div style={{ position:"absolute", top:0, right:0, width:16, height:16, borderRadius:"50%", background:T2.accent, color:T2.bg, fontSize:9, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center" }}>{unreadCount}</div>
+              <div style={{ position:"absolute", top:0, right:0, width:16, height:16, borderRadius:"50%", background:T.blue, color:T2.bg, fontSize:9, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center" }}>{unreadCount}</div>
             )}
           </button>
           {/* Automation rules — moved here from TARS settings so it's a peer of the bell, not buried */}
           <button onClick={()=>setScreen("automations")} style={{ position:"relative", background:"none", border:"none", cursor:"pointer", padding:4 }}>
             <span style={{ fontSize:18 }}>🤖</span>
             {activeRulesCount > 0 && (
-              <div style={{ position:"absolute", top:0, right:0, width:16, height:16, borderRadius:"50%", background:T2.accent, color:T2.bg, fontSize:9, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center" }}>{activeRulesCount}</div>
+              <div style={{ position:"absolute", top:0, right:0, width:16, height:16, borderRadius:"50%", background:T.blue, color:T2.bg, fontSize:9, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center" }}>{activeRulesCount}</div>
             )}
           </button>
-          <button onClick={()=>setScreen("tars")} style={{ background:T2.surface, border:`1px solid ${T2.border}`, borderRadius:999, padding:"6px 12px", display:"flex", alignItems:"center", gap:6, cursor:"pointer", color:T2.accent, fontSize:11, fontWeight:700 }}>
-            <Icon name="mic" size={12} color={T2.accent} /> TARS
+          <button onClick={()=>setScreen("tars")} style={{ background:T2.surface, border:`1px solid ${T2.border}`, borderRadius:999, padding:"6px 12px", display:"flex", alignItems:"center", gap:6, cursor:"pointer", color:T.blue, fontSize:11, fontWeight:700 }}>
+            <Icon name="mic" size={12} color={T.blue} /> TARS
           </button>
         </div>
       </div>
