@@ -2181,9 +2181,9 @@ function ExerciseInfoSheet({ exercise, media, onClose }) {
       <div style={{ background:T.card, borderRadius:"20px 20px 0 0", padding:20, width:"100%", maxWidth:480, maxHeight:"80vh", overflowY:"auto", boxSizing:"border-box" }} onClick={e=>e.stopPropagation()}>
         <div style={{ fontSize:14, fontWeight:700, color:T.text, marginBottom:8 }}>{exercise.name}</div>
         <div style={{ fontSize:12, color:T.muted, lineHeight:1.5, marginBottom:14 }}>{media.description}</div>
-        <div style={{ display:"flex", gap:8 }}>
+        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
           {media.images.map((src,i) => (
-            <img key={i} src={src} alt={`${exercise.name} — position ${i+1}`} style={{ flex:1, width:"50%", borderRadius:10, border:`1px solid ${T.border}`, objectFit:"cover" }} />
+            <img key={i} src={src} alt={`${exercise.name} — position ${i+1}`} style={{ width:"100%", borderRadius:10, border:`1px solid ${T.border}`, objectFit:"cover" }} />
           ))}
         </div>
         <div style={{ fontSize:10, color:T.muted, marginTop:10, textAlign:"center" }}>Reference photos: free-exercise-db (public domain)</div>
