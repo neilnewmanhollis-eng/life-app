@@ -3703,7 +3703,7 @@ function ImportCertsModal({ onClose, onImport }) {
 // CertEditModal, same isolation (no writeRecord, local state only). ──
 function SeaTimePeriodModal({ period, defaultVessel, onClose, onSave, onDelete }) {
   const [form, setForm] = useState(() => period || {
-    vessel: defaultVessel || "", fromDate: "", toDate: "", watchDays: "", atAnchorDays: "",
+    vessel: defaultVessel || "", fromDate: "", toDate: "", watchDays: "", atAnchorDays: "", mooredDays: "", shipyardDays: "", underwayUnder4hDays: "",
   });
   const isNew = !period;
   const initialSnapshot = useRef(JSON.stringify(form));
@@ -3740,6 +3740,9 @@ function SeaTimePeriodModal({ period, defaultVessel, onClose, onSave, onDelete }
         {field("toDate", "Onboard to", "date")}
         {field("watchDays", "Watch days (>4h underway)", "number")}
         {field("atAnchorDays", "At anchor days", "number")}
+        {field("mooredDays", "Moored days", "number")}
+        {field("shipyardDays", "Shipyard days", "number")}
+        {field("underwayUnder4hDays", "Underway, under 4h (not a watch day)", "number")}
         <div style={{ display:"flex", gap:8, marginTop:16 }}>
           {!isNew && <button onClick={()=>{ if(window.confirm("Delete this period? This can't be undone.")) { onDelete(period.id); onClose(); } }}
             style={{ padding:"10px 16px", borderRadius:10, border:`1px solid ${T.accent}44`, background:`${T.accent}18`, color:T.accent, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>Delete</button>}
@@ -3808,19 +3811,27 @@ function WorkScreen({ onBack, workCerts, setWorkCerts, seatime, setSeatime, seat
     if (!from || !to) return 0;
     return Math.round((to - from) / 86400000) + 1; // inclusive of both ends
   };
+  // Neil's own rule: watch + anchor + moored + shipyard + underway<4h should always equal
+  // the total onboard days for that period. If they don't, something's mis-entered — flag
+  // it on the period row rather than silently show numbers that don't reconcile.
+  const categorySum = (p) => (Number(p.watchDays)||0) + (Number(p.atAnchorDays)||0) + (Number(p.mooredDays)||0) + (Number(p.shipyardDays)||0) + (Number(p.underwayUnder4hDays)||0);
+  const reconciles = (p) => categorySum(p) === onboardDays(p);
   const vesselPeriods = (v) => (seatime||[]).filter(p=>p.vessel===v).slice().sort((a,b)=>parseFlexibleDate(a.fromDate)-parseFlexibleDate(b.fromDate));
   const vesselTotals = (v) => {
     const periods = vesselPeriods(v);
     return {
       watchDays: periods.reduce((s,p)=>s+(Number(p.watchDays)||0), 0),
       atAnchorDays: periods.reduce((s,p)=>s+(Number(p.atAnchorDays)||0), 0),
+      mooredDays: periods.reduce((s,p)=>s+(Number(p.mooredDays)||0), 0),
+      shipyardDays: periods.reduce((s,p)=>s+(Number(p.shipyardDays)||0), 0),
+      underwayUnder4hDays: periods.reduce((s,p)=>s+(Number(p.underwayUnder4hDays)||0), 0),
       onboardDays: periods.reduce((s,p)=>s+onboardDays(p), 0),
     };
   };
   const lifetimeTotals = vessels.reduce((acc, v) => {
     const t = vesselTotals(v);
-    return { watchDays: acc.watchDays+t.watchDays, atAnchorDays: acc.atAnchorDays+t.atAnchorDays, onboardDays: acc.onboardDays+t.onboardDays };
-  }, { watchDays:0, atAnchorDays:0, onboardDays:0 });
+    return { watchDays: acc.watchDays+t.watchDays, atAnchorDays: acc.atAnchorDays+t.atAnchorDays, mooredDays: acc.mooredDays+t.mooredDays, shipyardDays: acc.shipyardDays+t.shipyardDays, underwayUnder4hDays: acc.underwayUnder4hDays+t.underwayUnder4hDays, onboardDays: acc.onboardDays+t.onboardDays };
+  }, { watchDays:0, atAnchorDays:0, mooredDays:0, shipyardDays:0, underwayUnder4hDays:0, onboardDays:0 });
 
   const handleSavePeriod = (period) => {
     setSeatime(prev => {
@@ -3883,9 +3894,12 @@ function WorkScreen({ onBack, workCerts, setWorkCerts, seatime, setSeatime, seat
                   </div>
                 </div>
                 <div style={{ fontSize:28, fontWeight:800, color:T.blue, marginTop:10 }}>{lifetimeTotals.watchDays}<span style={{ fontSize:13, fontWeight:600, color:T.muted }}> watch days</span></div>
-                <div style={{ display:"flex", gap:16, marginTop:8, fontSize:12, color:T.muted }}>
+                <div style={{ display:"flex", gap:16, marginTop:8, fontSize:12, color:T.muted, flexWrap:"wrap" }}>
                   <div>{lifetimeTotals.onboardDays} onboard days</div>
-                  <div>{lifetimeTotals.atAnchorDays} at anchor days</div>
+                  <div>{lifetimeTotals.atAnchorDays} at anchor</div>
+                  <div>{lifetimeTotals.mooredDays} moored</div>
+                  <div>{lifetimeTotals.shipyardDays} shipyard</div>
+                  <div>{lifetimeTotals.underwayUnder4hDays} underway &lt;4h</div>
                 </div>
               </div>
               {vessels.length === 0 ? (
@@ -3911,9 +3925,12 @@ function WorkScreen({ onBack, workCerts, setWorkCerts, seatime, setSeatime, seat
               </div>
               <div style={{ background:T.card, borderRadius:14, padding:16, border:`1px solid ${T.border}`, marginBottom:14 }}>
                 <div style={{ fontSize:24, fontWeight:800, color:T.blue }}>{vesselTotals(seaSubTab).watchDays}<span style={{ fontSize:13, fontWeight:600, color:T.muted }}> watch days</span></div>
-                <div style={{ display:"flex", gap:16, marginTop:6, fontSize:12, color:T.muted }}>
+                <div style={{ display:"flex", gap:16, marginTop:6, fontSize:12, color:T.muted, flexWrap:"wrap" }}>
                   <div>{vesselTotals(seaSubTab).onboardDays} onboard days</div>
-                  <div>{vesselTotals(seaSubTab).atAnchorDays} at anchor days</div>
+                  <div>{vesselTotals(seaSubTab).atAnchorDays} at anchor</div>
+                  <div>{vesselTotals(seaSubTab).mooredDays} moored</div>
+                  <div>{vesselTotals(seaSubTab).shipyardDays} shipyard</div>
+                  <div>{vesselTotals(seaSubTab).underwayUnder4hDays} underway &lt;4h</div>
                 </div>
               </div>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
@@ -3928,9 +3945,10 @@ function WorkScreen({ onBack, workCerts, setWorkCerts, seatime, setSeatime, seat
               ) : (
                 <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
                   {vesselPeriods(seaSubTab).map(p => (
-                    <div key={p.id} onClick={()=>setEditingPeriod(p)} style={{ background:T.card, borderRadius:12, padding:12, border:`1px solid ${T.border}`, cursor:"pointer" }}>
+                    <div key={p.id} onClick={()=>setEditingPeriod(p)} style={{ background:T.card, borderRadius:12, padding:12, border:`1px solid ${reconciles(p)?T.border:T.accent}`, cursor:"pointer" }}>
                       <div style={{ fontSize:13, fontWeight:600, color:T.text }}>{formatDateDDMMYYYY(p.fromDate)} – {formatDateDDMMYYYY(p.toDate)}</div>
-                      <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{p.watchDays||0} watch days · {onboardDays(p)} onboard · {p.atAnchorDays||0} at anchor</div>
+                      <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>{p.watchDays||0} watch · {onboardDays(p)} onboard · {p.atAnchorDays||0} anchor · {p.mooredDays||0} moored · {p.shipyardDays||0} shipyard · {p.underwayUnder4hDays||0} underway &lt;4h</div>
+                      {!reconciles(p) && <div style={{ fontSize:11, color:T.accent, marginTop:4, fontWeight:600 }}>⚠️ Categories add up to {categorySum(p)}, but this period is {onboardDays(p)} days — check the entry.</div>}
                     </div>
                   ))}
                 </div>
