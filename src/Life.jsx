@@ -118,129 +118,173 @@ const SUPPLEMENTS = [
 // that today was always a training day, regardless of what day it actually was.
 const DEFAULT_TRAINING_DAYS = { Mon:"training", Tue:"walk", Wed:"training", Thu:"walk", Fri:"training", Sat:"walk", Sun:"rest" };
 
-// ── TARS idle tile quips — a fixed pool, deliberately not AI-generated (Neil's own
-// call: this is a purely decorative tile, it should never cost money, need a moment
-// to load, or fail if there's no API key set). One shows per calendar hour, picked
-// deterministically from the current date+hour rather than tracked/stored — so it
-// changes on schedule with zero persisted state, and reopening the app mid-hour
-// always shows the same line rather than reshuffling on every visit. ──
+// -- TARS idle tile quips -- a fixed pool, deliberately not AI-generated (same
+// reasoning as before: purely decorative, should never cost money, need a moment
+// to load, or fail with no API key). Replaced wholesale on Neil's request -- all
+// open-source/public-domain quotes, no names or numbering kept from the source.
+// Selection is now tap-driven, not clock-driven: a quip stays on screen until
+// tapped, tapping picks a new one at random from whatever hasn't been shown yet
+// this cycle, and once every quote's been seen the pool reshuffles (excluding
+// an immediate repeat of whichever one just showed). See shuffleArray/
+// initTarsQuipState/advanceTarsQuipState below for the actual mechanism. --
 const TARS_QUIPS = [
-  // dry
-  "Structural integrity: fine. Motivational integrity: questionable.",
-  "Statistically, today will end. That's the best I've got.",
-  "No advice. Just vibes and hull maintenance.",
-  "Entropy is undefeated. So are you, technically.",
-  "The universe is indifferent. Try not to take it personally.",
-  "Today has been assigned to you at random. No refunds.",
-  "Gravity remains constant. Everything else is negotiable.",
-  "This is fine. Statistically speaking, most things are.",
-  "Nothing is wrong. Nothing is especially right either.",
-  "Existence continues, largely without incident.",
-  "The day will proceed regardless of your opinion of it.",
-  "Some assembly required. Emotionally speaking.",
-  "You are exactly as prepared for today as anyone else.",
-  "Low stakes. High effort. Standard arrangement.",
-  "Nothing's on fire. Low bar, but we're clearing it.",
-  "The odds are neutral. Comforting, in a bleak sort of way.",
-  "Today: much like yesterday, but later.",
-  "No emergencies detected. Suspicious, but I'll allow it.",
-  "Uneventful. The best kind of day, allegedly.",
-  "Time is passing. You're welcome for the update.",
-  "All systems normal. Normal being a low bar.",
-  "Could be worse. Give it time.",
-  "Nothing to report. That's not nothing.",
-  "The day is neutral until proven otherwise.",
-  "Steady as she goes. Mostly by accident.",
-  // backhanded compliments
-  "You've achieved something today. Statistically.",
-  "Not your worst day. A low bar, but you cleared it.",
-  "Impressive. Not the task — just that you're still doing it.",
-  "Well done. For a given, generous, definition of well.",
-  "You showed up. Half of it, allegedly.",
-  "Commendable persistence, given the circumstances you created.",
-  "That was almost competent.",
-  "You're doing better than you think. Bar's low, but still.",
-  "A solid effort, by your standards.",
-  "You handled that. Barely counts, but it counts.",
-  "Progress. Slow, but technically forward.",
-  "Not bad. I've seen better, mostly from myself.",
-  "You're improving. Marginally. Don't get used to it.",
-  "Adequate. High praise, from me.",
-  "You survived that meeting with your dignity mostly intact.",
-  "That decision was almost defensible.",
-  "You're consistent, at least. That's something.",
-  "Fine work. Emphasis on fine, not exceptional.",
-  "You tried. Genuinely underrated strategy for you.",
-  "Better than expected. Expectations were low.",
-  "A passable attempt. High praise from a machine.",
-  "You've exceeded my modest expectations. Modestly.",
-  "Solid. Unremarkable, but solid.",
-  "That went acceptably. Treasure it.",
-  "You're capable of more. Today wasn't that day, but still.",
-  // rotation / life-at-sea, deadpan
-  "Eight weeks on, eight weeks off. The ocean does not care about your plans.",
-  "Man of Steel doesn't do sick days. Neither, apparently, do you.",
-  "Land life: now with 100% more decisions about dinner.",
-  "Rotation ends eventually. So does everything, technically.",
-  "The sea is vast, indifferent, and somehow still your job.",
-  "Being ashore means real problems again. Enjoy those.",
-  "Eight weeks of certainty. Then eight weeks of choices. Pick your poison.",
-  "The vessel doesn't ask how you're feeling. Neither will most people.",
-  "Being at sea simplifies decisions. Being ashore complicates them again.",
-  "Rotation: the only schedule more reliable than regret.",
-  "Somewhere, the ship continues. Whether or not you think about it.",
-  "Shore leave: a temporary condition, much like everything.",
-  "The ocean has no opinion on your career progression. Unhelpful, but consistent.",
-  "Two months on. Two months off. The math never changes, only the dread.",
-  "You've done this rotation before. You'll do it again. That's the job.",
-  "Christchurch exists whether or not you're paying attention to it.",
-  "The vessel requires competence. Life ashore requires more, unfortunately.",
-  "Being at sea, you answer to a schedule. Ashore, you answer to yourself. Worse deal.",
-  "Rotation doesn't pause for personal growth. Neither does much else.",
-  "The next join date is fixed. Your enthusiasm for it is optional.",
-  "Somewhere out there, a superyacht requires almost nothing from you emotionally. Lucky it.",
-  "Southern Hemisphere seasons: also indifferent to your plans.",
-  "The 8-week cycle continues. Try not to think about it too literally.",
-  "On rotation, decisions are made for you. Savour that while it lasts.",
-  "Every rotation ends. So did the last one. You're still here regardless.",
-  // motivational, undercut
-  "You can do this. Low confidence, but present.",
-  "Greatness awaits. So does admin. Pick one.",
-  "Believe in yourself. I remain neutral on the matter.",
-  "Today is full of potential. Statistically, so was yesterday.",
-  "You are capable of great things. Today, moderate things will do.",
-  "Seize the day. Or a reasonable portion of it.",
-  "The only limit is yourself. And time. And motivation. Mostly yourself.",
-  "You've got this. Vague, but sincere.",
-  "Small steps count. Convenient, given the size of yours today.",
-  "Your potential is limitless. Your schedule, less so.",
-  "Rise and grind. Or rise and reconsider. Either works.",
-  "Today's a fresh start. Much like every other day, technically.",
-  "You are the architect of your own destiny. Try not to overbuild.",
-  "Push through. It's largely psychological, allegedly.",
-  "Dream big. Budget accordingly.",
-  "Every journey begins with a single step. Yours begins with getting up.",
-  "You have unlimited potential. Untapped, mostly, but unlimited.",
-  "Success is a marathon, not a sprint. You're still at the car park.",
-  "The best time to start was yesterday. The second best is whenever you get to it.",
-  "You're stronger than you think. Untested claim, but I'll allow it.",
-  "Motivation is temporary. Discipline is also mostly temporary. Do it anyway.",
-  "Chase your goals. At a sustainable, mildly enthusiastic pace.",
-  "You're capable of extraordinary things. Ordinary is also acceptable today.",
-  "Keep going. That's genuinely most of the advice available.",
-  "Today could be the day. Statistically unlikely, but not impossible.",
+  "I'd agree with you, but then we'd both be wrong.",
+  "Try sleeping with a moth if you feel you are too small for a change.",
+  "I don't eat meat because I love animals. I eat vegetables because I hate plants.",
+  "Life is hard; it's harder if you're stupid.",
+  "Age is of no importance unless you're a cheese.",
+  "True bonding happens when your friends and you are all mad about the same thing.",
+  "Education is what one does after he has forgotten everything he learned at school.",
+  "It's okay if you don't like me. Not everyone has the same taste.",
+  "Flawsome: Adj. Individual who is open to their \"flaws\" and recognizes that they are amazing.",
+  "I don't enjoy irony or sarcasm. However, I like when someone tells you a joke but then it turns out to be serious.",
+  "Marriage is a romantic relationship in which the heroine dies within the first chapter.",
+  "Some cause happiness everywhere they go, others wherever they go.",
+  "Success is not something you can hide. Did you ever know a successful man who didn't tell you about it?",
+  "The problem with her is that she lacks both the power and the speech to communicate.",
+  "A diamond is simply a lump of coal that performed well under pressure.",
+  "Calamities come in two types: misfortunes to us and good fortune for others.",
+  "There are many parking spots that offer a tempting way to succeed on the road to success.",
+  "Women who want to be equal with men are not ambitious.",
+  "Always remember that your uniqueness is what you have. Just like everyone else.",
+  "If you find me offensive. Then I suggest you quit finding me.",
+  "I do not know what weapons World War III is going to be fought with, but World War IV can be fought with sticks or stones.",
+  "Life is too short. Smile while you have teeth.",
+  "I'm a bit sassy with some sarcasm, but I'm also stoic at times – and brash.",
+  "I'm not good at giving advice… Can you make a sarcastic comment?",
+  "If I had a dollar for every clever thing you said. I'll be poor.",
+  "I cannot afford not to spend my time making money.",
+  "Always give 100%, except when you're giving blood.",
+  "Listen, smile, accept, and then do what you thought you would do anyway.",
+  "History teaches us that men, nations, and the world behave wisely when they exhaust all other options.",
+  "A man in a relationship is not complete until he gets married. Then he's finished.",
+  "Most people miss the opportunity because they dress in overalls and pretend to work.",
+  "\"Plot twist\" is the best way to move forward when something goes wrong in life.",
+  "Politics: 'Poli' a Latin word meaning 'many'; and 'tics' meaning 'bloodsucking creatures.'",
+  "If anything can go wrong, it will.",
+  "Spend your entire life doing weird things with weird people.",
+  "I was conscious of a lot if my friends being into things that I wasn't into. Sarcasm, for example. It was not a part my family. They still don't use it.",
+  "Zombies eat brains. You're safe.",
+  "What we feel, think and are determined in large part by our viscera and ductless glands.",
+  "The problem with being open-minded is that people will insist on trying to put things in their place.",
+  "Let's share, you'll take the grenade, I'll take the pin.",
+  "If you're going to be thinking, you may as well think big.",
+  "Can I have one of your puppies if you ever become a mom?",
+  "The road to success is always in construction.",
+  "Leadership refers to the art of convincing someone else to do what you want, because he is motivated to.",
+  "I'm not old enough to know everything.",
+  "All the good ones have been taken.",
+  "I love sarcasm. It's like punching people in the face but with words.",
+  "I look at all these moms who are able to do everything and I think… I should have them do some of the things I need.",
+  "Computers can understand sarcasm better than Americans.",
+  "What doesn't kill you gives you a set of unhealthy coping mechanisms and a dark sense of humor.",
+  "Find your patience before you lose mine.",
+  "Nothing is impossible, the word itself says 'I'm possible!'",
+  "There are people who will come into your life and pretend that they love you, but they really only need you.",
+  "Life is like a sewer… what you get out of it depends on what you put into it.",
+  "I can resist all temptations except temptation.",
+  "If you're going to tell people the truth, be funny or they'll kill you.",
+  "The question isn't who is going to let me, it's who is going to stop me.",
+  "Nobody really cares if you're miserable, so you might as well be happy.",
+  "The best things in this world are free and well worth every penny.",
+  "I'm not saying I hate you, what I'm saying is that you are literally the Monday of my life.",
+  "Be the reason someone smiles today… or the reason they drink. Anything works.",
+  "My naturally-born sarcasm can sometimes be a little too much at times, and that's something I'm not ashamed to admit.",
+  "Why is it called rush hour when there's no movement?",
+  "Romance is elegantly defined as the product of fiction and love.",
+  "Friendship can be like peeing on oneself: Everyone can see it but only you feel the warmth it brings.",
+  "A man can live happily with any woman if he doesn't love them.",
+  "If you're going through hell, keep going.",
+  "I believe in luck: how else can you explain the success of those you don't like?",
+  "There's no better vacation than my boss being on vacation.",
+  "Don't worry about the world coming to an end today. It's already tomorrow in Australia.",
+  "Experience is the name many people give their mistakes.",
+  "Love is the triumph over intelligence over imagination.",
+  "Ah, yes, divorce … from the Latin word meaning to rip out a man's genitals through his wallet.",
+  "No matter how terrible it gets, I'm always rich in the dollar store.",
+  "Success will bring you the greatest revenge. I believe women should either respond with sarcasm, or success.",
+  "Well, at least your mom thinks you're pretty.",
+  "It's always darkest before it turns absolutely pitch black.",
+  "Well-behaved females rarely make history.",
+  "I have always wanted to be somebody. But now I realize that I should be more specific.",
+  "The only by going a little beyond the boundaries of the possible, can you discover the limits that are possible.",
+  "Light travels quicker than sound. This is why people seem brighter than they actually are.",
+  "A lie can be halfway around the globe before the truth can have a chance to get its pants up.",
+  "When life is giving you lemons, squirt somebody in the eye.",
+  "My attitude during exams. They give me questions I don't know. I give them answers they don't know.",
+  "I am so clever, sometimes I don't understand a word of what I'm saying.",
+  "He was happily married – but his wife wasn't.",
+  "Yes, I walked out mid-conversation. You were bored to death, and my survival instincts kicked into high gear.",
+  "We suffer from too much sarcasm.",
+  "What is the difference between a tornado in the South and a divorce? Absolutely nothing! Someone's losing a trailer, number one.",
+  "The less you can read, the more you will be able to make a living. That's one thing about a little education. It makes you ready for the real world of work. The more you know, the more someone owes it to you.",
+  "Never delay what you can do tomorrow!",
+  "You can't have everything. It's impossible to have everything.",
+  "Before he created the electric light, Edison had failed 10,000 times. Don't let failure discourage you.",
+  "I'm sorry I hurt your feelings when I called you stupid. I thought you knew everything.",
+  "\"Common sense\" and \"sense of humor\" are two different things, but they move at different speeds. A sense of humor is simply common sense. It's dancing.",
+  "Work until your bank account looks like your phone number.",
+  "Before judging a man, walk one mile in his shoes. After that who cares? He's a mile away and you've got his shoes!",
+  "An optimist believes this is the best possible universe. The opposite of optimists is pessimists who fear this to be true.",
+  "Sometimes I require what only you can give: your absence.",
+  "Sarchotic: People don't know if you're serious or joking when you're so sarcastic.",
+  "I love French sarcasm and irony. They are a great source of bad moods.",
+  "Unless you are Google, stop pretending that you know everything.",
+  "One might suspect that there are many things happening in the Universe, which he or her does not fully comprehend.",
+  "I am an early bird and a night owl… so I am wise and I have worms.",
+  "Without Geometry, Life is Pointless.",
+  "Luck can be what you have left over after you give 100 per cent.",
+  "Does love come from the first sight?",
+  "I hailed from a tough neighborhood. I was once attacked by a man with a knife. I knew he wasn't a professional, the knife had butter on it.",
+  "People may say that it is impossible to do something, but I do it every day.",
+  "Bad decisions are good stories.",
+  "A half-truth is a lie.",
+  "Silence is gold. Duct tape can be described as silver.",
+  "I've reached an age where my brain can go from 'You probably shouldn't say that' to 'What the heck, let's just see what happens.'",
+  "This music will not do. It lacks sarcasm.",
+  "When people ask me a stupid question, it's my legal obligation to make a sarcastic comment.",
+  "\"Sarcasm\" is the last refuge for the imaginatively broke.",
+  "Change is not a four-letter word… but often your reaction to it is!",
+  "I'll probably never fully become what I wanted to be when I grew up, but that's probably because I wanted to be a ninja princess.",
+  "Imperfection is beauty, madness is genius and it's better to be absolutely ridiculous than absolutely boring.",
+  "Mirrors can't talk, lucky for you they can't laugh either.",
+  "Going to church doesn't make you a Christian any more than going to a garage makes you an automobile.",
+  "The elevator to success is not an option. You'll have to use the stairs, one step at a time.",
+  "Sarcasm helps you overcome the harsh reality of life, makes people smile, and eases the pain of scars.",
+  "If you let your head get too big, it'll break your neck.",
+  "What are the appropriate proportions of maxims? The minimum amount of sound and the maximum amount of sense.",
 ];
 
-// Deterministic pick from the current calendar hour — no persisted state, no
-// tracked history. Same hour always resolves to the same line (so it doesn't
-// reshuffle every time Home re-renders), the next hour deterministically lands
-// on a different index. Simple string hash, not cryptographic, doesn't need to be.
-function tarsQuipForNow(pool) {
-  const now = new Date();
-  const hourStamp = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${now.getHours()}`;
-  let hash = 0;
-  for (let i = 0; i < hourStamp.length; i++) hash = (hash * 31 + hourStamp.charCodeAt(i)) >>> 0;
-  return pool[hash % pool.length];
+// Plain Fisher-Yates shuffle -- not cryptographic, doesn't need to be.
+function shuffleArray(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// { current: <index into TARS_QUIPS>, bag: [<remaining unseen indices>] } --
+// this whole object is what actually gets persisted (see life_tars_quip_state in
+// HomeScreen), so "not repeated until every quote's been used" survives closing
+// and reopening the app, not just the current session.
+function initTarsQuipState() {
+  const bag = shuffleArray([...Array(TARS_QUIPS.length).keys()]);
+  const current = bag.pop();
+  return { current, bag };
+}
+
+// Called on tap. If the bag's empty (every quip shown this cycle), reshuffle a
+// fresh one -- excluding whichever quip is currently showing, so a reshuffle can
+// never immediately repeat the one just seen.
+function advanceTarsQuipState(state) {
+  let bag = state.bag.slice();
+  if (bag.length === 0) {
+    bag = shuffleArray([...Array(TARS_QUIPS.length).keys()].filter(i => i !== state.current));
+  }
+  const next = bag.pop();
+  return { current: next, bag };
 }
 
 // ── Exercise library — same registry pattern as MODULE_REGISTRY/PILL_OPTIONS: add
@@ -3138,21 +3182,22 @@ function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets, write
 // this is its own distinct look rather than borrowing Health's or anyone else's accent.
 const TARS_METAL = { rest:"#94a3b8", lit:"#e2e8f0", label:"#cbd5e1" };
 
-function TarsIdleTile({ quip }) {
+function TarsIdleTile({ quip, onAdvance }) {
   const audioRef = useRef(null);
   const requestIdRef = useRef(0);
   const [isPlaying, setIsPlaying] = useState(false);
 
-  // Tap to hear it read aloud — reuses the exact same speakQueued() pipeline main
-  // TARS chat and Project chat already use. No AI call, no chat message, nothing
-  // written anywhere — just text handed to the existing TTS proxy. Silently respects
-  // the app-wide mute toggle (same localStorage key both chat screens already read),
-  // since an accidental tap on a decorative tile shouldn't override a deliberate mute.
+  // Tap always advances to a new quip, muted or not — reads it aloud on top of
+  // that only if voice is enabled. Reuses the exact same speakQueued() pipeline
+  // main TARS chat and Project chat already use for the audio itself. No AI call,
+  // no chat message, nothing written anywhere — just text handed to the existing
+  // TTS proxy. onAdvance() computes the new state AND returns the new quip's text
+  // synchronously, so there's no need to wait a render to know what to speak.
   const handleTap = () => {
-    if (!quip) return;
+    const newQuip = onAdvance();
     const voiceEnabled = localStorage.getItem("tars_voice_enabled") !== "false";
-    if (!voiceEnabled) return;
-    speakQueued(quip, {
+    if (!voiceEnabled || !newQuip) return;
+    speakQueued(newQuip, {
       audioRef, requestIdRef, voiceEnabled: true,
       setSpeaking: setIsPlaying, setVoiceError: () => {},
       voice: "onyx", speed: 1.3, // matches TARS_VOICE/TARS_SPEED elsewhere
@@ -3320,9 +3365,19 @@ function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo,
   const dateWeekday = new Date().toLocaleDateString("en-NZ",{ weekday:"long" });
   const pillCtx = { weightLeft, nextFlight, flightDaysLeft, rot, todayKcal, exerciseLabel, dateShort, dateWeekday };
 
-  // Fixed pool, hourly, deterministic — see TARS_QUIPS/tarsQuipForNow above for why
-  // this isn't AI-generated: purely decorative, should never cost money or fail.
-  const tarsQuip = tarsQuipForNow(TARS_QUIPS);
+  // Tap-driven, no-repeat-until-exhausted — see TARS_QUIPS/initTarsQuipState/
+  // advanceTarsQuipState above. Persisted so the "hasn't repeated yet" guarantee
+  // survives closing and reopening the app, not just the current session.
+  const [tarsQuipState, setTarsQuipState] = usePersistentState("life_tars_quip_state", initTarsQuipState());
+  const tarsQuip = TARS_QUIPS[tarsQuipState.current] ?? TARS_QUIPS[0];
+  // Computes the new state directly and returns the new quip text synchronously —
+  // TarsIdleTile needs the actual text right away (to read aloud), not on next
+  // render, which is all a plain setState would give it.
+  const advanceTarsQuip = () => {
+    const next = advanceTarsQuipState(tarsQuipState);
+    setTarsQuipState(next);
+    return TARS_QUIPS[next.current];
+  };
 
   return (
     <div style={{ background:T2.bg, minHeight:"100%", padding:"14px 16px 20px" }}>
@@ -3338,7 +3393,7 @@ function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo,
           7 real module tiles, so the grid always fills evenly, no orphan tile
           on its own row. */}
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
-        <TarsIdleTile quip={tarsQuip} />
+        <TarsIdleTile quip={tarsQuip} onAdvance={advanceTarsQuip} />
         <HomeModuleTile icon="health"   label="Health"   sublabel={currentWeight!=null ? `${currentWeight}kg` : "Body & vitals"} accent={T.accent} onClick={()=>onNavigate("health")} />
         <HomeModuleTile icon="tasks"    label="Tasks"    sublabel={`${completedToday}/${tasks.length} today`} badge={pendingHigh||null} accent={T.green} onClick={()=>onNavigate("tasks")} />
         <HomeModuleTile icon="calendar" label="Calendar" sublabel="Flights & rotation" accent={T.gold} onClick={()=>onNavigate("calendar")} />
@@ -4500,7 +4555,7 @@ const GistSync = {
     "life_workout_log", "life_last_brief_date",
     "life_finance_entries", "life_finance_budgets",
     "life_notifications", "life_automation_rules", "life_notify_routine_actions", "life_work_certs", "life_work_seatime", "life_work_seatime_meta",
-    "life_home_pills",
+    "life_home_pills", "life_tars_quip_state",
     "life_training_days", "life_exercise_routine", "life_routine_last_changed", "life_routine_suggested_at",
     "meal_library", "meal_current", "meal_cooked",
     "meal_shopping", "meal_regulars", "meal_pantry",
