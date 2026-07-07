@@ -3805,6 +3805,8 @@ function WorkScreen({ onBack, workCerts, setWorkCerts, seatime, setSeatime, seat
   const [seaSubTab, setSeaSubTab] = useState("total"); // "total" or a vessel name
   const [editingPeriod, setEditingPeriod] = useState(null); // record, or {} sentinel for new
   const [importingSeatime, setImportingSeatime] = useState(false);
+  const [editingCurrentTo, setEditingCurrentTo] = useState(false); // editing the "current to" date for seaSubTab
+  const [currentToDraft, setCurrentToDraft] = useState("");
 
   const onboardDays = (p) => {
     const from = parseFlexibleDate(p.fromDate), to = parseFlexibleDate(p.toDate);
@@ -3838,6 +3840,14 @@ function WorkScreen({ onBack, workCerts, setWorkCerts, seatime, setSeatime, seat
       const exists = prev.some(p => p.id === period.id);
       return exists ? prev.map(p => p.id === period.id ? period : p) : [...prev, period];
     });
+    // Auto-bump "current to" on manual entry too, not just import — but only forward,
+    // never backward, since a manual edit might be backfilling an older period rather
+    // than logging the most recent one. Neil can always override via the edit pencil.
+    const existingCurrentTo = seatimeMeta[period.vessel] ? parseFlexibleDate(seatimeMeta[period.vessel]) : null;
+    const newToDate = parseFlexibleDate(period.toDate);
+    if (newToDate && (!existingCurrentTo || newToDate > existingCurrentTo)) {
+      setSeatimeMeta(prev => ({ ...prev, [period.vessel]: period.toDate }));
+    }
   };
   const handleDeletePeriod = (id) => setSeatime(prev => prev.filter(p => p.id !== id));
   const handleImportSeatime = (newPeriods, vesselName, currentTo) => {
@@ -3881,6 +3891,10 @@ function WorkScreen({ onBack, workCerts, setWorkCerts, seatime, setSeatime, seat
             {vessels.map(v => (
               <button key={v} onClick={()=>setSeaSubTab(v)} style={{ padding:"6px 12px", borderRadius:8, border:`1px solid ${seaSubTab===v?T.blue:T.border}`, background:seaSubTab===v?`${T.blue}18`:"transparent", color:seaSubTab===v?T.blue:T.muted, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>{v}</button>
             ))}
+            {/* Always-present pill — future-proofing for whenever the next vessel comes
+                along, so there's never a moment where adding one requires hunting through
+                the Total tab's buttons first. Opens the same period form, vessel typed fresh. */}
+            <button onClick={()=>setEditingPeriod({})} style={{ padding:"6px 12px", borderRadius:8, border:`1px dashed ${T.border}`, background:"transparent", color:T.muted, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>+ New Vessel</button>
           </div>
 
           {seaSubTab === "total" ? (
@@ -3920,9 +3934,35 @@ function WorkScreen({ onBack, workCerts, setWorkCerts, seatime, setSeatime, seat
             </div>
           ) : (
             <div>
-              <div style={{ fontSize:11, color:T.muted, marginBottom:10 }}>
-                {seatimeMeta[seaSubTab] ? `Data current to ${formatDateDDMMYYYY(seatimeMeta[seaSubTab])}` : "No current-to date set yet"}
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+                {editingCurrentTo ? (
+                  <>
+                    <input type="date" value={currentToDraft} onChange={e=>setCurrentToDraft(e.target.value)}
+                      style={{ padding:"6px 8px", borderRadius:6, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:11, fontFamily:"inherit" }} />
+                    <button onClick={()=>{ setSeatimeMeta(prev=>({...prev,[seaSubTab]:currentToDraft})); setEditingCurrentTo(false); }}
+                      style={{ padding:"5px 9px", borderRadius:6, border:"none", background:T.blue, color:"white", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>Save</button>
+                    <button onClick={()=>setEditingCurrentTo(false)} style={{ padding:"5px 9px", borderRadius:6, border:`1px solid ${T.border}`, background:"transparent", color:T.muted, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize:11, color:T.muted }}>
+                      {seatimeMeta[seaSubTab] ? `Data current to ${formatDateDDMMYYYY(seatimeMeta[seaSubTab])}` : "No current-to date set yet"}
+                    </div>
+                    <button onClick={()=>{ setCurrentToDraft(seatimeMeta[seaSubTab]||""); setEditingCurrentTo(true); }}
+                      style={{ background:"none", border:"none", color:T.blue, fontSize:11, cursor:"pointer", fontFamily:"inherit", padding:0 }}>edit</button>
+                  </>
+                )}
               </div>
+              {/* Staleness nudge — purely informational, no urgency colour system like
+                  certificates. ~224 days ≈ two full 8-on/8-off rotation cycles, Neil's
+                  own stated cadence for bringing an updated document. Adjustable if that
+                  cadence ever changes — just a plain reminder, nothing blocking. */}
+              {seatimeMeta[seaSubTab] && (() => {
+                const days = Math.floor((new Date() - parseFlexibleDate(seatimeMeta[seaSubTab])) / 86400000);
+                return days > 224 ? (
+                  <div style={{ fontSize:11, color:T.gold, marginBottom:10 }}>It's been {Math.floor(days/7)} weeks since this was last updated — might be due for a fresh document.</div>
+                ) : null;
+              })()}
               <div style={{ background:T.card, borderRadius:14, padding:16, border:`1px solid ${T.border}`, marginBottom:14 }}>
                 <div style={{ fontSize:24, fontWeight:800, color:T.blue }}>{vesselTotals(seaSubTab).watchDays}<span style={{ fontSize:13, fontWeight:600, color:T.muted }}> watch days</span></div>
                 <div style={{ display:"flex", gap:16, marginTop:6, fontSize:12, color:T.muted, flexWrap:"wrap" }}>
