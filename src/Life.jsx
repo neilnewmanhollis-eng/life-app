@@ -4074,7 +4074,6 @@ function WorkScreen({ onBack, workCerts, setWorkCerts, seatime, setSeatime, seat
                   <div style={{ fontSize:11, color:T.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>Lifetime Totals — All Vessels</div>
                   <div style={{ display:"flex", gap:6 }}>
                     <button onClick={()=>setImportingSeatime(true)} style={{ padding:"5px 9px", borderRadius:7, border:`1px solid ${T.border}`, background:T.elevated, color:T.muted, fontSize:10, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>Import</button>
-                    <button onClick={()=>setEditingPeriod({})} style={{ padding:"5px 9px", borderRadius:7, border:"none", background:T.blue, color:"white", fontSize:10, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>+ Add Vessel</button>
                   </div>
                 </div>
                 <div style={{ fontSize:28, fontWeight:800, color:T.blue, marginTop:10 }}>{lifetimeTotals.watchDays}<span style={{ fontSize:13, fontWeight:600, color:T.muted }}> watch days</span></div>
@@ -4087,7 +4086,7 @@ function WorkScreen({ onBack, workCerts, setWorkCerts, seatime, setSeatime, seat
                 </div>
               </div>
               {vessels.length === 0 ? (
-                <div style={{ textAlign:"center", padding:"30px 20px", color:T.muted, fontSize:13 }}>No sea time logged yet — use Import or + Add Vessel above to log your first period.</div>
+                <div style={{ textAlign:"center", padding:"30px 20px", color:T.muted, fontSize:13 }}>No sea time logged yet — use Import above, or the + New Vessel pill, to log your first period.</div>
               ) : (
                 <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
                   {vessels.map(v => {
