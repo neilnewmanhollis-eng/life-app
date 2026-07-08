@@ -3374,10 +3374,6 @@ function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets, write
 // new logic). Respects prefers-reduced-motion: motion off, quip never shows,
 // tile settles to four static bars. Pure CSS, no animation library. ──
 // Silver/metallic scheme, deliberately separate from the per-module accent colors —
-// TARS never had an "original" tile design to revert to (it's a new addition), so
-// this is its own distinct look rather than borrowing Health's or anyone else's accent.
-const TARS_METAL = { rest:"#94a3b8", lit:"#e2e8f0", label:"#cbd5e1" };
-
 function TarsIdleTile({ quip, onAdvance }) {
   const audioRef = useRef(null);
   const requestIdRef = useRef(0);
@@ -3407,35 +3403,22 @@ function TarsIdleTile({ quip, onAdvance }) {
       tabIndex={0}
       aria-label="Play TARS's quip aloud"
       onKeyDown={e => { if (e.key==="Enter" || e.key===" ") { e.preventDefault(); handleTap(); } }}
-      style={{ background:T2.surface, borderRadius:16, padding:14, position:"relative", height:96, overflow:"hidden", cursor:quip?"pointer":"default" }}
+      style={{ background:T2.surface, borderRadius:16, position:"relative", height:96, overflow:"hidden", cursor:quip?"pointer":"default" }}
     >
       <style>{`
-        @keyframes tarsTiltRock{0%,100%{transform:rotate(-3deg)}50%{transform:rotate(3deg)}}
-        @keyframes tarsSegGlow{0%,100%{background:${TARS_METAL.rest}}50%{background:${TARS_METAL.lit}}}
-        @keyframes tarsIconFade{0%,52%{opacity:1}61%,91%{opacity:0}100%{opacity:1}}
         @keyframes tarsQuipFade{0%,52%{opacity:0}61%,91%{opacity:1}100%{opacity:0}}
-        .tarsTiltStack{animation:tarsTiltRock 4s ease-in-out infinite}
-        .tarsSegPulse{animation:tarsSegGlow 4s ease-in-out infinite}
-        .tarsSegPulseFast{animation:tarsSegGlow 0.6s ease-in-out infinite}
-        .tarsIconLayer{animation:tarsIconFade 11.5s ease-in-out infinite}
         .tarsQuipLayer{animation:tarsQuipFade 11.5s ease-in-out infinite}
         @media (prefers-reduced-motion: reduce) {
-          .tarsTiltStack, .tarsSegPulse, .tarsSegPulseFast, .tarsIconLayer, .tarsQuipLayer { animation: none; }
+          .tarsQuipLayer { animation: none; }
         }
       `}</style>
-      {/* While playing: frozen on the quip (no crossfade back to the icon mid-sentence),
-          and the pulsing segment speeds up as a simple "he's talking" signal — reuses
-          the same amber segment rather than adding a new element. */}
-      <div className={isPlaying ? "" : "tarsIconLayer"} style={isPlaying ? { position:"absolute", inset:14, display:"flex", alignItems:"center", justifyContent:"center", opacity:0 } : { position:"absolute", inset:14, display:"flex", alignItems:"center", justifyContent:"center" }}>
-        <div className="tarsTiltStack" style={{ display:"flex", flexDirection:"column", gap:4, width:48 }}>
-          <div style={{ height:14, width:48, borderRadius:4, background:TARS_METAL.rest }} />
-          <div style={{ height:14, width:48, borderRadius:4, background:TARS_METAL.rest }} />
-          <div className={isPlaying ? "tarsSegPulseFast" : "tarsSegPulse"} style={{ height:14, width:48, borderRadius:4, background:TARS_METAL.rest }} />
-          <div style={{ height:14, width:48, borderRadius:4, background:TARS_METAL.rest }} />
-        </div>
-      </div>
+      {/* Custom artwork commissioned by Neil, not the film design — see chat history
+          for the copyright discussion this replaced the CSS icon for. Always looping,
+          regardless of tap or voice state — no more speaking-state pulse; it never
+          worked cleanly and added complexity for a small visual payoff (Neil's call). */}
+      <img src="tars-idle.gif" alt="" aria-hidden="true" style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }} />
       {quip ? (
-        <div className={isPlaying ? "" : "tarsQuipLayer"} style={isPlaying ? { position:"absolute", inset:14, display:"flex", alignItems:"center", opacity:1 } : { position:"absolute", inset:14, display:"flex", alignItems:"center", opacity:0 }}>
+        <div className={isPlaying ? "" : "tarsQuipLayer"} style={isPlaying ? { position:"absolute", inset:0, display:"flex", alignItems:"center", padding:14, background:"rgba(15,20,32,0.55)", opacity:1 } : { position:"absolute", inset:0, display:"flex", alignItems:"center", padding:14, background:"rgba(15,20,32,0.55)", opacity:0 }}>
           <div style={{ fontSize:11, color:T2.text, lineHeight:1.5 }}>{quip}</div>
         </div>
       ) : null}
