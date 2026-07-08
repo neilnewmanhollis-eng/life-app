@@ -72,7 +72,7 @@ ${e}`),t.length>0&&(n+=`
 RECENT CONVERSATIONS (last ${t.length} session${t.length>1?"s":""}):
 `,n+=t.map((o,s)=>`${s===0?"Most recent":o.date}: ${o.summary}`).join(`
 `)),n}};async function xm(e,t){var s;const n=e.filter(a=>typeof a.content=="string"&&a.role!=="system").slice(-20).map(a=>`${a.role==="user"?"Neil":"TARS"}: ${a.content}`).join(`
-`),o=an.getProfile();try{const a=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":t,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:Jr,max_tokens:1500,system:`You are updating a personal profile for TARS, an AI that knows Neil Newman-Hollis well.
+`),o=an.getProfile();try{const a=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":t,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:Jr,max_tokens:1500,system:`You are updating a personal profile for TARS, an AI that knows Neil well.
 
 Extract ONLY things from this conversation that genuinely reveal something about Neil as a person — preferences that emerged, patterns noticed, personal things he mentioned, how he reacted to things, what made him engage more or less.
 
