@@ -1626,6 +1626,27 @@ function splitIntoSpeechChunks(text, maxLen = 200) {
 const SPEECH_LOOKAHEAD = 2;
 const TTS_PROXY_URL = "https://life-app-tts-proxy.vercel.app/api/tts"; // self-hosted proxy — calls OpenAI TTS server-side, avoids both OpenAI's CORS problem and Puter's subscription requirement
 
+// ── Voice-health tracking — same passive, free principle as recordAnthropicKeyHealth
+// above: piggybacks on real speak attempts that already happen, no dedicated ping.
+// setVoiceError (used throughout this function) is ephemeral — tied to one chat
+// message, gone once you scroll past it. This is the durable counterpart, shown in
+// Settings, so a real proxy outage doesn't just silently pass by unnoticed if Neil
+// wasn't watching the chat at that exact moment. Only flags total failure (every
+// chunk in a reply failed) — a single bad chunk among several successful ones is
+// exactly the kind of transient blip that already has its own "skip and continue"
+// handling just above, and isn't evidence the proxy itself is actually down.
+function recordVoiceHealth(anyChunkPlayed, chunksAttempted, lastError) {
+  try {
+    if (anyChunkPlayed) { localStorage.removeItem("tars_voice_issue"); return; }
+    if (chunksAttempted > 0) {
+      localStorage.setItem("tars_voice_issue", JSON.stringify({
+        message: lastError?.message || "couldn't reach the voice service",
+        at: new Date().toISOString(),
+      }));
+    }
+  } catch {}
+}
+
 async function speakQueued(text, { audioRef, requestIdRef, voiceEnabled, setSpeaking, setVoiceError, voice = "onyx", speed = 1.4 }) {
   if (!voiceEnabled) return; // confirmed NOT the cause of the current issue — reverted to normal silent behaviour
   // A new speak() call always supersedes whatever this ref was doing — stop it immediately
@@ -1697,6 +1718,7 @@ async function speakQueued(text, { audioRef, requestIdRef, voiceEnabled, setSpea
     if (!anyChunkPlayed && chunks.length > 0 && myId === requestIdRef.current) {
       setVoiceError(`Voice failed — ${lastError?.message || "couldn't reach the voice service"}`);
     }
+    recordVoiceHealth(anyChunkPlayed, chunks.length, lastError);
   } finally {
     if (myId === requestIdRef.current) { setSpeaking(false); audioRef.current = null; }
   }
@@ -5069,6 +5091,7 @@ function TarsScreen({ onBack, appState }) {
   // Only set when a genuine key/account problem was seen (401, or a credit/billing/quota
   // message), and cleared automatically the moment any call succeeds again.
   const getKeyIssue = () => { try { const raw = localStorage.getItem("tars_key_issue"); return raw ? JSON.parse(raw) : null; } catch { return null; } };
+  const getVoiceIssue = () => { try { const raw = localStorage.getItem("tars_voice_issue"); return raw ? JSON.parse(raw) : null; } catch { return null; } };
   const hasGistSync = () => GistSync.isConfigured();
 
   const saveKeys = () => {
@@ -6792,9 +6815,23 @@ If multiple files were uploaded, treat them as related unless the content sugges
           {/* Voice — self-hosted proxy, no key needed on this end */}
           <div style={{ marginBottom:10 }}>
             <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:4 }}>Voice (TARS TTS)</div>
-            <div style={{ fontSize:11, color:T.green, padding:"8px 10px", borderRadius:8, border:`1px solid ${T.green}44`, background:T.elevated }}>
-              ✓ Runs via self-hosted proxy — no key needed here
-            </div>
+            {(() => {
+              const vIssue = getVoiceIssue();
+              return vIssue ? (
+                <>
+                  <div style={{ fontSize:11, color:T.accent, padding:"8px 10px", borderRadius:8, border:`1px solid ${T.accent}44`, background:T.elevated }}>
+                    ⚠️ Voice proxy problem detected
+                  </div>
+                  <div style={{ fontSize:10, color:T.accent, marginTop:4, lineHeight:1.4 }}>
+                    Last attempt failed: "{vIssue.message}" — {new Date(vIssue.at).toLocaleString("en-NZ",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}. Clears automatically once voice works again.
+                  </div>
+                </>
+              ) : (
+                <div style={{ fontSize:11, color:T.green, padding:"8px 10px", borderRadius:8, border:`1px solid ${T.green}44`, background:T.elevated }}>
+                  ✓ Runs via self-hosted proxy — no key needed here
+                </div>
+              );
+            })()}
           </div>
 
           {/* Automation Rules — moved to its own top-bar icon beside the notification bell */}
