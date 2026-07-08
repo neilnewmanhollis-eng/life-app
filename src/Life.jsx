@@ -1086,7 +1086,9 @@ function DatePicker({ value, onChange, style, placeholder = "Select date", allow
   const isSelected = (day) => selected && selected.getFullYear()===viewYear && selected.getMonth()===viewMonth && selected.getDate()===day;
 
   const curY = new Date().getFullYear();
-  const years = []; for (let y = curY - 3; y <= curY + 6; y++) years.push(y);
+  const yearMin = Math.min(curY - 3, selected?.getFullYear() ?? curY, viewYear);
+  const yearMax = Math.max(curY + 6, selected?.getFullYear() ?? curY, viewYear);
+  const years = []; for (let y = yearMin; y <= yearMax; y++) years.push(y);
 
   const pick = (day) => { onChange(toISODate(new Date(viewYear, viewMonth, day))); setOpen(false); };
 
