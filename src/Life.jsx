@@ -1258,6 +1258,8 @@ function AICalLogger({ onAdd }) {
         })
       });
       const data = await response.json();
+      if (!response.ok) { recordAnthropicKeyHealth(response, data); throw new Error(data?.error?.message || `API error ${response.status}`); }
+      recordAnthropicKeyHealth(response);
       const parsed = JSON.parse(data.content?.map(b=>b.text||"").join("").replace(/```json|```/g,"").trim());
       setResult(parsed);
     } catch { confirm({ title:"Couldn't estimate", message:"Try being more specific.", alertOnly:true, confirmLabel:"OK", onConfirm:()=>{} }); }
@@ -1432,6 +1434,30 @@ function getAnthropicKey() {
   return localStorage.getItem("tars_anthropic_key") || "";
 }
 
+// ── Key-health tracking — passive, free, piggybacks on every real Anthropic call
+// that already happens (main chat, memory, meal generation, calorie estimates, etc.)
+// rather than a dedicated ping, which would be exactly the kind of manufactured
+// complexity Neil deliberately chose not to build. Only flags genuine key/account
+// problems — a 401 (definitively an invalid or revoked key) or an error message that
+// clearly mentions credit/billing/quota — never transient things like rate limits or
+// server overload, which aren't evidence the key itself is bad and would just create
+// false alarms. A single later success clears it automatically — same self-healing
+// principle as GistSync's own lastSync timestamp, not something that needs manual
+// dismissal or goes stale forever once shown.
+function recordAnthropicKeyHealth(response, errBody) {
+  try {
+    if (response.ok) { localStorage.removeItem("tars_key_issue"); return; }
+    const msg = (errBody?.error?.message || "").toLowerCase();
+    const isKeyProblem = response.status === 401 || /credit|billing|quota|insufficient|expired|revoked/.test(msg);
+    if (isKeyProblem) {
+      localStorage.setItem("tars_key_issue", JSON.stringify({
+        message: errBody?.error?.message || `API error ${response.status}`,
+        at: new Date().toISOString(),
+      }));
+    }
+  } catch {}
+}
+
 async function callClaudeRaw({ system, messages, tools, model, maxTokens }) {
   const apiKey = getAnthropicKey();
   if (!apiKey) throw new Error("NO_KEY");
@@ -1458,8 +1484,10 @@ async function callClaudeRaw({ system, messages, tools, model, maxTokens }) {
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
+    recordAnthropicKeyHealth(response, err);
     throw new Error(err?.error?.message || `API error ${response.status}`);
   }
+  recordAnthropicKeyHealth(response);
   return response.json();
 }
 
@@ -1834,6 +1862,8 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
         })
       });
       const data = await response.json();
+      if (!response.ok) { recordAnthropicKeyHealth(response, data); throw new Error(data?.error?.message || `API error ${response.status}`); }
+      recordAnthropicKeyHealth(response);
       const text = data.content?.map(b => b.text || "").join("") || "";
       let clean = text.replace(/```json|```/g, "").trim();
       let meals;
@@ -1898,6 +1928,8 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
         })
       });
       const data = await response.json();
+      if (!response.ok) { recordAnthropicKeyHealth(response, data); throw new Error(data?.error?.message || `API error ${response.status}`); }
+      recordAnthropicKeyHealth(response);
       const recipe = data.content?.map(b => b.text || "").join("") || "";
       const updater = (prev) => prev.map(m => m.id === meal.id ? { ...m, recipe } : m);
       setCurrentMeals(updater);
@@ -1957,6 +1989,8 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
         body: JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:800, system:"Extract food items from image. Return ONLY a JSON array.", messages:[{ role:"user", content:[{ type:"image", source:{ type:"base64", media_type:file.type, data:base64 }},{ type:"text", text:'List every visible food item. Classify each as "staple" (oils, spices, sauces, condiments, butter, canned, long-lasting) or "fresh" (meat, veg, fruit, fresh dairy). JSON: [{"name":"item","type":"staple|fresh","qty":"est. qty","cat":"Produce|Meat & Seafood|Dairy & Eggs|Pantry & Dry Goods|Canned & Sauces|Oils & Condiments|Herbs & Spices|Frozen|Other"}]' }] }] })
       });
       const data = await response.json();
+      if (!response.ok) { recordAnthropicKeyHealth(response, data); throw new Error(data?.error?.message || `API error ${response.status}`); }
+      recordAnthropicKeyHealth(response);
       const items = JSON.parse((data.content?.map(b=>b.text||"").join("")||"").replace(/```json|```/g,"").trim());
       setPantry(prev => {
         const existing = prev.map(p => p.name.toLowerCase());
@@ -4630,7 +4664,8 @@ Write as concise bullet points. Merge with existing profile. Keep total under 10
         }]
       }),
     });
-    if (!response.ok) return;
+    if (!response.ok) { const errBody = await response.json().catch(()=>({})); recordAnthropicKeyHealth(response, errBody); return; }
+    recordAnthropicKeyHealth(response);
     const data = await response.json();
     const updated = data.content?.map(b => b.text || "").join("") || "";
     if (updated) MemoryStore.setProfile(updated);
@@ -4666,7 +4701,8 @@ async function addSessionSummary(messages, apiKey) {
         }]
       }),
     });
-    if (!response.ok) return;
+    if (!response.ok) { const errBody = await response.json().catch(()=>({})); recordAnthropicKeyHealth(response, errBody); return; }
+    recordAnthropicKeyHealth(response);
     const data = await response.json();
     const summary = data.content?.map(b => b.text || "").join("") || "";
     if (summary) MemoryStore.addSession(summary);
@@ -5029,6 +5065,10 @@ function TarsScreen({ onBack, appState }) {
 
   const hasAnthropicKey = () => !!localStorage.getItem("tars_anthropic_key");
   const hasPlacesKey = () => !!localStorage.getItem("tars_places_api_key");
+  // Real signal from real usage, not a presence check — see recordAnthropicKeyHealth().
+  // Only set when a genuine key/account problem was seen (401, or a credit/billing/quota
+  // message), and cleared automatically the moment any call succeeds again.
+  const getKeyIssue = () => { try { const raw = localStorage.getItem("tars_key_issue"); return raw ? JSON.parse(raw) : null; } catch { return null; } };
   const hasGistSync = () => GistSync.isConfigured();
 
   const saveKeys = () => {
@@ -6728,10 +6768,25 @@ If multiple files were uploaded, treat them as related unless the content sugges
 
           {/* Anthropic */}
           <div style={{ marginBottom:10 }}>
-            <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:4 }}>Anthropic API Key {hasAnthropicKey() ? "✓" : "⚠️ Required"}</div>
-            <input type="password" value={anthropicKeyInput} onChange={e=>setAnthropicKeyInput(e.target.value)}
-              placeholder={hasAnthropicKey() ? "sk-ant-... (saved — paste to update)" : "sk-ant-..."}
-              style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${hasAnthropicKey()?T.green:T.accent}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+            {(() => {
+              const issue = getKeyIssue();
+              const broken = hasAnthropicKey() && issue;
+              return (
+                <>
+                  <div style={{ fontSize:11, color:T.muted, fontWeight:600, marginBottom:4 }}>
+                    Anthropic API Key {!hasAnthropicKey() ? "⚠️ Required" : broken ? "⚠️ Problem detected" : "✓"}
+                  </div>
+                  <input type="password" value={anthropicKeyInput} onChange={e=>setAnthropicKeyInput(e.target.value)}
+                    placeholder={hasAnthropicKey() ? "sk-ant-... (saved — paste to update)" : "sk-ant-..."}
+                    style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:`1px solid ${!hasAnthropicKey()?T.accent:broken?T.accent:T.green}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+                  {broken && (
+                    <div style={{ fontSize:10, color:T.accent, marginTop:4, lineHeight:1.4 }}>
+                      Last real call failed: "{issue.message}" — {new Date(issue.at).toLocaleString("en-NZ",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}. Clears automatically once a call succeeds again.
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
 
           {/* Voice — self-hosted proxy, no key needed on this end */}
