@@ -3403,7 +3403,7 @@ function TarsIdleTile({ quip, onAdvance }) {
       tabIndex={0}
       aria-label="Play TARS's quip aloud"
       onKeyDown={e => { if (e.key==="Enter" || e.key===" ") { e.preventDefault(); handleTap(); } }}
-      style={{ background:T2.surface, borderRadius:16, position:"relative", height:96, overflow:"hidden", cursor:quip?"pointer":"default" }}
+      style={{ background:T2.surface, borderRadius:16, position:"relative", overflow:"hidden", cursor:quip?"pointer":"default" }}
     >
       <style>{`
         @keyframes tarsQuipFade{0%,52%{opacity:0}61%,91%{opacity:1}100%{opacity:0}}
