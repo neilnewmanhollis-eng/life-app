@@ -4686,7 +4686,7 @@ async function updateDurableProfile(messages, apiKey) {
       body: JSON.stringify({
         model: HAIKU,
         max_tokens: 1500,
-        system: `You are updating a personal profile for TARS, an AI that knows Neil Newman-Hollis well.
+        system: `You are updating a personal profile for TARS, an AI that knows Neil well.
 
 Extract ONLY things from this conversation that genuinely reveal something about Neil as a person — preferences that emerged, patterns noticed, personal things he mentioned, how he reacted to things, what made him engage more or less.
 
