@@ -3665,6 +3665,7 @@ function getDayType(dateStr, rotationBlocks, calEvents) {
 // of any kind, main chat or Project. Neil manages every entry here himself; this is
 // the one module in the whole app where that's by design, not a gap to fill later.
 function CertEditModal({ cert, onClose, onSave, onDelete }) {
+  const confirm = useConfirm();
   const [form, setForm] = useState(() => cert || {
     name: "", certType: "CoP", issuingAuthority: "", regulationRef: "",
     issueDate: "", expiryDate: "", renewalType: "admin", courseDurationDays: "",
@@ -3688,7 +3689,10 @@ function CertEditModal({ cert, onClose, onSave, onDelete }) {
   const deleteRequirement = (id) => setForm(p => ({ ...p, requirements: (p.requirements||[]).filter(r => r.id!==id) }));
 
   const handleSave = () => {
-    if (!form.name.trim() || !form.expiryDate) { alert("Name and expiry date are required."); return; }
+    if (!form.name.trim() || !form.expiryDate) {
+      confirm({ title:"Missing info", message:"Name and expiry date are required.", alertOnly:true, confirmLabel:"OK", onConfirm:()=>{} });
+      return;
+    }
     onSave({ ...form, id: cert?.id || Date.now() });
     onClose();
   };
@@ -3698,8 +3702,12 @@ function CertEditModal({ cert, onClose, onSave, onDelete }) {
   // visit closes instantly with no prompt at all.
   const handleClose = () => {
     if (!hasChanges()) { onClose(); return; }
-    const wantsSave = window.confirm(isNew ? "Save this certificate before closing?" : "Save these changes before closing?");
-    if (wantsSave) handleSave(); else onClose();
+    confirm({
+      title: isNew ? "Save this certificate?" : "Save these changes?",
+      message: "Do you want to save before closing?",
+      confirmLabel: "Save", cancelLabel: "Discard",
+      onConfirm: handleSave, onCancel: onClose,
+    });
   };
 
   const field = (name, label, type, extra) => (
@@ -3713,6 +3721,9 @@ function CertEditModal({ cert, onClose, onSave, onDelete }) {
       ) : type === "textarea" ? (
         <textarea value={form[name]||""} onChange={e=>setForm(p=>({...p,[name]:e.target.value}))} rows={2}
           style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", resize:"vertical", boxSizing:"border-box" }} />
+      ) : type === "date" ? (
+        <DatePicker value={form[name]||""} onChange={v=>setForm(p=>({...p,[name]:v}))}
+          style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", boxSizing:"border-box" }} />
       ) : (
         <input type={type} value={form[name]||""} onChange={e=>setForm(p=>({...p,[name]:e.target.value}))}
           style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", boxSizing:"border-box" }} />
@@ -3780,7 +3791,7 @@ function CertEditModal({ cert, onClose, onSave, onDelete }) {
 
         {field("notes", "Notes (optional)", "textarea")}
         <div style={{ display:"flex", gap:8, marginTop:16 }}>
-          {!isNew && <button onClick={()=>{ if(window.confirm("Delete this certificate? This can't be undone.")) { onDelete(cert.id); onClose(); } }}
+          {!isNew && <button onClick={()=>{ confirm({ title:"Delete this certificate?", message:"This can't be undone.", confirmLabel:"Delete", danger:true, onConfirm:()=>{ onDelete(cert.id); onClose(); } }); }}
             style={{ padding:"10px 16px", borderRadius:10, border:`1px solid ${T.accent}44`, background:`${T.accent}18`, color:T.accent, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>Delete</button>}
           <button onClick={handleSave} style={{ flex:1, padding:"10px 16px", borderRadius:10, border:"none", background:T.blue, color:"white", fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>Save</button>
         </div>
@@ -3839,6 +3850,7 @@ function ImportCertsModal({ onClose, onImport }) {
 // ── SEA TIME — period entry modal. Same confirm-on-close dirty-check pattern as
 // CertEditModal, same isolation (no writeRecord, local state only). ──
 function SeaTimePeriodModal({ period, defaultVessel, onClose, onSave, onDelete }) {
+  const confirm = useConfirm();
   const [form, setForm] = useState(() => period || {
     vessel: defaultVessel || "", fromDate: "", toDate: "", watchDays: "", atAnchorDays: "", mooredDays: "", shipyardDays: "", underwayUnder4hDays: "",
   });
@@ -3847,21 +3859,33 @@ function SeaTimePeriodModal({ period, defaultVessel, onClose, onSave, onDelete }
   const hasChanges = () => JSON.stringify(form) !== initialSnapshot.current;
 
   const handleSave = () => {
-    if (!form.vessel.trim() || !form.fromDate || !form.toDate) { alert("Vessel, onboard-from, and onboard-to dates are required."); return; }
+    if (!form.vessel.trim() || !form.fromDate || !form.toDate) {
+      confirm({ title:"Missing info", message:"Vessel, onboard-from, and onboard-to dates are required.", alertOnly:true, confirmLabel:"OK", onConfirm:()=>{} });
+      return;
+    }
     onSave({ ...form, id: period?.id || Date.now() });
     onClose();
   };
   const handleClose = () => {
     if (!hasChanges()) { onClose(); return; }
-    const wantsSave = window.confirm(isNew ? "Save this period before closing?" : "Save these changes before closing?");
-    if (wantsSave) handleSave(); else onClose();
+    confirm({
+      title: isNew ? "Save this period?" : "Save these changes?",
+      message: "Do you want to save before closing?",
+      confirmLabel: "Save", cancelLabel: "Discard",
+      onConfirm: handleSave, onCancel: onClose,
+    });
   };
 
   const field = (name, label, type) => (
     <div style={{ marginBottom:12 }}>
       <div style={{ fontSize:11, color:T.muted, marginBottom:4 }}>{label}</div>
-      <input type={type} value={form[name]||""} onChange={e=>setForm(p=>({...p,[name]:e.target.value}))}
-        style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", boxSizing:"border-box" }} />
+      {type === "date" ? (
+        <DatePicker value={form[name]||""} onChange={v=>setForm(p=>({...p,[name]:v}))}
+          style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", boxSizing:"border-box" }} />
+      ) : (
+        <input type={type} value={form[name]||""} onChange={e=>setForm(p=>({...p,[name]:e.target.value}))}
+          style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", boxSizing:"border-box" }} />
+      )}
     </div>
   );
 
@@ -3881,7 +3905,7 @@ function SeaTimePeriodModal({ period, defaultVessel, onClose, onSave, onDelete }
         {field("shipyardDays", "Shipyard days", "number")}
         {field("underwayUnder4hDays", "Underway, under 4h (not a watch day)", "number")}
         <div style={{ display:"flex", gap:8, marginTop:16 }}>
-          {!isNew && <button onClick={()=>{ if(window.confirm("Delete this period? This can't be undone.")) { onDelete(period.id); onClose(); } }}
+          {!isNew && <button onClick={()=>{ confirm({ title:"Delete this period?", message:"This can't be undone.", confirmLabel:"Delete", danger:true, onConfirm:()=>{ onDelete(period.id); onClose(); } }); }}
             style={{ padding:"10px 16px", borderRadius:10, border:`1px solid ${T.accent}44`, background:`${T.accent}18`, color:T.accent, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>Delete</button>}
           <button onClick={handleSave} style={{ flex:1, padding:"10px 16px", borderRadius:10, border:"none", background:T.blue, color:"white", fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>Save</button>
         </div>
@@ -3932,6 +3956,7 @@ function SeaTimeImportModal({ onClose, onImport }) {
 }
 
 function WorkScreen({ onBack, workCerts, setWorkCerts, seatime, setSeatime, seatimeMeta, setSeatimeMeta }) {
+  const confirm = useConfirm();
   const [tab, setTab] = useState("certs"); // certs | seatime
   const [sortBy, setSortBy] = useState("expiry"); // expiry | type
   const [editingCert, setEditingCert] = useState(null); // record being edited, or {} sentinel for "new"
@@ -4083,7 +4108,7 @@ function WorkScreen({ onBack, workCerts, setWorkCerts, seatime, setSeatime, seat
                 <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                   {editingCurrentTo ? (
                     <>
-                      <input type="date" value={currentToDraft} onChange={e=>setCurrentToDraft(e.target.value)}
+                      <DatePicker value={currentToDraft} onChange={v=>setCurrentToDraft(v)}
                         style={{ padding:"6px 8px", borderRadius:6, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:11, fontFamily:"inherit" }} />
                       <button onClick={()=>{ setSeatimeMeta(prev=>({...prev,[seaSubTab]:currentToDraft})); setEditingCurrentTo(false); }}
                         style={{ padding:"5px 9px", borderRadius:6, border:"none", background:T.blue, color:"white", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>Save</button>
@@ -4102,7 +4127,7 @@ function WorkScreen({ onBack, workCerts, setWorkCerts, seatime, setSeatime, seat
                 {/* Deleting all periods alone leaves this vessel's tab behind (its "current
                     to" date persists separately) — this is the real, complete way to remove
                     a vessel entirely, not a workaround. Confirmed, since it's destructive. */}
-                <button onClick={()=>{ if(window.confirm(`Delete "${seaSubTab}" entirely? This removes all its periods and its current-to date. This can't be undone.`)) handleDeleteVessel(seaSubTab); }}
+                <button onClick={()=>{ confirm({ title:`Delete "${seaSubTab}"?`, message:"This removes all its periods and its current-to date. This can't be undone.", confirmLabel:"Delete", danger:true, onConfirm:()=>handleDeleteVessel(seaSubTab) }); }}
                   style={{ background:"none", border:"none", color:T.muted, fontSize:11, cursor:"pointer", fontFamily:"inherit", padding:0 }}>Delete vessel</button>
               </div>
               {/* Staleness nudge — purely informational, no urgency colour system like
