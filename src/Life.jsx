@@ -520,6 +520,27 @@ function getGreeting() {
 }
 
 // ─── TASK SCREEN CONSTANTS ────────────────────────────────────────────────────
+
+// isTaskDueToday / isTaskOverdue — the single shared source of truth for a task's
+// due-date status. Used by both TodoScreen's own Today tab (where this logic
+// originated) and HomeScreen's tile badge/list, so "today" means the same thing
+// in both places. Do not duplicate this locally in a component again — that's
+// exactly the bug this fixed (8 July 2026): HomeScreen had its own unrelated
+// "today" metrics because it couldn't see TodoScreen's locally-scoped versions.
+function isTaskDueToday(due) {
+  if (!due) return false;
+  if (due === "Today") return true;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const d = new Date(due); d.setHours(0,0,0,0);
+  return d.getTime() === today.getTime();
+}
+function isTaskOverdue(due) {
+  if (!due || due === "Today") return false;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const d = new Date(due); d.setHours(0,0,0,0);
+  return d < today;
+}
+
 const CATS = ["All","Health","Admin","Work","Home","Shopping","Entertainment"];
 const CAT_ICONS = { All:"🗂️", Health:"❤️", Admin:"📝", Work:"💼", Home:"🏠", Shopping:"🛒", Entertainment:"🎬" };
 const CAT_COLORS = { Health:T.accent, Admin:T.blue, Work:T.gold, Home:T.green, Shopping:T.purple, Entertainment:"#fb923c" };
@@ -585,17 +606,10 @@ function TodoScreen({ tasks, setTasks, writeRecord, onBack }) {
   today.setHours(0,0,0,0);
   const todayStr = new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"});
 
-  const isToday = (due) => {
-    if (!due) return false;
-    if (due === "Today") return true;
-    const d = new Date(due); d.setHours(0,0,0,0);
-    return d.getTime() === today.getTime();
-  };
-  const isOverdue = (due) => {
-    if (!due || due === "Today") return false;
-    const d = new Date(due); d.setHours(0,0,0,0);
-    return d < today;
-  };
+  // Now the shared module-level versions (see isTaskDueToday/isTaskOverdue above) —
+  // kept as local names here so nothing below this line had to change.
+  const isToday = isTaskDueToday;
+  const isOverdue = isTaskOverdue;
 
   const addTask = () => {
     if (!newText.trim()) return;
@@ -3516,8 +3530,16 @@ function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo,
     if (sortedHealthEntries[i].weight != null) { currentWeight = sortedHealthEntries[i].weight; break; }
   }
   const weightLeft = currentWeight != null ? Math.max(0, currentWeight - HEALTH_TARGETS.weight.max).toFixed(1) : "—";
-  const completedToday = tasks.filter(t=>t.done).length;
-  const pendingHigh = tasks.filter(t=>!t.done && t.priority==="high").length;
+  const completedTotal = tasks.filter(t=>t.done).length;
+  // dueTodayCount — the tile badge and the "Today's tasks" widget below both use
+  // this: not done, and either due today or overdue. Same real logic TodoScreen's
+  // own Today tab uses (isTaskDueToday/isTaskOverdue, shared module-level helpers)
+  // — previously this screen had its own unrelated metrics (pendingHigh, a
+  // mislabeled "completedToday" that was actually all-time) with no connection
+  // to due dates at all. Fixed 8 July 2026 per Neil directly reporting the badge
+  // was stuck and not reflecting real due-today tasks.
+  const dueTodayOrOverdue = tasks.filter(t => !t.done && (isTaskDueToday(t.due) || isTaskOverdue(t.due)));
+  const dueTodayCount = dueTodayOrOverdue.length;
   const flightDisplay = nextFlight ? nextFlight.title.split(" ")[0]+"→"+nextFlight.title.split("→").pop().trim() : "No flights";
   // Worst (most urgent) status across all certs, "booked" excluded from the escalation —
   // a booked renewal is handled, it shouldn't still visually alarm on the home tile.
@@ -3575,7 +3597,7 @@ function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo,
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
         <TarsIdleTile quip={tarsQuip} onAdvance={advanceTarsQuip} />
         <HomeModuleTile icon="health"   label="Health"   sublabel={currentWeight!=null ? `${currentWeight}kg` : "Body & vitals"} accent={T.accent} onClick={()=>onNavigate("health")} />
-        <HomeModuleTile icon="tasks"    label="Tasks"    sublabel={`${completedToday}/${tasks.length} today`} badge={pendingHigh||null} accent={T.green} onClick={()=>onNavigate("tasks")} />
+        <HomeModuleTile icon="tasks"    label="Tasks"    sublabel={`${completedTotal}/${tasks.length} done overall`} badge={dueTodayCount||null} accent={T.green} onClick={()=>onNavigate("tasks")} />
         <HomeModuleTile icon="calendar" label="Calendar" sublabel="Flights & rotation" badge={todaysCalCount||null} accent={T.gold} onClick={()=>onNavigate("calendar")} />
         <HomeModuleTile icon="finance"  label="Finance"  sublabel="Budget & spending" accent={T.purple} onClick={()=>onNavigate("finance")} />
         <HomeModuleTile icon="meals"    label="Meals"    sublabel="Plan, shop & cook" accent={T.gold} onClick={()=>onNavigate("meals")} />
@@ -3587,9 +3609,12 @@ function HomeScreen({ onNavigate, tasks, onToggleTask, nextFlight, rotationInfo,
       <div style={{ background:T2.surface, borderRadius:16, padding:14 }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
           <div style={{ fontSize:12, fontWeight:700, color:T2.text }}>Today's tasks</div>
-          <div style={{ fontSize:10, color:T2.muted }}>{completedToday}/{tasks.length} done</div>
+          <div style={{ fontSize:10, color:T2.muted }}>{dueTodayCount} due today</div>
         </div>
-        {tasks.filter(t=>t.priority==="high"||!t.done).slice(0,4).map(t=>(
+        {dueTodayOrOverdue.length === 0 && (
+          <div style={{ fontSize:11, color:T2.muted, padding:"6px 0 10px" }}>Nothing due today. Nice.</div>
+        )}
+        {dueTodayOrOverdue.slice().sort((a,b)=>{ const p={high:0,med:1,low:2}; return (p[a.priority]??1)-(p[b.priority]??1); }).slice(0,4).map(t=>(
           <div key={t.id} onClick={()=>onToggleTask(t.id)} style={{ display:"flex", alignItems:"center", gap:9, padding:"7px 0", borderBottom:`1px solid ${T2.border}`, cursor:"pointer" }}>
             <div style={{ width:16, height:16, borderRadius:5, flexShrink:0, border:`1.5px solid ${t.done?T.green:T2.border}`, background:t.done?T.green:"transparent", display:"flex", alignItems:"center", justifyContent:"center" }}>
               {t.done && <Icon name="check" size={10} color="#fff" />}
