@@ -118,6 +118,23 @@ const SUPPLEMENTS = [
 // that today was always a training day, regardless of what day it actually was.
 const DEFAULT_TRAINING_DAYS = { Mon:"training", Tue:"walk", Wed:"training", Thu:"walk", Fri:"training", Sat:"walk", Sun:"rest" };
 
+// Seed default only now — real state lives in life-lifted usePersistentState below
+// (moved up from being local to MealPlanScreen so TARS can read the real, current
+// list — read-only, deliberately no chat-write path; the existing photo-upload
+// feature already works and stays exactly as it is, untouched).
+const DEFAULT_PANTRY = [
+  { id:1,  name:"Olive oil",       type:"staple", status:"have", qty:"Bottle", cat:"Oils & Condiments" },
+  { id:2,  name:"Soy sauce",       type:"staple", status:"have", qty:"Bottle", cat:"Oils & Condiments" },
+  { id:3,  name:"Garlic",          type:"staple", status:"have", qty:"Bulb",   cat:"Herbs & Spices" },
+  { id:4,  name:"Salt & pepper",   type:"staple", status:"have", qty:"—",      cat:"Herbs & Spices" },
+  { id:5,  name:"Fish sauce",      type:"staple", status:"have", qty:"Bottle", cat:"Oils & Condiments" },
+  { id:6,  name:"Sesame oil",      type:"staple", status:"have", qty:"Bottle", cat:"Oils & Condiments" },
+  { id:7,  name:"Smoked paprika",  type:"staple", status:"have", qty:"Jar",    cat:"Herbs & Spices" },
+  { id:8,  name:"Ground cumin",    type:"staple", status:"have", qty:"Jar",    cat:"Herbs & Spices" },
+  { id:9,  name:"Dried oregano",   type:"staple", status:"have", qty:"Jar",    cat:"Herbs & Spices" },
+  { id:10, name:"Butter",          type:"staple", status:"have", qty:"Block",  cat:"Dairy & Eggs" },
+];
+
 // -- TARS idle tile quips -- a fixed pool, deliberately not AI-generated (same
 // reasoning as before: purely decorative, should never cost money, need a moment
 // to load, or fail with no API key). Replaced wholesale on Neil's request -- all
@@ -1298,6 +1315,7 @@ const MODULE_KEYWORDS = {
   calendar: ["calendar", "schedule", "my flight", "flights", "rotation", "shore leave", "upcoming event"],
   tasks:    ["to do list", "to-do list", "todo list", "my tasks", "task list", "pending task"],
   meals:    ["meal plan", "meal library", "cooked meal", "recipe", "what's for dinner", "what to cook"],
+  pantry:   ["pantry", "fridge", "what do i have", "what have i got", "ingredients i have", "what's in my"],
 };
 
 // Returns a Set of matched module keys, or null if nothing matched confidently
@@ -1734,7 +1752,7 @@ const searchPlacesHandler = async (input) => {
 };
 
 // ─── MEAL PLANNING SCREEN ─────────────────────────────────────────────────────
-function MealPlanScreen({ calLog, setCalLog, todayLabel, writeRecord }) {
+function MealPlanScreen({ calLog, setCalLog, todayLabel, writeRecord, pantry, setPantry }) {
   const confirm = useConfirm();
   // ── Persistent state ──
   const [mealLibrary, setMealLibrary]       = usePersistentState("meal_library", []);
@@ -1742,19 +1760,6 @@ function MealPlanScreen({ calLog, setCalLog, todayLabel, writeRecord }) {
   const [cookedMeals, setCookedMeals]       = usePersistentState("meal_cooked", []);
   const [shoppingList, setShoppingList]     = usePersistentState("meal_shopping", []);
   const [myRegulars, setMyRegulars]         = usePersistentState("meal_regulars", []);
-  const [pantry, setPantry]                 = usePersistentState("meal_pantry", [
-    { id:1,  name:"Olive oil",       type:"staple", status:"have", qty:"Bottle", cat:"Oils & Condiments" },
-    { id:2,  name:"Soy sauce",       type:"staple", status:"have", qty:"Bottle", cat:"Oils & Condiments" },
-    { id:3,  name:"Garlic",          type:"staple", status:"have", qty:"Bulb",   cat:"Herbs & Spices" },
-    { id:4,  name:"Salt & pepper",   type:"staple", status:"have", qty:"—",      cat:"Herbs & Spices" },
-    { id:5,  name:"Fish sauce",      type:"staple", status:"have", qty:"Bottle", cat:"Oils & Condiments" },
-    { id:6,  name:"Sesame oil",      type:"staple", status:"have", qty:"Bottle", cat:"Oils & Condiments" },
-    { id:7,  name:"Smoked paprika",  type:"staple", status:"have", qty:"Jar",    cat:"Herbs & Spices" },
-    { id:8,  name:"Ground cumin",    type:"staple", status:"have", qty:"Jar",    cat:"Herbs & Spices" },
-    { id:9,  name:"Dried oregano",   type:"staple", status:"have", qty:"Jar",    cat:"Herbs & Spices" },
-    { id:10, name:"Butter",          type:"staple", status:"have", qty:"Block",  cat:"Dairy & Eggs" },
-  ]);
-
   // ── Session state ──
   const [tab, setTab]                       = useState("generate");
   const [selectedIds, setSelectedIds]       = useState(new Set());
@@ -5008,7 +5013,7 @@ function ProjectsListScreen({ onBack, projects, setProjects, onOpenProject }) {
 }
 
 function TarsScreen({ onBack, appState }) {
-  const { tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord, rules, setRules, createRule, trainingDays, exerciseRoutine, supplements } = appState;
+  const { tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord, rules, setRules, createRule, trainingDays, exerciseRoutine, supplements, pantry } = appState;
   const confirm = useConfirm();
 
   const [tarsTab, setTarsTab] = useState("chat");
@@ -5451,6 +5456,7 @@ LIVE DATA SECTIONS — FORMAT REFERENCE (cost/patch note: this used to be repeat
 - CURRENT MEAL PLAN / MEAL LIBRARY: meals selected for this week, and the library of available meals (use the library for calorie logging by meal name).
 - WORKOUT LOG: completed sessions, use for tracking progression.
 - COOKED MEALS & RATINGS: use this to discuss past meals, ratings, and what to suggest next.
+- PANTRY: split into staples (always on hand — spices, oils, long-lasting basics) and fresh (what's actually in the fridge right now). This is READ-ONLY — you have no way to add, remove, or edit pantry items from chat, in any format. The existing photo-upload feature on the Meals screen is the only way items get added, and that's deliberate. If Neil asks you to add or remove a pantry item, say plainly that you can only read the pantry, not write to it — don't pretend to add something or emit an ACTION for it.
 - FINANCE — THIS MONTH SUMMARY & BUDGET STATUS / RECENT EXPENSE HISTORY (last 90 days): use the exact id shown when editing or deleting an entry. For anything further back than 90 days (e.g. "expenses in March"), use search_finance_history rather than guessing or saying you don't have it.
 
 NOTE ON SECTION SELECTION: for cost reasons, some messages only include the live-data sections that clearly relate to what Neil's asking about that message, rather than every section every time — the rest genuinely still exists, it's just not included in that particular message. If you seem to be missing something you'd expect to see, say so plainly and ask Neil to rephrase or confirm what he needs — never conclude or imply that data doesn't exist just because it isn't in front of you this message.`;
@@ -5683,6 +5689,22 @@ ${(() => {
       module: "meals",
       data: (() => { try { return JSON.parse(localStorage.getItem("meal_cooked")||"[]"); } catch { return []; } })(),
       format: (meals) => meals.length === 0 ? "none yet" : meals.map(m=>`  "${m.name}" — ${m.rating>0?`${m.rating}★`:"unrated"}${m.ratingNotes?` — "${m.ratingNotes}"`:""}${m.cookedDates?.length?` — cooked ${m.cookedDates.join(", ")}`:""}${m.saved?" — ★ SAVED FAVOURITE":""}`).join("\n"),
+      skipIfEmpty: true
+    },
+    {
+      label: "PANTRY (see format reference above) — READ-ONLY, no chat write path",
+      module: "pantry",
+      data: pantry,
+      format: (items) => {
+        if (!items || items.length === 0) return "empty";
+        const staples = items.filter(i=>i.type==="staple");
+        const fresh = items.filter(i=>i.type!=="staple");
+        const line = i => `  - ${i.name} (${i.qty||"—"}, ${i.cat||"Other"})`;
+        return [
+          staples.length ? `Staples (always on hand, not perishable):\n${staples.map(line).join("\n")}` : null,
+          fresh.length ? `Fresh (currently in the fridge, right now):\n${fresh.map(line).join("\n")}` : null,
+        ].filter(Boolean).join("\n");
+      },
       skipIfEmpty: true
     },
     {
@@ -7771,6 +7793,12 @@ export default function LifeApp() {
   // above: Health screen edits it, TARS's STATE_SLICES needs the real current list,
   // not the hardcoded SUPPLEMENTS constant (which is now just the seed default). ──
   const [supplements, setSupplements] = usePersistentState("life_supplements", SUPPLEMENTS);
+
+  // ── Pantry — lifted from MealPlanScreen for the same reason as supplements above:
+  // TARS needs to read the real current list. Same "meal_pantry" key as before, so
+  // existing data carries over untouched. Read-only for TARS, by explicit request —
+  // the existing photo-upload feature is the only thing that adds items, unchanged. ──
+  const [pantry, setPantry] = usePersistentState("meal_pantry", DEFAULT_PANTRY);
   const [exerciseRoutine, setExerciseRoutine] = usePersistentState("life_exercise_routine", DEFAULT_EXERCISE_ROUTINE);
 
   // ── "Time to mix it up?" suggestion — entirely local, zero API cost, exactly
@@ -8083,7 +8111,7 @@ export default function LifeApp() {
         <div>
           <SectionHeader title="Meal Planning" onBack={()=>setScreen("home")} />
           <div style={{ padding:"0 16px 24px" }}>
-            <MealPlanScreen calLog={calLog} setCalLog={setCalLog} todayLabel={todayLabel} writeRecord={writeRecord} />
+            <MealPlanScreen calLog={calLog} setCalLog={setCalLog} todayLabel={todayLabel} writeRecord={writeRecord} pantry={pantry} setPantry={setPantry} />
           </div>
         </div>
       );
@@ -8092,7 +8120,7 @@ export default function LifeApp() {
       case "health":   return <HealthScreen onBack={()=>setScreen("home")} entries={healthEntries} setEntries={setHealthEntries} calLog={calLog} setCalLog={setCalLog} writeRecord={writeRecord} trainingDays={trainingDays} setTrainingDays={setTrainingDays} exerciseRoutine={exerciseRoutine} setExerciseRoutine={setExerciseRoutine} supplements={supplements} setSupplements={setSupplements} />;
       case "finance":  return <FinanceScreen onBack={()=>setScreen("home")} entries={financeEntries} setEntries={setFinanceEntries} budgets={financeBudgets} setBudgets={setFinanceBudgets} writeRecord={writeRecord} />;
       case "work":     return <WorkScreen onBack={()=>setScreen("home")} workCerts={workCerts} setWorkCerts={setWorkCerts} seatime={seatime} setSeatime={setSeatime} seatimeMeta={seatimeMeta} setSeatimeMeta={setSeatimeMeta} />;
-      case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord, rules, setRules, createRule, trainingDays, exerciseRoutine, supplements }} />;
+      case "tars":     return <TarsScreen onBack={()=>setScreen("home")} appState={{ tasks, calLog, calEvents, healthEntries, todayLabel, setScreen, tarsMessages, setTarsMessages, rotationBlocks, financeEntries, financeBudgets, writeRecord, rules, setRules, createRule, trainingDays, exerciseRoutine, supplements, pantry }} />;
       case "projects": return <ProjectsListScreen onBack={()=>setScreen("home")} projects={projects} setProjects={setProjects} onOpenProject={(id)=>{ setActiveProjectId(id); setScreen("projectChat"); }} />;
       case "projectChat": return <ProjectChatScreen onBack={()=>setScreen("projects")} projectId={activeProjectId} projects={projects} setProjects={setProjects} appState={{ tasks, calEvents, writeRecord }} />;
       default:         return <HomeScreen onNavigate={setScreen} tasks={tasks} onToggleTask={toggleTask} nextFlight={nextFlight} rotationInfo={rotationInfo} workCerts={workCerts} healthEntries={healthEntries} calLog={calLog} todayLabel={todayLabel} homePillConfig={homePillConfig} setHomePillConfig={setHomePillConfig} trainingDays={trainingDays} calEvents={calEvents} />;
