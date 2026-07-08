@@ -664,8 +664,8 @@ function TodoScreen({ tasks, setTasks, writeRecord, onBack }) {
               </div>
               <div>
                 <div style={{ fontSize:10, color:T.muted, fontWeight:600, marginBottom:4 }}>Due Date</div>
-                <input type="date" value={t.due||""} onChange={e=>updateTask(t.id,{due:e.target.value})}
-                  style={{ width:"100%", padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+                <DatePicker value={t.due||""} onChange={v=>updateTask(t.id,{due:v})}
+                  style={{ width:"100%", padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", boxSizing:"border-box" }} />
               </div>
               <div style={{ display:"flex", alignItems:"flex-end" }}>
                 <button onClick={()=>toggleTask(t.id)} style={{ width:"100%", padding:"8px", borderRadius:8, border:`1px solid ${t.done?T.green:T.border}`, background:t.done?`${T.green}22`:T.elevated, color:t.done?T.green:T.muted, fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
@@ -866,8 +866,8 @@ function AddTaskForm({ onAdd, onCancel, newText, setNewText, newCat, setNewCat, 
           <option value="low">Low</option>
         </select>
       </div>
-      <input type="date" value={newDue} onChange={e=>setNewDue(e.target.value)}
-        style={{ width:"100%", padding:"8px 12px", borderRadius:9, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box", marginBottom:8 }} />
+      <DatePicker value={newDue} onChange={setNewDue}
+        style={{ width:"100%", padding:"8px 12px", borderRadius:9, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit", boxSizing:"border-box", marginBottom:8 }} />
       <div style={{ display:"flex", gap:8 }}>
         <button onClick={onAdd} style={{ flex:1, padding:"9px", borderRadius:9, background:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Add</button>
         <button onClick={onCancel} style={{ flex:1, padding:"9px", borderRadius:9, background:T.elevated, color:T.muted, fontWeight:700, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>Cancel</button>
@@ -974,8 +974,11 @@ function RecordEditModal({ module, record, onClose, writeRecord }) {
                 style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", resize:"vertical", boxSizing:"border-box" }} />
             ) : f.type === "boolean" ? (
               <input type="checkbox" checked={!!form[f.name]} onChange={e=>setForm(p=>({...p,[f.name]:e.target.checked}))} style={{ width:20, height:20 }} />
+            ) : f.type === "date" ? (
+              <DatePicker value={form[f.name]||""} onChange={v=>setForm(p=>({...p,[f.name]:v}))}
+                style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", boxSizing:"border-box" }} />
             ) : (
-              <input type={f.type === "number" ? "number" : f.type === "date" ? "date" : f.type === "time" ? "time" : "text"}
+              <input type={f.type === "number" ? "number" : f.type === "time" ? "time" : "text"}
                 value={form[f.name]||""} onChange={e=>setForm(p=>({...p,[f.name]:e.target.value}))}
                 style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", boxSizing:"border-box" }} />
             )}
@@ -1026,6 +1029,98 @@ function SubTab({ tabs, active, onChange }) {
           color:active===t.id?T.blue:T.muted,
         }}>{t.icon?`${t.icon} `:""}{t.label}</button>
       ))}
+    </div>
+  );
+}
+
+const DATE_PICKER_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const DATE_PICKER_DAYS = ["Mo","Tu","We","Th","Fr","Sa","Su"];
+
+// ── Shared date picker — replaces native <input type="date"> everywhere except Work
+// (untouched, deliberately). The native picker hands control to the phone's own OS
+// widget, which can't be reached or customized from the app at all — no CSS, no JS,
+// nothing reaches inside it. Built once here, reused everywhere, same principle as
+// the shared SubTab/confirm-dialog components — one fix lands everywhere instead of
+// 13 separate call sites each getting their own workaround. Month/year are real
+// dropdowns (the whole reason this exists — jumping 12 months forward one tap at a
+// time was the actual complaint), the day grid reuses the same math CalendarScreen's
+// own month view already uses. `value`/`onChange` both work in plain ISO "YYYY-MM-DD"
+// strings, same contract as the native input it replaces, so every call site only
+// needed its onChange handler adjusted (receives the value directly, not an event)
+// — nothing about where these dates get stored or used elsewhere had to change.
+function DatePicker({ value, onChange, style, placeholder = "Select date", allowClear = true }) {
+  const [open, setOpen] = useState(false);
+  const [viewMonth, setViewMonth] = useState(new Date().getMonth());
+  const [viewYear, setViewYear] = useState(new Date().getFullYear());
+
+  useEffect(() => {
+    if (!open) return;
+    const d = value ? parseFlexibleDate(value) : new Date();
+    if (d) { setViewMonth(d.getMonth()); setViewYear(d.getFullYear()); }
+  }, [open]);
+
+  const firstDay = new Date(viewYear, viewMonth, 1);
+  const lastDay = new Date(viewYear, viewMonth + 1, 0);
+  const startOffset = (firstDay.getDay() + 6) % 7; // Monday-start, matching CalendarScreen's own month grid
+  const daysInMonth = lastDay.getDate();
+  const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+
+  const selected = value ? parseFlexibleDate(value) : null;
+  const isSelected = (day) => selected && selected.getFullYear()===viewYear && selected.getMonth()===viewMonth && selected.getDate()===day;
+
+  const curY = new Date().getFullYear();
+  const years = []; for (let y = curY - 3; y <= curY + 6; y++) years.push(y);
+
+  const pick = (day) => { onChange(toISODate(new Date(viewYear, viewMonth, day))); setOpen(false); };
+
+  const displayText = value ? (() => {
+    const d = parseFlexibleDate(value);
+    return d ? `${String(d.getDate()).padStart(2,"0")} ${DATE_PICKER_MONTHS[d.getMonth()]} ${d.getFullYear()}` : value;
+  })() : placeholder;
+
+  const selectSt = { flex:1, padding:"8px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none" };
+
+  return (
+    <div style={{ position:"relative" }}>
+      <div onClick={()=>setOpen(true)} style={{ ...style, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
+        <span style={{ color: value?(style?.color||T.text):T.muted }}>{displayText}</span>
+        <Icon name="calendar" size={14} color={T.muted} />
+      </div>
+      {open && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1500, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={()=>setOpen(false)}>
+          <div style={{ width:"100%", maxWidth:400, background:T.card, borderRadius:"20px 20px 0 0", padding:20, boxSizing:"border-box" }} onClick={e=>e.stopPropagation()}>
+            <div style={{ width:36, height:4, background:T.border, borderRadius:999, margin:"0 auto 16px" }} />
+            <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+              <select value={viewMonth} onChange={e=>setViewMonth(Number(e.target.value))} style={selectSt}>
+                {DATE_PICKER_MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}
+              </select>
+              <select value={viewYear} onChange={e=>setViewYear(Number(e.target.value))} style={selectSt}>
+                {years.map(y=><option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2, marginBottom:4 }}>
+              {DATE_PICKER_DAYS.map(d=><div key={d} style={{ textAlign:"center", fontSize:10, color:T.muted, fontWeight:700, padding:"4px 0" }}>{d}</div>)}
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2 }}>
+              {Array.from({ length: totalCells }).map((_, i) => {
+                const day = i - startOffset + 1;
+                const valid = day >= 1 && day <= daysInMonth;
+                return (
+                  <div key={i} onClick={()=>valid && pick(day)} style={{
+                    textAlign:"center", padding:"9px 0", borderRadius:8, fontSize:12, cursor:valid?"pointer":"default",
+                    color: !valid ? "transparent" : isSelected(day) ? "#fff" : T.text,
+                    background: isSelected(day) ? T.blue : "transparent",
+                    fontWeight: isSelected(day) ? 700 : 400,
+                  }}>{valid ? day : "0"}</div>
+                );
+              })}
+            </div>
+            {allowClear && value && (
+              <button onClick={()=>{ onChange(""); setOpen(false); }} style={{ width:"100%", marginTop:14, padding:"9px", borderRadius:10, background:"none", border:`1px solid ${T.border}`, color:T.muted, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>Clear date</button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2367,7 +2462,7 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
   // entries and calLog now passed in from LifeApp (TARS can write to them)
   const [suppChecked, setSuppChecked] = useState({});
   const [addingSupp, setAddingSupp] = useState(false);
-  const [suppForm, setSuppForm] = useState({ name:"", when:"Breakfast", phase:"" });
+  const [suppForm, setSuppForm] = useState({ name:"", when:"Breakfast" });
   const [form, setForm] = useState({ date:"", weight:"", bodyFat:"", fatMass:"", muscle:"", bp:"", waist:"" });
   const [editingHealthEntry, setEditingHealthEntry] = useState(null); // Stage 5 — tap a History row to edit/delete it
 
@@ -2498,8 +2593,8 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
                 <div>
                   <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Date</div>
-                  <input type="date" value={form.date} onChange={e=>setForm(p=>({...p,date:e.target.value}))}
-                    style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+                  <DatePicker value={form.date} onChange={v=>setForm(p=>({...p,date:v}))}
+                    style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", boxSizing:"border-box" }} />
                 </div>
                 <div>
                   <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Weight (kg)</div>
@@ -2584,12 +2679,6 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
                     <div onClick={()=>toggleSupp(s.id)} style={{ flex:1, cursor:"pointer" }}>
                       <div style={{ fontSize:13, fontWeight:600, color:suppChecked[s.id]?T.muted:T.text, textDecoration:suppChecked[s.id]?"line-through":"none" }}>{s.name}</div>
                     </div>
-                    {s.phase && (
-                      <span style={{ fontSize:9, fontWeight:700, padding:"2px 7px", borderRadius:999,
-                        background: s.phase==="Week 1"||s.phase==="Now" ? `${T.blue}22` : s.phase==="Week 3" ? `${T.gold}22` : `${T.purple}22`,
-                        color: s.phase==="Week 1"||s.phase==="Now" ? T.blue : s.phase==="Week 3" ? T.gold : T.purple,
-                      }}>{s.phase}</span>
-                    )}
                     <button onClick={()=>{ confirm({ title:"Remove supplement?", message:`"${s.name}" will be removed from your list.`, confirmLabel:"Remove", danger:true, onConfirm:()=>setSupplements(prev=>prev.filter(x=>x.id!==s.id)) }); }} style={{ background:"none", border:"none", cursor:"pointer", color:T.muted, fontSize:14, padding:2, flexShrink:0 }}>✕</button>
                   </div>
                 ))}
@@ -2610,16 +2699,14 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
                       border:`1px solid ${suppForm.when===w?T.blue:T.border}`, background:suppForm.when===w?`${T.blue}22`:T.elevated, color:suppForm.when===w?T.blue:T.muted }}>{w}</button>
                   ))}
                 </div>
-                <input value={suppForm.phase} onChange={e=>setSuppForm(p=>({...p,phase:e.target.value}))} placeholder="Optional tag, e.g. Week 1 (leave blank if none)"
-                  style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box", marginBottom:10 }} />
-                <div style={{ display:"flex", gap:8 }}>
+                <div style={{ display:"flex", gap:8, marginTop:10 }}>
                   <button onClick={()=>{
                     if (!suppForm.name.trim()) return;
-                    setSupplements(prev => [...prev, { id:`s${Date.now()}`, name:suppForm.name.trim(), when:suppForm.when, phase:suppForm.phase.trim() }]);
-                    setSuppForm({ name:"", when:"Breakfast", phase:"" });
+                    setSupplements(prev => [...prev, { id:`s${Date.now()}`, name:suppForm.name.trim(), when:suppForm.when }]);
+                    setSuppForm({ name:"", when:"Breakfast" });
                     setAddingSupp(false);
                   }} style={{ flex:1, padding:"10px", borderRadius:10, background:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Add</button>
-                  <button onClick={()=>{ setAddingSupp(false); setSuppForm({ name:"", when:"Breakfast", phase:"" }); }} style={{ padding:"10px 16px", borderRadius:10, background:"none", color:T.muted, fontWeight:700, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>Cancel</button>
+                  <button onClick={()=>{ setAddingSupp(false); setSuppForm({ name:"", when:"Breakfast" }); }} style={{ padding:"10px 16px", borderRadius:10, background:"none", color:T.muted, fontWeight:700, fontSize:13, border:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}>Cancel</button>
                 </div>
               </Card>
             )}
@@ -3022,8 +3109,8 @@ function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets, write
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
                 <div>
                   <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Date</div>
-                  <input type="date" value={form.date} onChange={e=>setForm(p=>({...p,date:e.target.value}))}
-                    style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+                  <DatePicker value={form.date} onChange={v=>setForm(p=>({...p,date:v}))}
+                    style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", boxSizing:"border-box" }} />
                 </div>
                 <div>
                   <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Amount (NZD)</div>
@@ -3173,13 +3260,13 @@ function FinanceScreen({ onBack, entries, setEntries, budgets, setBudgets, write
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:10 }}>
                   <div>
                     <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>From</div>
-                    <input type="date" value={rangeStart} onChange={e=>{ setRangeStart(e.target.value); setHistoryExpandedCategory(null); }}
-                      style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+                    <DatePicker value={rangeStart} onChange={v=>{ setRangeStart(v); setHistoryExpandedCategory(null); }}
+                      style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", boxSizing:"border-box" }} />
                   </div>
                   <div>
                     <div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>To</div>
-                    <input type="date" value={rangeEnd} onChange={e=>{ setRangeEnd(e.target.value); setHistoryExpandedCategory(null); }}
-                      style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+                    <DatePicker value={rangeEnd} onChange={v=>{ setRangeEnd(v); setHistoryExpandedCategory(null); }}
+                      style={{ width:"100%", padding:"9px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", boxSizing:"border-box" }} />
                   </div>
                 </div>
                 <button onClick={()=>{ setUseCustomRange(false); setHistoryExpandedCategory(null); }}
@@ -4338,12 +4425,12 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addRotation, remove
               </div>
               <input value={addForm.title} onChange={e=>setAddForm(p=>({...p,title:e.target.value}))} placeholder="Title" style={inputSt} />
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-                <div><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Date</div><input type="date" value={addForm.date} onChange={e=>setAddForm(p=>({...p,date:e.target.value}))} style={inputSt} /></div>
+                <div><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Date</div><DatePicker value={addForm.date} onChange={v=>setAddForm(p=>({...p,date:v}))} style={inputSt} /></div>
                 <div><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Time (optional)</div><input type="time" value={addForm.time} onChange={e=>setAddForm(p=>({...p,time:e.target.value}))} style={inputSt} /></div>
               </div>
               <div style={{ marginBottom:8 }}><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Location (optional — leave blank for Christchurch/local time)</div><input value={addForm.location||""} onChange={e=>setAddForm(p=>({...p,location:e.target.value}))} placeholder="e.g. Brisbane" style={inputSt} /></div>
               {(addForm.type==="hotel"||addForm.type==="other") && (
-                <div><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>End date (optional)</div><input type="date" value={addForm.endDate} onChange={e=>setAddForm(p=>({...p,endDate:e.target.value}))} style={inputSt} /></div>
+                <div><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>End date (optional)</div><DatePicker value={addForm.endDate} onChange={v=>setAddForm(p=>({...p,endDate:v}))} style={inputSt} /></div>
               )}
               <input value={addForm.notes} onChange={e=>setAddForm(p=>({...p,notes:e.target.value}))} placeholder="Notes (optional)" style={inputSt} />
               <button onClick={addManualEvent} style={{ width:"100%", padding:"10px", borderRadius:10, background:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Add to Calendar</button>
@@ -4357,8 +4444,8 @@ function CalendarScreen({ onBack, calEvents, rotationBlocks, addRotation, remove
             <SectionLabel>{editingRotation ? "Edit Rotation Block" : "Add Rotation Block"}</SectionLabel>
             <div style={{ fontSize:11, color:T.muted, marginBottom:10 }}>Set your Man of Steel rotation dates. These colour the calendar dark navy.</div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-              <div><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Join date</div><input type="date" value={rotForm.start} onChange={e=>setRotForm(p=>({...p,start:e.target.value}))} style={inputSt} /></div>
-              <div><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Sign off date</div><input type="date" value={rotForm.end} onChange={e=>setRotForm(p=>({...p,end:e.target.value}))} style={inputSt} /></div>
+              <div><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Join date</div><DatePicker value={rotForm.start} onChange={v=>setRotForm(p=>({...p,start:v}))} style={inputSt} /></div>
+              <div><div style={{ fontSize:10, color:T.muted, marginBottom:4 }}>Sign off date</div><DatePicker value={rotForm.end} onChange={v=>setRotForm(p=>({...p,end:v}))} style={inputSt} /></div>
             </div>
             <input value={rotForm.notes} onChange={e=>setRotForm(p=>({...p,notes:e.target.value}))} placeholder="Notes (optional)" style={inputSt} />
             <div style={{ display:"flex", gap:8, marginBottom:16 }}>
