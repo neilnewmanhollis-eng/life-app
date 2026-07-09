@@ -537,6 +537,24 @@ function generateId() {
   return Date.now() * 1000 + __idCounter;
 }
 
+// dedupeIds — one-time repair for data created before generateId() existed (9 July
+// 2026). Keeps the first record with a given id untouched, reassigns a fresh unique
+// id to every duplicate after it. Returns the exact same array reference if nothing
+// needed fixing, so wiring this into a useEffect never causes a needless re-render
+// on every normal load once existing data's been repaired.
+function dedupeIds(arr) {
+  const seen = new Set();
+  let changed = false;
+  const result = arr.map(item => {
+    if (item.id == null) return item; // untouched — a separate null-id migration handles this
+    const key = String(item.id);
+    if (seen.has(key)) { changed = true; return { ...item, id: generateId() }; }
+    seen.add(key);
+    return item;
+  });
+  return changed ? result : arr;
+}
+
 // ─── TASK SCREEN CONSTANTS ────────────────────────────────────────────────────
 
 // isTaskDueToday / isTaskOverdue — the single shared source of truth for a task's
@@ -7852,6 +7870,15 @@ export default function LifeApp() {
     }
   }, []);
 
+  // ── One-time repair: fixes the duplicate-id bug (9 July 2026) for tasks that
+  // already exist on Neil's phone from before generateId() existed — two tasks
+  // created together in one TARS reply could silently end up sharing an id, so
+  // completing one completed both. This doesn't change anything for tasks that
+  // are already fine; only ever touches ones that were actually collided. ──
+  useEffect(() => {
+    setTasks(prev => dedupeIds(prev));
+  }, []);
+
   // ── HEALTH STATE (source of truth — TARS can write here) ───────────────────
   // Deliberately empty default — this used to hardcode Neil's real starting weight, body
   // fat, fat mass, muscle, and blood pressure directly into the public repo. Baseline is
@@ -7864,8 +7891,11 @@ export default function LifeApp() {
   // everything's migrated, and never touches entries that already have an id. ──
   useEffect(() => {
     setHealthEntries(prev => {
-      if (prev.every(e => e.id != null)) return prev; // already migrated — no-op, no re-render even
-      return prev.map((e) => e.id != null ? e : { ...e, id: generateId() });
+      const filled = prev.every(e => e.id != null) ? prev : prev.map((e) => e.id != null ? e : { ...e, id: generateId() });
+      // Chained straight into dedupeIds — same duplicate-id bug (9 July 2026) could
+      // also have hit Health entries created together via TARS, separately from the
+      // null-id issue this effect originally existed to fix.
+      return dedupeIds(filled);
     });
   }, []);
   // ── One-time cleanup: rotation-related calendar entries created by an earlier
@@ -7885,14 +7915,39 @@ export default function LifeApp() {
       return cleaned.length === prev.length ? prev : cleaned;
     });
   }, []);
+  // ── One-time repair: same duplicate-id bug as tasks (9 July 2026) — TARS creating
+  // two calendar events or two rotation blocks together in one reply could collide
+  // the exact same way. Covers both here since they're declared together below. ──
+  useEffect(() => {
+    setCalEvents(prev => dedupeIds(prev));
+    setRotationBlocks(prev => dedupeIds(prev));
+  }, []);
   const todayLabel = new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"});
   const [calLog, setCalLog] = usePersistentState("life_cal_log", {});
+  // ── One-time repair: same duplicate-id bug (9 July 2026), applied per-day since
+  // Calorie Log is nested by date rather than one flat array. ──
+  useEffect(() => {
+    setCalLog(prev => {
+      let changed = false;
+      const next = {};
+      for (const [day, entries] of Object.entries(prev)) {
+        const deduped = dedupeIds(entries);
+        if (deduped !== entries) changed = true;
+        next[day] = deduped;
+      }
+      return changed ? next : prev;
+    });
+  }, []);
 
   // ── FINANCE STATE (source of truth — TARS can write here) ───────────────────
   const [financeEntries, setFinanceEntries] = usePersistentState("life_finance_entries", []);
   const [financeBudgets, setFinanceBudgets] = usePersistentState("life_finance_budgets",
     FINANCE_CATEGORIES.map(c => ({ category: c, monthlyLimit: 0, notes: "" }))
   );
+  // ── One-time repair: same duplicate-id bug (9 July 2026). ──
+  useEffect(() => {
+    setFinanceEntries(prev => dedupeIds(prev));
+  }, []);
 
   // ── TARS CHAT STATE — lives here (not inside TarsScreen) so it survives navigating
   // away and back, but resets naturally when the app is fully closed since it's plain
