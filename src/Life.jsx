@@ -519,6 +519,24 @@ function getGreeting() {
   return "Good evening";
 }
 
+// generateId — the single shared source of every record id in the app (tasks,
+// calendar events, health entries, finance entries, calorie log entries, rotation
+// blocks, rules, vault docs, subtasks, etc). Every one of these used to call
+// Date.now() directly — millisecond precision, NOT unique across the same
+// millisecond. Several TARS write paths create 2+ records synchronously (e.g. two
+// tasks from one reply, executed back-to-back in the same loop) — bare Date.now()
+// silently gave both records the identical id, so every later "mark this one done"
+// lookup matched both at once. That's the exact bug Neil reported (9 July 2026):
+// two tasks created together stayed invisibly tied, toggling one toggled both.
+// A few other spots in the file had already informally patched around this locally
+// (Date.now()+i, Date.now()+Math.random()) without fixing the actual source — this
+// replaces all of those too, one real fix instead of five different guesses at one.
+let __idCounter = 0;
+function generateId() {
+  __idCounter = (__idCounter + 1) % 1000;
+  return Date.now() * 1000 + __idCounter;
+}
+
 // ─── TASK SCREEN CONSTANTS ────────────────────────────────────────────────────
 
 // isTaskDueToday / isTaskOverdue — the single shared source of truth for a task's
@@ -730,7 +748,7 @@ function TodoScreen({ tasks, setTasks, writeRecord, onBack }) {
             {/* Add subtask */}
             <button onClick={()=>{
               const text = prompt("Subtask:");
-              if (text?.trim()) updateTask(t.id, { subtasks:[...(t.subtasks||[]), {id:Date.now().toString(), text:text.trim(), done:false}] });
+              if (text?.trim()) updateTask(t.id, { subtasks:[...(t.subtasks||[]), {id:generateId().toString(), text:text.trim(), done:false}] });
             }} style={{ marginTop:8, fontSize:11, padding:"5px 10px", borderRadius:8, border:`1px dashed ${T.border}`, background:"none", color:T.muted, cursor:"pointer", fontFamily:"inherit" }}>+ Add subtask</button>
           </Card>
         </div>
@@ -1914,7 +1932,7 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
           catch { throw new Error("Try generating fewer meals or try again."); }
         } else throw new Error("Try generating fewer meals or try again.");
       }
-      setMealLibrary(meals.map((m, i) => ({ ...m, id: Date.now() + i })));
+      setMealLibrary(meals.map((m) => ({ ...m, id: generateId() })));
       setSelectedIds(new Set());
       setWeeklyInstruction("");
     } catch(err) {
@@ -1942,7 +1960,7 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
         const matchesPantryStaple = pantryNames.some(p => p.length > 3 && (ingName.includes(p) || p.includes(ingName)));
         if (ing.type === "staple" || matchesPantryStaple) return;
         const key = ing.name.toLowerCase();
-        if (!itemMap[key]) itemMap[key] = { id: Date.now() + Math.random(), name: ing.name, qty: ing.qty, cat: ing.cat || "Other", checked: false, source: "meals" };
+        if (!itemMap[key]) itemMap[key] = { id: generateId(), name: ing.name, qty: ing.qty, cat: ing.cat || "Other", checked: false, source: "meals" };
       });
     });
     setShoppingList(Object.values(itemMap));
@@ -2000,16 +2018,16 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
   const toggleShopItem = (id) => setShoppingList(prev => prev.map(i => i.id === id ? { ...i, checked: !i.checked } : i));
   const addShopItem = () => {
     if (!shopNewItem.trim()) return;
-    setShoppingList(prev => [...prev, { id: Date.now(), name: shopNewItem.trim(), qty: "", cat: shopNewCat, checked: false, source: "manual" }]);
+    setShoppingList(prev => [...prev, { id: generateId(), name: shopNewItem.trim(), qty: "", cat: shopNewCat, checked: false, source: "manual" }]);
     setShopNewItem("");
   };
   const saveToRegulars = (item) => {
     if (myRegulars.find(r => r.name.toLowerCase() === item.name.toLowerCase())) return;
-    setMyRegulars(prev => [...prev, { id: Date.now(), name: item.name, qty: item.qty, cat: item.cat, source: "regulars" }]);
+    setMyRegulars(prev => [...prev, { id: generateId(), name: item.name, qty: item.qty, cat: item.cat, source: "regulars" }]);
   };
   const addRegularsToList = () => {
     const existing = shoppingList.map(i => i.name.toLowerCase());
-    const toAdd = myRegulars.filter(r => !existing.includes(r.name.toLowerCase())).map(r => ({ ...r, id: Date.now() + Math.random(), checked: false, source: "regulars" }));
+    const toAdd = myRegulars.filter(r => !existing.includes(r.name.toLowerCase())).map(r => ({ ...r, id: generateId(), checked: false, source: "regulars" }));
     setShoppingList(prev => [...prev, ...toAdd]);
     setAddRegularToList(false);
   };
@@ -2032,7 +2050,7 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
       const items = JSON.parse((data.content?.map(b=>b.text||"").join("")||"").replace(/```json|```/g,"").trim());
       setPantry(prev => {
         const existing = prev.map(p => p.name.toLowerCase());
-        const toAdd = items.filter(i => !existing.includes(i.name.toLowerCase())).map((i, idx) => ({ id: Date.now()+idx, ...i, status:"have" }));
+        const toAdd = items.filter(i => !existing.includes(i.name.toLowerCase())).map((i, idx) => ({ id: generateId(), ...i, status:"have" }));
         return [...prev, ...toAdd];
       });
     } catch(err) { confirm({ title:"Couldn't read photo", message:err.message, alertOnly:true, confirmLabel:"OK", onConfirm:()=>{} }); }
@@ -2233,7 +2251,7 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
                 <div key={r.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"5px 0", borderBottom:`1px solid ${T.border}` }}>
                   <div style={{ fontSize:12, color:T.text }}>{r.name} <span style={{ color:T.muted, fontSize:10 }}>({r.cat})</span></div>
                   <div style={{ display:"flex", gap:6 }}>
-                    <button onClick={()=>{ if(!shoppingList.find(i=>i.name.toLowerCase()===r.name.toLowerCase())) setShoppingList(prev=>[...prev,{...r,id:Date.now(),checked:false}]); }} style={{ fontSize:10, padding:"3px 8px", borderRadius:6, border:`1px solid ${T.blue}44`, background:`${T.blue}18`, color:T.blue, cursor:"pointer", fontFamily:"inherit" }}>+ Add</button>
+                    <button onClick={()=>{ if(!shoppingList.find(i=>i.name.toLowerCase()===r.name.toLowerCase())) setShoppingList(prev=>[...prev,{...r,id:generateId(),checked:false}]); }} style={{ fontSize:10, padding:"3px 8px", borderRadius:6, border:`1px solid ${T.blue}44`, background:`${T.blue}18`, color:T.blue, cursor:"pointer", fontFamily:"inherit" }}>+ Add</button>
                     <button onClick={()=>{ confirm({ title:"Remove from Regulars?", message:`"${r.name}" will be removed from My Regulars.`, confirmLabel:"Remove", danger:true, onConfirm:()=>setMyRegulars(prev=>prev.filter(i=>i.id!==r.id)) }); }} style={{ fontSize:10, padding:"3px 8px", borderRadius:6, border:`1px solid ${T.accent}33`, background:"none", color:T.accent, cursor:"pointer", fontFamily:"inherit" }}>✕</button>
                   </div>
                 </div>
@@ -2245,8 +2263,8 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
           <div style={{ background:T.card, borderRadius:14, padding:14, border:`1px solid ${T.border}` }}>
             <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:8 }}>Add to My Regulars</div>
             <div style={{ display:"flex", gap:8, marginBottom:8 }}>
-              <input value={regularNewItem} onChange={e=>setRegularNewItem(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"&&regularNewItem.trim()){ setMyRegulars(prev=>[...prev,{id:Date.now(),name:regularNewItem.trim(),qty:"",cat:regularNewCat}]); setRegularNewItem(""); }}} placeholder="Item always in your trolley..." style={{ flex:1, padding:"9px 12px", borderRadius:9, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none" }} />
-              <button onClick={()=>{ if(regularNewItem.trim()){ setMyRegulars(prev=>[...prev,{id:Date.now(),name:regularNewItem.trim(),qty:"",cat:regularNewCat}]); setRegularNewItem(""); }}} style={{ padding:"9px 14px", borderRadius:9, background:T.green, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Save</button>
+              <input value={regularNewItem} onChange={e=>setRegularNewItem(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"&&regularNewItem.trim()){ setMyRegulars(prev=>[...prev,{id:generateId(),name:regularNewItem.trim(),qty:"",cat:regularNewCat}]); setRegularNewItem(""); }}} placeholder="Item always in your trolley..." style={{ flex:1, padding:"9px 12px", borderRadius:9, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none" }} />
+              <button onClick={()=>{ if(regularNewItem.trim()){ setMyRegulars(prev=>[...prev,{id:generateId(),name:regularNewItem.trim(),qty:"",cat:regularNewCat}]); setRegularNewItem(""); }}} style={{ padding:"9px 14px", borderRadius:9, background:T.green, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Save</button>
             </div>
             <select value={regularNewCat} onChange={e=>setRegularNewCat(e.target.value)} style={{ width:"100%", padding:"8px", borderRadius:8, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:12, fontFamily:"inherit" }}>
               {SHOP_CATS.map(c=><option key={c} value={c}>{c}</option>)}
@@ -2305,10 +2323,10 @@ Return ONLY JSON array (no recipe field — kept blank for on-demand generation)
             <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:8 }}>Add Item</div>
             <div style={{ display:"flex", gap:8 }}>
               <input value={pantryInput} onChange={e=>setPantryInput(e.target.value)}
-                onKeyDown={e=>{ if(e.key==="Enter"&&pantryInput.trim()){ setPantry(prev=>[...prev,{id:Date.now(),name:pantryInput.trim(),type:"fresh",status:"have",qty:"—",cat:"Other"}]); setPantryInput(""); }}}
+                onKeyDown={e=>{ if(e.key==="Enter"&&pantryInput.trim()){ setPantry(prev=>[...prev,{id:generateId(),name:pantryInput.trim(),type:"fresh",status:"have",qty:"—",cat:"Other"}]); setPantryInput(""); }}}
                 placeholder="Item name..."
                 style={{ flex:1, padding:"9px 12px", borderRadius:9, border:`1px solid ${T.border}`, background:T.elevated, color:T.text, fontSize:13, fontFamily:"inherit", outline:"none" }} />
-              <button onClick={()=>{ if(pantryInput.trim()){ setPantry(prev=>[...prev,{id:Date.now(),name:pantryInput.trim(),type:"fresh",status:"have",qty:"—",cat:"Other"}]); setPantryInput(""); }}}
+              <button onClick={()=>{ if(pantryInput.trim()){ setPantry(prev=>[...prev,{id:generateId(),name:pantryInput.trim(),type:"fresh",status:"have",qty:"—",cat:"Other"}]); setPantryInput(""); }}}
                 style={{ padding:"9px 14px", borderRadius:9, background:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Add</button>
             </div>
           </div>
@@ -2779,7 +2797,7 @@ function HealthScreen({ onBack, entries, setEntries, calLog, setCalLog, writeRec
                 <div style={{ display:"flex", gap:8, marginTop:10 }}>
                   <button onClick={()=>{
                     if (!suppForm.name.trim()) return;
-                    setSupplements(prev => [...prev, { id:`s${Date.now()}`, name:suppForm.name.trim(), when:suppForm.when }]);
+                    setSupplements(prev => [...prev, { id:`s${generateId()}`, name:suppForm.name.trim(), when:suppForm.when }]);
                     setSuppForm({ name:"", when:"Breakfast" });
                     setAddingSupp(false);
                   }} style={{ flex:1, padding:"10px", borderRadius:10, background:T.blue, color:"white", fontWeight:700, fontSize:13, border:"none", cursor:"pointer", fontFamily:"inherit" }}>Add</button>
@@ -3690,7 +3708,7 @@ function CertEditModal({ cert, onClose, onSave, onDelete }) {
 
   const addRequirement = () => {
     if (!newReq.trim()) return;
-    setForm(p => ({ ...p, requirements: [...(p.requirements||[]), { id: Date.now(), text: newReq.trim(), done: false }] }));
+    setForm(p => ({ ...p, requirements: [...(p.requirements||[]), { id: generateId(), text: newReq.trim(), done: false }] }));
     setNewReq("");
   };
   const toggleRequirement = (id) => setForm(p => ({ ...p, requirements: (p.requirements||[]).map(r => r.id===id ? { ...r, done: !r.done } : r) }));
@@ -3701,7 +3719,7 @@ function CertEditModal({ cert, onClose, onSave, onDelete }) {
       confirm({ title:"Missing info", message:"Name and expiry date are required.", alertOnly:true, confirmLabel:"OK", onConfirm:()=>{} });
       return;
     }
-    onSave({ ...form, id: cert?.id || Date.now() });
+    onSave({ ...form, id: cert?.id || generateId() });
     onClose();
   };
 
@@ -3833,7 +3851,7 @@ function ImportCertsModal({ onClose, onImport }) {
     }
     // Fresh unique ids on import, regardless of whatever was in the pasted text —
     // guarantees no collision with existing certs or with each other.
-    const withIds = valid.map((c, i) => ({ ...c, id: Date.now() + i, requirements: c.requirements || [] }));
+    const withIds = valid.map((c) => ({ ...c, id: generateId(), requirements: c.requirements || [] }));
     onImport(withIds);
     onClose();
   };
@@ -3871,7 +3889,7 @@ function SeaTimePeriodModal({ period, defaultVessel, onClose, onSave, onDelete }
       confirm({ title:"Missing info", message:"Vessel, onboard-from, and onboard-to dates are required.", alertOnly:true, confirmLabel:"OK", onConfirm:()=>{} });
       return;
     }
-    onSave({ ...form, id: period?.id || Date.now() });
+    onSave({ ...form, id: period?.id || generateId() });
     onClose();
   };
   const handleClose = () => {
@@ -3941,7 +3959,7 @@ function SeaTimeImportModal({ onClose, onImport }) {
       setError("Nothing usable found in that text — check it's the right block.");
       return;
     }
-    const withIds = parsed.periods.map((p, i) => ({ ...p, vessel: parsed.vessel, id: Date.now() + i }));
+    const withIds = parsed.periods.map((p) => ({ ...p, vessel: parsed.vessel, id: generateId() }));
     onImport(withIds, parsed.vessel, parsed.currentTo || null);
     onClose();
   };
@@ -5039,7 +5057,7 @@ function ProjectsListScreen({ onBack, projects, setProjects, onOpenProject }) {
   const createProject = () => {
     const name = newName.trim();
     if (!name) return;
-    const id = `proj_${Date.now()}`;
+    const id = `proj_${generateId()}`;
     setProjects(prev => [{ id, name, createdAt: new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}), lastActive: Date.now() }, ...prev]);
     setNewName("");
     setCreating(false);
@@ -6151,7 +6169,7 @@ ${(() => {
   // old single-profile system could. ──
   const commitFact = (fact) => {
     if (!fact || !fact.trim()) return;
-    setMemoryFacts(prev => [...prev, { id: Date.now(), fact: fact.trim(), addedAt: toISODate(new Date()) }]);
+    setMemoryFacts(prev => [...prev, { id: generateId(), fact: fact.trim(), addedAt: toISODate(new Date()) }]);
   };
 
   // Routes a parsed action to instant commit (Tier A) or the normal confirm-card flow
@@ -6294,7 +6312,7 @@ OTHER — anything else`,
       // Auto-add to vault if it's a document — store full content for later re-reading
       if (imageType === "DOCUMENT") {
         setVault(prev => [{
-          id: Date.now(), name: file.name || "Photo document", type: file.type,
+          id: generateId(), name: file.name || "Photo document", type: file.type,
           size: file.size, uploadedAt: new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}),
           docType: "Document", summary: reply, keyPoints: [], base64,
           fullContent: base64, contentKind: "image",
@@ -6476,7 +6494,7 @@ If multiple files were uploaded, treat them as related unless the content sugges
     const vaultAdds = staged
       .filter(s => s.extracted.kind !== "image")
       .map(({ file, extracted }) => ({
-        id: Date.now() + Math.floor(Math.random()*1000), name:file.name, type:file.type, size:file.size,
+        id: generateId(), name:file.name, type:file.type, size:file.size,
         uploadedAt:new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}),
         docType:"Document", summary:reply.slice(0,300), keyPoints:[],
         fullContent: extracted.kind === "text" ? extracted.text : extracted.base64,
@@ -7188,7 +7206,7 @@ If multiple files were uploaded, treat them as related unless the content sugges
                   const clean = raw.replace(/```json|```/g,"").trim();
                   let parsed = {};
                   try{parsed=JSON.parse(clean);}catch{parsed={summary:raw,keyPoints:[],docType:"Document"};}
-                  setVault(prev=>[{id:Date.now(),name:file.name,type:file.type,size:file.size,uploadedAt:new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}),docType:parsed.docType||"Document",summary:parsed.summary||"",keyPoints:parsed.keyPoints||[],...(isImg?{base64}:{})}, ...prev]);
+                  setVault(prev=>[{id:generateId(),name:file.name,type:file.type,size:file.size,uploadedAt:new Date().toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}),docType:parsed.docType||"Document",summary:parsed.summary||"",keyPoints:parsed.keyPoints||[],...(isImg?{base64}:{})}, ...prev]);
                 } catch(err){setVaultError("Upload failed — "+err.message);}
                 setVaultLoading(false); e.target.value="";
               }} disabled={vaultLoading} style={{ display:"none" }}/>
@@ -7847,8 +7865,7 @@ export default function LifeApp() {
   useEffect(() => {
     setHealthEntries(prev => {
       if (prev.every(e => e.id != null)) return prev; // already migrated — no-op, no re-render even
-      const base = Date.now();
-      return prev.map((e, i) => e.id != null ? e : { ...e, id: base + i });
+      return prev.map((e) => e.id != null ? e : { ...e, id: generateId() });
     });
   }, []);
   // ── One-time cleanup: rotation-related calendar entries created by an earlier
@@ -8017,7 +8034,7 @@ export default function LifeApp() {
   // Adds a new rule — called only from main TARS chat (Project chats deliberately can't
   // create rules, per the same reasoning as their narrower write scope).
   const createRule = (ruleData) => {
-    setRules(prev => [...prev, { id: Date.now(), enabled: true, createdAt: toISODate(new Date()), ...ruleData }]);
+    setRules(prev => [...prev, { id: generateId(), enabled: true, createdAt: toISODate(new Date()), ...ruleData }]);
     return { success: true };
   };
 
@@ -8072,7 +8089,7 @@ export default function LifeApp() {
 
     if (module === "tasks") {
       if (op === "create") {
-        setTasks(prev => [...prev, { id: Date.now(), text:"", cat:"Admin", priority:"med", due:"", done:false, notes:"", subtasks:[], pinned:false, ...fields }]);
+        setTasks(prev => [...prev, { id: generateId(), text:"", cat:"Admin", priority:"med", due:"", done:false, notes:"", subtasks:[], pinned:false, ...fields }]);
         return { success: true };
       } else if (op === "update" || op === "delete" || op === "toggle") {
         if (!existsIn(tasks)) return { success:false, reason:`no task found with id ${id}` };
@@ -8083,7 +8100,7 @@ export default function LifeApp() {
       }
     } else if (module === "calendar") {
       if (op === "create") {
-        setCalEvents(prev => [...prev, { id: Date.now(), type:"reminder", date:"", title:"", notes:"", time:"", location:"", ...fields }]);
+        setCalEvents(prev => [...prev, { id: generateId(), type:"reminder", date:"", title:"", notes:"", time:"", location:"", ...fields }]);
         return { success: true };
       } else if (op === "update" || op === "delete") {
         if (!existsIn(calEvents)) return { success:false, reason:`no calendar event found with id ${id}` };
@@ -8095,7 +8112,7 @@ export default function LifeApp() {
       }
     } else if (module === "health") {
       if (op === "create") {
-        setHealthEntries(prev => [...prev, { id: Date.now(), date: toISODate(new Date()), weight:null, bodyFat:null, fatMass:null, muscle:null, bp:null, waist:null, ...fields }]);
+        setHealthEntries(prev => [...prev, { id: generateId(), date: toISODate(new Date()), weight:null, bodyFat:null, fatMass:null, muscle:null, bp:null, waist:null, ...fields }]);
         return { success: true };
       } else if (op === "update" || op === "delete") {
         if (!existsIn(healthEntries)) return { success:false, reason:`no health entry found with id ${id}` };
@@ -8108,7 +8125,7 @@ export default function LifeApp() {
         const category = FINANCE_CATEGORIES.includes(fields.category) ? fields.category : (fields.category || "Other");
         const value = fields.value !== undefined ? (parseFloat(fields.value) || 0) : 0;
         setFinanceEntries(prev => [...prev, {
-          id: Date.now(), date: toISODate(new Date()), merchant: "", notes: "", source: "manual",
+          id: generateId(), date: toISODate(new Date()), merchant: "", notes: "", source: "manual",
           ...fields, category, value,
         }]);
         return { success: true };
@@ -8125,7 +8142,7 @@ export default function LifeApp() {
       const dateKey = fields.dateKey || todayLabel;
       if (op === "create") {
         const { dateKey: _drop, ...entryFields } = fields;
-        const entry = { id: Date.now(), time: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}), ...entryFields };
+        const entry = { id: generateId(), time: new Date().toLocaleTimeString("en-NZ",{hour:"2-digit",minute:"2-digit"}), ...entryFields };
         setCalLog(prev => ({ ...prev, [dateKey]: [...(prev[dateKey]||[]), entry] }));
         return { success: true };
       } else if (op === "delete") {
@@ -8135,7 +8152,7 @@ export default function LifeApp() {
       }
     } else if (module === "rotation") {
       if (op === "create") {
-        setRotationBlocks(prev => [...prev, { id: Date.now(), vessel:"Man of Steel", notes:"", ...fields }]);
+        setRotationBlocks(prev => [...prev, { id: generateId(), vessel:"Man of Steel", notes:"", ...fields }]);
         return { success: true };
       } else if (op === "update" || op === "delete") {
         if (!existsIn(rotationBlocks)) return { success:false, reason:`no rotation block found with id ${id}` };
